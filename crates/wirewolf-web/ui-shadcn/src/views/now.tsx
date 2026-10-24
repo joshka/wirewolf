@@ -1,9 +1,9 @@
+import { lazy, Suspense } from "react"
 import { ArrowRight, Siren } from "lucide-react"
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AskAi } from "@/components/ask-ai"
 import { SnapshotView } from "@/components/snapshot"
-import { SpeedChart } from "@/components/charts"
 import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
 import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
@@ -15,6 +15,9 @@ import { StatusIcon } from "@/components/status"
 import { ms } from "@/lib/format"
 import { duration } from "@/lib/format"
 import { href, onLinkClick } from "@/lib/router"
+
+// Loaded after first paint: the chart library is the biggest part of the bundle.
+const SpeedChart = lazy(() => import("@/components/charts").then((m) => ({ default: m.SpeedChart })))
 
 export function NowView() {
   const snapshot = useLive((s) => s.snapshot)
@@ -100,7 +103,9 @@ function SpeedCard() {
         {running || latest || failed ? (
           <>
             <SpeedCompact run={running ?? latest} running={!!running} failed={failed} />
-            <SpeedChart runs={runs} from={now - 24 * 3600e3} to={now} className="aspect-auto min-h-28 w-full flex-1" />
+            <Suspense fallback={<div className="min-h-28 w-full flex-1" />}>
+              <SpeedChart runs={runs} from={now - 24 * 3600e3} to={now} className="aspect-auto min-h-28 w-full flex-1" />
+            </Suspense>
           </>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>

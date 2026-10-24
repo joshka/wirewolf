@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { lazy, Suspense, useEffect, useMemo } from "react"
 import { Activity, ChartLine, Flag, Gauge, ScrollText, Settings, type LucideIcon } from "lucide-react"
 import { ThemeProvider } from "next-themes"
 import { Badge } from "@/components/ui/badge"
@@ -28,14 +28,18 @@ import { Button } from "@/components/ui/button"
 import { start, useLive } from "@/lib/live"
 import { href, onLinkClick, useRoute, type Route } from "@/lib/router"
 import { NowView } from "@/views/now"
-import { HistoryView } from "@/views/history"
-import { IncidentsView, IncidentView } from "@/views/incidents"
-import { SpeedView } from "@/views/speed"
-import { SettingsView } from "@/views/settings"
-import { LogsView } from "@/views/logs"
 import { findHop, targetHop } from "@/lib/targets"
 import type { Hop } from "@/lib/api"
-import { HopView } from "@/views/hop"
+
+// Every page but Now loads on first visit, which keeps the chart library and the settings
+// editor off the critical path.
+const HistoryView = lazy(() => import("@/views/history").then((m) => ({ default: m.HistoryView })))
+const IncidentsView = lazy(() => import("@/views/incidents").then((m) => ({ default: m.IncidentsView })))
+const IncidentView = lazy(() => import("@/views/incidents").then((m) => ({ default: m.IncidentView })))
+const SpeedView = lazy(() => import("@/views/speed").then((m) => ({ default: m.SpeedView })))
+const SettingsView = lazy(() => import("@/views/settings").then((m) => ({ default: m.SettingsView })))
+const LogsView = lazy(() => import("@/views/logs").then((m) => ({ default: m.LogsView })))
+const HopView = lazy(() => import("@/views/hop").then((m) => ({ default: m.HopView })))
 
 const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
   { route: { name: "now" }, label: "Now", icon: Activity },
@@ -218,14 +222,16 @@ function Main() {
         ) : (
           <>
             {error && <p className="mb-4 rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">{error}</p>}
-            {route.name === "now" && <NowView />}
-            {route.name === "history" && <HistoryView />}
-            {route.name === "incidents" && <IncidentsView />}
-            {route.name === "incident" && <IncidentView id={route.id} />}
-            {route.name === "speed" && <SpeedView />}
-            {route.name === "settings" && <SettingsView />}
-            {route.name === "logs" && <LogsView tab={route.tab ?? "activity"} />}
-            {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
+            <Suspense fallback={null}>
+              {route.name === "now" && <NowView />}
+              {route.name === "history" && <HistoryView />}
+              {route.name === "incidents" && <IncidentsView />}
+              {route.name === "incident" && <IncidentView id={route.id} />}
+              {route.name === "speed" && <SpeedView />}
+              {route.name === "settings" && <SettingsView />}
+              {route.name === "logs" && <LogsView tab={route.tab ?? "activity"} />}
+              {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
+            </Suspense>
           </>
         )}
       </main>

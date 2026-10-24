@@ -3,20 +3,12 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import type { HopKind, Incident, SpeedRun } from "@/lib/api"
 import { bucket, type Point } from "@/lib/bucket"
 import { clock, mbps, ms, pct } from "@/lib/format"
+import { hopColor } from "@/lib/colors"
 
 export { bucket }
+export { hopColor }
 type Series = { id: string; kind: HopKind; label: string }
 
-/** Series colors by hop kind (theme tokens in index.css). Host has no series. */
-export const hopColor: Record<HopKind, string> = {
-  host: "var(--muted-foreground)",
-  gateway: "var(--hop-gateway)",
-  isp: "var(--hop-isp)",
-  internet: "var(--hop-internet)",
-  dns: "var(--hop-dns)",
-  web: "var(--hop-web)",
-  target: "var(--primary)",
-}
 
 const fmtFor = (key: string) => (key.endsWith("_loss") ? pct : key.endsWith("_rtt") ? ms : mbps)
 

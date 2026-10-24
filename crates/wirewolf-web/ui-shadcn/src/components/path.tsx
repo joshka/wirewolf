@@ -1,15 +1,10 @@
-import { useState } from "react"
+import { lazy, Suspense, useState } from "react"
 import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Crosshair, Router, Rows3, type LucideIcon } from "lucide-react"
-import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { ChartContainer } from "@/components/ui/chart"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import type { Hop, HopKind, Sample, Severity, Status } from "@/lib/api"
-import { SPARK_WINDOW_MS } from "@/lib/live"
 import { ms, pct, statusLabel } from "@/lib/format"
-import { sparkSeries } from "@/lib/bucket"
-import { hopColor } from "./charts"
 import { CauseBadge, StatusIcon, statusText } from "./status"
 
 export const hopIcon: Record<HopKind, LucideIcon> = {
@@ -30,7 +25,10 @@ export function keyMetric(hop: Hop): string {
   return ms(m.rtt_ms)
 }
 
-const dimmed = (s: Status) => s === "skip" || s === "not_applicable"
+// The chart library is loaded after first paint, so the verdict and path render without it.
+const Sparkline = lazy(() => import("./sparkline"))
+
+export const dimmed = (s: Status) => s === "skip" || s === "not_applicable"
 
 const metricTone = (s: Status) => (s === "pass" ? "text-foreground" : dimmed(s) ? "text-muted-foreground" : statusText[s])
 
@@ -39,46 +37,6 @@ export function IconTile({ icon: Icon }: { icon: LucideIcon }) {
     <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
       <Icon aria-hidden className="size-5" />
     </span>
-  )
-}
-
-/** Fewer samples than this can't show a trend, so the sparkline says it's still collecting. */
-const MIN_SPARK_POINTS = 3
-
-/**
- * RTT over the last 15 minutes, in the hop's colour. A hop that isn't being measured right now
- * (skipped) draws its old line grey and dashed, so stale data can't pass for healthy.
- */
-function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample[]; now: number; className?: string }) {
-  const { data } = sparkSeries(samples)
-  if (samples.filter((s) => s.rtt_ms != null).length < MIN_SPARK_POINTS) {
-    return <span className={cn("self-center text-xs text-muted-foreground", className)}>collecting…</span>
-  }
-  const stale = dimmed(hop.status)
-  // Until there's a full window of samples (e.g. just after a restart), stretch what there is
-  // across the width instead of leaving most of the line empty.
-  const first = data.find((p) => p.rtt != null)?.t ?? now - SPARK_WINDOW_MS
-  const from = Math.max(now - SPARK_WINDOW_MS, first)
-  return (
-    <ChartContainer
-      config={{ rtt: { label: hop.label, color: stale ? "var(--muted-foreground)" : hopColor[hop.kind] } }}
-      className={cn("aspect-auto h-8 min-w-0", className)}
-      aria-label={`${hop.label} round-trip time, last 15 minutes`}
-    >
-      <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }} accessibilityLayer={false}>
-        <XAxis dataKey="t" type="number" domain={[from, now]} hide />
-        <YAxis domain={[0, "auto"]} hide />
-        <Area
-          dataKey="rtt"
-          stroke="var(--color-rtt)"
-          fill="var(--color-rtt)"
-          fillOpacity={stale ? 0.05 : 0.15}
-          strokeWidth={1.5}
-          strokeDasharray={stale ? "3 3" : undefined}
-          isAnimationActive={false}
-        />
-      </AreaChart>
-    </ChartContainer>
   )
 }
 
@@ -169,7 +127,9 @@ export function PathDiagram({
                   <span className={cn("truncate text-sm font-medium tabular-nums sm:hidden", metricTone(hop.status))}>{keyMetric(hop)}</span>
                 </div>
                 {spark ? (
-                  <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
+                  <Suspense fallback={<span className={cn("hidden h-8 flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />}>
+                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
+                  </Suspense>
                 ) : (
                   <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
                 )}
