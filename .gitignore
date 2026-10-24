@@ -2,3 +2,8 @@
 /work/
 /wirewolf.db*
 /docs/compare/side-by-side/
+# Screenshots and other generated images never go in the repo; keep them here (untracked).
+/artifacts/
+/docs/compare/**/*.png
+/docs/compare/**/*.jpg
+/docs/compare/**/*.webp
