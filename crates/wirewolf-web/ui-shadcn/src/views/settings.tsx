@@ -21,6 +21,7 @@ import {
   type Limits,
   type UserTargetConfig,
 } from "@/lib/api"
+import { blockNavigation, navigate } from "@/lib/router"
 import { signIn, useSession, writeBlocked } from "@/lib/session"
 
 /** Everything one setting control needs: its value, whether it can change, and its error. */
@@ -66,6 +67,25 @@ export function SettingsView() {
     )
   }, [])
   const dirty = useMemo(() => !!view && !!draft && JSON.stringify(view.config) !== JSON.stringify(draft), [view, draft])
+  /** Where the user tried to go while there were unsaved changes. */
+  const [leavingTo, setLeavingTo] = useState<string | null>(null)
+  useEffect(() => {
+    if (!dirty) return
+    blockNavigation((to) => {
+      setLeavingTo(to)
+      return true
+    })
+    // Reloads, closing the tab, and typed URLs only allow the browser's own prompt.
+    const unload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = "" // older Chromium and Safari only prompt when this is set
+    }
+    window.addEventListener("beforeunload", unload)
+    return () => {
+      blockNavigation(null)
+      window.removeEventListener("beforeunload", unload)
+    }
+  }, [dirty])
   if (loadError) return <p className="text-sm text-fail">Couldn't load the config: {loadError}</p>
   if (view === undefined || (view && !draft)) return <Skeleton className="h-96 w-full rounded-xl" />
   if (view === null || !draft) return <p className="text-muted-foreground">This server doesn't report its configuration.</p>
@@ -88,7 +108,7 @@ export function SettingsView() {
       setErrors((es) => es.filter((e) => e.key !== key))
     },
   }
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setSaving(true)
     const res = await api.saveConfig(draft, session?.csrf).catch((e: Error) => ({ ok: false as const, status: 0, errors: [{ key: "", message: e.message }] }))
     setSaving(false)
@@ -97,10 +117,16 @@ export function SettingsView() {
       setDraft(structuredClone(res.view.config))
       setErrors([])
       toast.success("Settings saved", { description: "Probes use them from the next cycle." })
-    } else {
-      setErrors(res.errors)
-      toast.error(res.errors.length === 1 ? "One setting needs fixing" : `${res.errors.length} settings need fixing`)
+      return true
     }
+    setErrors(res.errors)
+    toast.error(res.errors.length === 1 ? "One setting needs fixing" : `${res.errors.length} settings need fixing`)
+    return false
+  }
+  const leave = () => {
+    const to = leavingTo
+    setLeavingTo(null)
+    if (to) navigate(to, { force: true })
   }
   const changedKeys = ctx.defaults ? ALL_KEYS.filter((k) => differs(draft, ctx.defaults, k)) : []
   const unsaved = ALL_KEYS.filter((k) => differs(draft, view.config, k)).length
@@ -284,6 +310,36 @@ export function SettingsView() {
         </Rows>
       </Section>
 
+      <Dialog open={!!leavingTo} onOpenChange={(open) => !open && setLeavingTo(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Leave without saving?</DialogTitle>
+            <DialogDescription>
+              You have {unsaved} unsaved {unsaved === 1 ? "change" : "changes"} to the settings. They'll be lost if you leave now.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLeavingTo(null)}>
+              Stay
+            </Button>
+            <Button variant="outline" onClick={leave}>
+              Discard and leave
+            </Button>
+            {canEdit && (
+              <Button
+                disabled={saving}
+                onClick={async () => {
+                  // On a validation error, stay so the field errors are visible.
+                  if (await save()) leave()
+                  else setLeavingTo(null)
+                }}
+              >
+                {saving ? "Saving…" : "Save and leave"}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {canEdit && dirty && (
         <div className="sticky bottom-0 -mx-4 mt-6 flex items-center justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
           <p className="mr-auto text-sm text-muted-foreground">

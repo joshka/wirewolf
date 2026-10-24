@@ -49,21 +49,45 @@ export function href(route: Route): string {
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach((l) => l())
 
-export function navigate(to: string) {
+/** Asked before every in-app navigation; returning true keeps the user where they are. */
+type Blocker = (to: string) => boolean
+let blocker: Blocker | null = null
+/** The path being shown, so a blocked back/forward can be undone. */
+let shown = typeof location === "undefined" ? "" : location.pathname
+
+/** Lets a page with unsaved work intercept navigation. Pass null to stop. */
+export function blockNavigation(b: Blocker | null) {
+  blocker = b
+}
+
+/** Goes to `to`. `force` skips the blocker, for "discard and leave". */
+export function navigate(to: string, { force = false } = {}) {
   if (to === location.pathname) return
+  if (!force && blocker?.(to)) return
   history.pushState(null, "", to)
+  shown = to
   window.scrollTo({ top: 0 })
   notify()
 }
+
+// Back and forward have already changed the URL by the time we hear of them, so a blocked one
+// puts the shown path back. (No window in unit tests.)
+globalThis.window?.addEventListener("popstate", () => {
+  const to = location.pathname
+  if (to !== shown && blocker?.(to)) {
+    history.pushState(null, "", shown)
+    return
+  }
+  shown = to
+  notify()
+})
 
 export function useRoute(): Route {
   const path = useSyncExternalStore(
     (l) => {
       listeners.add(l)
-      window.addEventListener("popstate", l)
       return () => {
         listeners.delete(l)
-        window.removeEventListener("popstate", l)
       }
     },
     () => location.pathname,
