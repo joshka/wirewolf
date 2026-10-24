@@ -428,14 +428,25 @@ impl<'a> Redactor<'a> {
         }
         let mut out = String::with_capacity(s.len());
         let mut word = String::new();
+        // Hex digits left in a `%XX` escape, which belong to the escape and not the next word.
+        let mut escape = 0;
         for c in s.chars().chain(std::iter::once(' ')) {
-            if c.is_ascii_hexdigit() || c == '.' || c == ':' || c == '/' {
+            if escape > 0 && c.is_ascii_hexdigit() {
+                escape -= 1;
+                out.push(c);
+                continue;
+            }
+            escape = 0;
+            if c.is_ascii_hexdigit() || matches!(c, '.' | ':' | '/' | '-') {
                 word.push(c);
                 continue;
             }
             out.push_str(&self.word(&word));
             word.clear();
             out.push(c);
+            if c == '%' {
+                escape = 2;
+            }
         }
         out.pop();
         out
@@ -455,12 +466,17 @@ impl<'a> Redactor<'a> {
         if is_mac(addr) {
             return format!("<mac>{tail}");
         }
+        if p.contains('-') {
+            return p.split('-').map(|piece| self.piece(piece)).collect::<Vec<_>>().join("-");
+        }
         // `203.0.113.7:443`. IPv6 with a port is bracketed, and brackets end the word.
         let (host, port) = match addr.rsplit_once(':') {
             Some((h, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) && h.parse::<std::net::Ipv4Addr>().is_ok() => (h, &addr[h.len()..]),
             _ => (addr, ""),
         };
         let Ok(ip) = host.parse::<IpAddr>() else { return p.to_owned() };
+        // `::ffff:93.184.215.14` is the IPv4 address, and gets the same token.
+        let ip = ip.to_canonical();
         if !public(ip) || WELL_KNOWN.contains(&host) || self.keep.iter().any(|k| k == host) {
             return p.to_owned();
         }
@@ -470,10 +486,14 @@ impl<'a> Redactor<'a> {
     }
 }
 
-/// `aa:bb:cc:dd:ee:ff`: a hardware address, which identifies a device.
+/// `aa:bb:cc:dd:ee:ff`, `aa-bb-cc-dd-ee-ff` or `aabb.ccdd.eeff`: a hardware address, which
+/// identifies a device.
 fn is_mac(s: &str) -> bool {
-    let parts: Vec<&str> = s.split(':').collect();
-    parts.len() == 6 && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
+    let groups = |sep: char, count: usize, len: usize| {
+        let parts: Vec<&str> = s.split(sep).collect();
+        parts.len() == count && parts.iter().all(|p| p.len() == len && p.chars().all(|c| c.is_ascii_hexdigit()))
+    };
+    groups(':', 6, 2) || groups('-', 6, 2) || groups('.', 3, 4)
 }
 
 /// Whether an address could identify the user: globally routable, not a documentation example.
@@ -515,6 +535,12 @@ mod tests {
             "portal http://<public-ip-1>/login?mac=<mac>, tcp <public-ip-1>:443, ookla <public-ip-3>:8080. v6 [<public-ip-2>]:443"
         );
         assert_eq!(r.text("http://192.168.1.1:8080/ at 10:56:07"), "http://192.168.1.1:8080/ at 10:56:07");
+        // Percent-encoded, IPv4-mapped, and other MAC spellings.
+        assert_eq!(
+            r.text("?next=http%3A%2F%2F93.184.215.14%2Flogin&x%3D93.184.215.14 via ::ffff:93.184.215.14 mac AA-BB-CC-DD-EE-FF aabb.ccdd.eeff"),
+            "?next=http%3A%2F%2F<public-ip-1>%2Flogin&x%3D<public-ip-1> via <public-ip-1> mac <mac> <mac>"
+        );
+        assert_eq!(r.text("2026-10-24 10:56-11:02 192.168.1.1-192.168.1.9"), "2026-10-24 10:56-11:02 192.168.1.1-192.168.1.9");
         let off = Options { redact: false, ..Options::default() };
         assert_eq!(Redactor::new(&off).text("93.184.215.14"), "93.184.215.14");
     }
