@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { api, type Hop, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { ms, pct } from "@/lib/format"
-import { cn } from "@/lib/utils"
 import { bucket, HopChart } from "./charts"
 import { hopIcon, IconTile } from "./path"
 import { CauseBadge, StatusPill } from "./status"
@@ -14,8 +13,8 @@ import { useNow } from "./time"
 const HOUR = 3600e3
 
 /**
- * Details for one hop: metrics, a 1h chart, checks, and raw evidence. `live` adds incoming
- * samples to the chart; incident snapshots pass `live={false}` and an `at` to anchor the hour.
+ * Details for one hop: metrics, a 1h chart, checks, and evidence. Incident snapshots pass `at`
+ * to show the hour around the snapshot instead of the live hour.
  */
 export function HopSheet({
   hop,
@@ -24,7 +23,6 @@ export function HopSheet({
   returnFocus,
   onClose,
   at,
-  live = true,
 }: {
   hop: Hop | null
   blamed: boolean
@@ -32,62 +30,56 @@ export function HopSheet({
   returnFocus: React.RefObject<HTMLElement | null>
   onClose: () => void
   at?: string
-  live?: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  // Keep showing the last hop while the sheet animates closed.
   const [shown, setShown] = useState<Hop | null>(null)
-  useEffect(() => {
-    if (hop) {
-      setShown(hop)
-      setOpen(true)
-    } else setOpen(false)
-  }, [hop])
+  useEffect(() => void (hop && setShown(hop)), [hop])
   const h = hop ?? shown
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent
-        side="right"
-        finalFocus={returnFocus}
-        className="w-full gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-[520px]"
-      >
-        {h && <HopDetail hop={h} blamed={blamed} severity={severity} at={at} live={live} />}
+    <Sheet open={!!hop} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="right" finalFocus={returnFocus} className="w-full gap-6 overflow-y-auto p-5 data-[side=right]:sm:max-w-lg">
+        {h && <HopDetail hop={h} blamed={blamed} severity={severity} at={at} />}
       </SheetContent>
     </Sheet>
   )
 }
 
-function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: boolean; severity: Severity; at?: string; live: boolean }) {
-  const Icon = hopIcon[hop.kind]
+function HopDetail({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; severity: Severity; at?: string }) {
   const now = useNow(5000)
   const anchor = at ? new Date(at).getTime() + HOUR / 4 : null
   const to = anchor ?? now
   const from = to - HOUR
   const [fetched, setFetched] = useState<Sample[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     let cancel = false
     setFetched(null)
-    const until = anchor ? new Date(anchor) : undefined
-    api.history({ hop: hop.id, since: new Date((anchor ?? Date.now()) - HOUR), until }).then((s) => !cancel && setFetched(s))
+    setError(null)
+    const end = anchor ?? Date.now()
+    api
+      .history({ hop: hop.id, since: new Date(end - HOUR), until: anchor ? new Date(anchor) : undefined })
+      .then((s) => !cancel && setFetched(s))
+      .catch((e: Error) => !cancel && setError(e.message))
     return () => {
       cancel = true
     }
   }, [hop.id, anchor])
   const recent = useLive((s) => s.samples[hop.id])
   const incidents = useLive((s) => s.incidents)
+  // Live: append samples that arrived after the fetch.
   const samples = useMemo(() => {
-    if (!fetched) return []
-    if (!live || !recent) return fetched
-    const last = fetched.length ? new Date(fetched[fetched.length - 1].at).getTime() : 0
-    return [...fetched, ...recent.filter((s) => new Date(s.at).getTime() > last)]
-  }, [fetched, recent, live])
+    if (!fetched || anchor || !recent) return fetched ?? []
+    const last = fetched.length ? fetched[fetched.length - 1].at : ""
+    return [...fetched, ...recent.filter((s) => s.at > last)]
+  }, [fetched, recent, anchor])
   const data = useMemo(() => bucket(samples, from, to, 180), [samples, from, to])
-  const hasRtt = samples.some((s) => s.rtt_ms != null)
   const m = hop.metrics
+
   return (
     <>
-      <SheetHeader className="p-5 pr-12 pb-0">
+      <SheetHeader className="p-0 pr-8">
         <div className="flex items-center gap-3">
-          <IconTile icon={Icon} />
+          <IconTile icon={hopIcon[hop.kind]} />
           <div className="min-w-0">
             <SheetTitle className="flex flex-wrap items-center gap-2 text-lg">
               {hop.label} <StatusPill status={hop.status} />
@@ -99,76 +91,72 @@ function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: bool
         <p className="mt-3 text-sm">{hop.summary}</p>
       </SheetHeader>
 
-      <div className="flex flex-col gap-6 p-5">
-        <dl className="grid grid-cols-3 gap-2">
-          {[
-            ["RTT", ms(m.rtt_ms)],
-            ["Jitter", ms(m.jitter_ms)],
-            ["Loss", pct(m.loss_pct)],
-          ].map(([k, v]) => (
-            <div key={k} className="rounded-lg border p-3">
-              <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd className="tnum mt-1 text-lg font-semibold">{v}</dd>
-            </div>
-          ))}
-        </dl>
-
-        <section>
-          <h3 className="mb-3 text-[15px] font-semibold">Last hour</h3>
-          {!fetched ? (
-            <Skeleton className="h-48 w-full" />
-          ) : hasRtt ? (
-            <HopChart hop={{ id: hop.id, label: hop.label }} data={data} from={from} to={to} incidents={incidents} />
-          ) : (
-            <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-              This hop has no latency series.
-            </p>
-          )}
-        </section>
-
-        <section>
-          <h3 className="mb-3 text-[15px] font-semibold">Checks</h3>
-          <div className="-mx-3">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Check</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">RTT</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {hop.checks.map((c, i) => (
-                  <TableRow key={`${i}-${c.name}`}>
-                    <TableCell className="whitespace-normal">
-                      <div className="font-medium">{c.name}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div>
-                    </TableCell>
-                    <TableCell>
-                      <StatusPill status={c.status} />
-                    </TableCell>
-                    <TableCell className="tnum text-right">{ms(c.rtt_ms)}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+      <dl className="grid grid-cols-3 gap-2">
+        {[
+          ["RTT", ms(m.rtt_ms)],
+          ["Jitter", ms(m.jitter_ms)],
+          ["Loss", pct(m.loss_pct)],
+        ].map(([k, v]) => (
+          <div key={k} className="rounded-lg border p-3">
+            <dt className="text-xs text-muted-foreground">{k}</dt>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">{v}</dd>
           </div>
-        </section>
+        ))}
+      </dl>
 
-        {hop.evidence.length > 0 && (
-          <section>
-            <h3 className="mb-3 text-[15px] font-semibold">Evidence</h3>
-            <dl className="divide-y text-sm">
-              {hop.evidence.map((e, i) => (
-                <div key={`${i}-${e.key}`} className="flex min-h-11 items-center gap-4 py-2">
-                  <dt className="w-32 shrink-0 text-xs text-muted-foreground">{e.key}</dt>
-                  <dd className={cn("min-w-0 break-words font-mono text-xs leading-5")}>{e.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
+      <section>
+        <h3 className="mb-3 font-semibold">Last hour</h3>
+        {error ? (
+          <p className="text-sm text-fail">Couldn't load history: {error}</p>
+        ) : !fetched ? (
+          <Skeleton className="h-52 w-full" />
+        ) : samples.some((s) => s.rtt_ms != null) ? (
+          <HopChart hop={hop} data={data} from={from} to={to} incidents={incidents} />
+        ) : (
+          <p className="text-sm text-muted-foreground">This hop has no latency series.</p>
         )}
-      </div>
+      </section>
+
+      <section>
+        <h3 className="mb-3 font-semibold">Checks</h3>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Check</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="text-right">RTT</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {hop.checks.map((c, i) => (
+              <TableRow key={`${i}-${c.name}`}>
+                <TableCell className="whitespace-normal">
+                  <div className="font-medium">{c.name}</div>
+                  <div className="text-xs text-muted-foreground">{c.detail}</div>
+                </TableCell>
+                <TableCell>
+                  <StatusPill status={c.status} />
+                </TableCell>
+                <TableCell className="text-right tabular-nums">{ms(c.rtt_ms)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </section>
+
+      {hop.evidence.length > 0 && (
+        <section>
+          <h3 className="mb-3 font-semibold">Evidence</h3>
+          <dl className="divide-y text-sm">
+            {hop.evidence.map((e, i) => (
+              <div key={`${i}-${e.key}`} className="flex gap-4 py-2">
+                <dt className="w-32 shrink-0 text-xs text-muted-foreground">{e.key}</dt>
+                <dd className="min-w-0 font-mono text-xs break-words">{e.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
     </>
   )
 }

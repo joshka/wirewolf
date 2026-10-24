@@ -23,7 +23,7 @@ export function IncidentsView() {
   const hopLabel = (i: Incident) => i.evidence.hops.find((h) => h.id === i.blame)?.label ?? "—"
   const when = (i: Incident) =>
     i.ended ? duration(i.started, i.ended) : <span className="font-medium text-fail">ongoing · {duration(i.started, null, now)}</span>
-  const tint = (i: Incident) => !i.ended && (i.severity === "down" ? "bg-fail/[0.07]" : "bg-warn/[0.07]")
+  const tint = (i: Incident) => !i.ended && (i.severity === "down" ? "bg-fail/5" : "bg-warn/5")
   const go = (i: Incident) => navigate(href({ name: "incident", id: i.id }))
   return (
     <div className="flex flex-col gap-4">
@@ -73,7 +73,7 @@ export function IncidentsView() {
                     <TableCell>
                       <RelTime at={i.started} />
                     </TableCell>
-                    <TableCell className="tnum pr-4 text-right">{when(i)}</TableCell>
+                    <TableCell className="tabular-nums pr-4 text-right">{when(i)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -94,7 +94,7 @@ export function IncidentsView() {
                   <div className="min-w-0 flex-1">
                     <SeverityPill severity={i.severity} />
                     <div className="mt-1.5 font-medium text-pretty">{i.headline}</div>
-                    <div className="tnum mt-1 text-xs text-muted-foreground">
+                    <div className="tabular-nums mt-1 text-xs text-muted-foreground">
                       <RelTime at={i.started} plain /> · {when(i)} · {hopLabel(i)}
                     </div>
                   </div>
@@ -145,7 +145,7 @@ export function IncidentView({ id }: { id: string }) {
             {!incident.ended && <span className="rounded-full bg-fail/15 px-2 py-0.5 text-xs font-semibold text-fail">Ongoing</span>}
           </div>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-balance">{incident.headline}</h1>
-          <p className="tnum mt-1 text-sm text-muted-foreground">
+          <p className="tabular-nums mt-1 text-sm text-muted-foreground">
             {absolute(incident.started)} → {incident.ended ? absolute(incident.ended) : "ongoing"} ({duration(incident.started, incident.ended, now)})
           </p>
         </div>
@@ -160,7 +160,7 @@ export function IncidentView({ id }: { id: string }) {
         ].map(([k, v]) => (
           <div key={String(k)} className="rounded-lg border bg-card p-3">
             <dt className="text-xs text-muted-foreground">{k}</dt>
-            <dd className="tnum mt-0.5 font-medium">{v}</dd>
+            <dd className="tabular-nums mt-0.5 font-medium">{v}</dd>
           </div>
         ))}
       </dl>

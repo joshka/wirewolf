@@ -8,7 +8,7 @@ import { useLive } from "@/lib/live"
 import { cn } from "@/lib/utils"
 import { bytes } from "@/lib/format"
 import { RelTime } from "./time"
-import { Badge } from "./status"
+import { Badge } from "@/components/ui/badge"
 
 export function useSpeed() {
   const runs = useLive((s) => s.speedRuns)
@@ -23,7 +23,7 @@ const gradeTone = (g: BloatGrade | null) =>
 export function BloatBadge({ grade, className }: { grade: BloatGrade | null; className?: string }) {
   return (
     <span aria-label={`Bufferbloat grade ${grade ?? "unknown"}`}>
-      <Badge tone={gradeTone(grade)} className={cn("min-w-7 justify-center", className)}>
+      <Badge variant={gradeTone(grade)} className={cn("min-w-7", className)}>
         {grade ?? "—"}
       </Badge>
     </span>
@@ -59,7 +59,6 @@ export function RunSpeedButton({
       variant={primary ? "default" : "outline"}
       onClick={start}
       disabled={active}
-      className={cn(primary && "bg-brand text-white hover:bg-brand/90")}
     >
       {active ? <Loader2 className="animate-spin" aria-hidden /> : <Play aria-hidden />}
       {running ? "Running…" : "Run now"}
@@ -74,7 +73,7 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
     <div className="space-y-2" aria-live="polite">
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted-foreground">{phase}…</span>
-        <span className="tnum font-medium">{p}%</span>
+        <span className="tabular-nums font-medium">{p}%</span>
       </div>
       <Progress value={p} aria-label="Speed test progress" />
     </div>
@@ -87,7 +86,7 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
  */
 export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: boolean }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
-  const big = "text-[32px] sm:text-[40px] leading-none"
+  const big = "text-3xl sm:text-4xl"
   return (
     <div className="flex flex-col gap-4">
       <dl className="grid grid-cols-2 gap-4">
@@ -100,9 +99,9 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
               <Icon aria-hidden className="size-3.5" />
               {label}
             </dt>
-            <dd className="tnum mt-2 flex items-baseline gap-1">
+            <dd className="tabular-nums mt-2 flex items-baseline gap-1">
               <span className={cn("font-semibold tracking-tight", big)}>{value}</span>
-              <span className="text-[24px] text-muted-foreground">Mbps</span>
+              <span className="text-2xl text-muted-foreground">Mbps</span>
             </dd>
           </div>
         ))}
@@ -114,9 +113,9 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
         ].map(([k, v, u]) => (
           <div key={k} className="rounded-lg border p-3">
             <dt className="text-xs text-muted-foreground">{k}</dt>
-            <dd className="tnum mt-1 flex items-baseline gap-1">
+            <dd className="tabular-nums mt-1 flex items-baseline gap-1">
               <span className="text-lg font-semibold">{v}</span>
-              <span className="text-[11px] text-muted-foreground">{u}</span>
+              <span className="text-xs text-muted-foreground">{u}</span>
             </dd>
           </div>
         ))}

@@ -29,7 +29,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
       <div
         aria-hidden
         className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 h-[3px]",
+          "pointer-events-none absolute inset-x-0 top-0 h-1",
           v.severity === "down" ? "bg-fail" : v.severity === "degraded" ? "bg-warn" : v.severity === "healthy" ? "bg-pass" : "bg-skip",
         )}
       />
@@ -59,15 +59,15 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
           <h1
             className={cn(
               "mt-2 font-semibold tracking-tight text-balance",
-              healthy ? "text-xl tracking-[-0.02em] sm:text-2xl" : "text-2xl tracking-[-0.02em] sm:text-[30px] sm:leading-tight",
+              healthy ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
             )}
           >
             {v.headline}
           </h1>
-          <p className="mt-2 max-w-[720px] text-sm text-muted-foreground text-pretty">{v.detail}</p>
+          <p className="mt-2 max-w-2xl text-sm text-muted-foreground text-pretty">{v.detail}</p>
           {v.fix_hint && !healthy && (
-            <div className="mt-4 flex max-w-[720px] items-start gap-2 rounded-lg border bg-background p-3 text-sm">
-              <Lightbulb aria-hidden strokeWidth={1.75} className="mt-0.5 size-4 shrink-0 text-brand" />
+            <div className="mt-4 flex max-w-2xl items-start gap-2 rounded-lg border bg-background p-3 text-sm">
+              <Lightbulb aria-hidden strokeWidth={1.75} className="mt-0.5 size-4 shrink-0 text-primary" />
               <p>
                 <span className="font-medium">Try next: </span>
                 {v.fix_hint}

@@ -94,7 +94,7 @@ function RecentIncidents() {
         )}
       </CardContent>
       <CardFooter>
-        <a href={href({ name: "incidents" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-brand hover:underline">
+        <a href={href({ name: "incidents" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
           All incidents <ArrowRight aria-hidden className="size-3.5" />
         </a>
       </CardFooter>

@@ -40,7 +40,7 @@ export function SpeedView() {
           </CardDescription>
         </CardHeader>
         <CardContent className="px-2 sm:px-4">
-          <SpeedChart runs={runs} incidents={incidents} className="aspect-auto h-64 w-full" />
+          <SpeedChart runs={runs} incidents={incidents} />
         </CardContent>
       </Card>
 
@@ -63,7 +63,7 @@ export function SpeedView() {
                 <TableHead className="hidden pr-4 text-right sm:table-cell sm:pr-2">Data</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="tnum">
+            <TableBody className="tabular-nums">
               {runs.map((r) => (
                 <TableRow key={r.id}>
                   <TableCell className="pl-4 sm:pl-2">

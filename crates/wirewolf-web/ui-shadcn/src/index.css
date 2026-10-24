@@ -13,7 +13,6 @@
     --color-warn: var(--warn);
     --color-fail: var(--fail);
     --color-skip: var(--skip);
-    --color-brand: var(--brand);
     --color-hop-gateway: var(--hop-gateway);
     --color-hop-isp: var(--hop-isp);
     --color-hop-internet: var(--hop-internet);
@@ -140,47 +139,37 @@
     @apply font-sans;
     }
 }
-/* wirewolf tokens: docs/ui-spec.md. One accent, fixed status and hop colors in both themes. */
+/*
+ * wirewolf additions to the shadcn neutral theme (docs/design-language.md): violet as the
+ * primary, plus status and hop-palette tokens.
+ */
 :root {
-    --radius: 0.5rem;
-    --brand: #8b5cf6;
-    --pass: #16a34a;
-    --warn: #d97706;
-    --fail: #dc2626;
+    --primary: oklch(0.541 0.247 293);
+    --primary-foreground: oklch(0.985 0 0);
+    --ring: oklch(0.606 0.25 293);
+    --sidebar-primary: oklch(0.541 0.247 293);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --pass: oklch(0.627 0.17 149);
+    --warn: oklch(0.666 0.157 58);
+    --fail: oklch(0.577 0.245 27);
     --skip: var(--muted-foreground);
-    --hop-gateway: #3b82f6;
-    --hop-isp: #f97316;
-    --hop-internet: #10b981;
-    --hop-dns: #a855f7;
-    --hop-web: #ec4899;
-    /* Speed chart: download in the accent, upload in cyan. */
-    --chart-1: #8b5cf6;
-    --chart-2: #06b6d4;
-    --ring: #8b5cf6;
+    --chart-1: oklch(0.606 0.25 293);
+    --chart-2: oklch(0.715 0.143 215);
+    --hop-gateway: oklch(0.623 0.214 259);
+    --hop-isp: oklch(0.705 0.191 47);
+    --hop-internet: oklch(0.696 0.17 162);
+    --hop-dns: oklch(0.627 0.265 304);
+    --hop-web: oklch(0.656 0.241 354);
 }
 
 .dark {
-    --background: #0a0a0a;
-    --card: #141414;
-    --popover: #141414;
-    --border: #262626;
-    --input: #262626;
-    --muted: #1f1f1f;
-    --secondary: #1f1f1f;
-    --accent: #1f1f1f;
-    --sidebar: #0a0a0a;
-    --pass: #22c55e;
-    --warn: #f59e0b;
-    --fail: #ef4444;
-}
-
-@layer base {
-  body {
-    font-feature-settings: "cv11", "ss01";
-  }
-  .tnum {
-    font-variant-numeric: tabular-nums;
-  }
+    --primary: oklch(0.606 0.25 293);
+    --primary-foreground: oklch(0.985 0 0);
+    --ring: oklch(0.606 0.25 293);
+    --sidebar-primary: oklch(0.606 0.25 293);
+    --pass: oklch(0.723 0.219 150);
+    --warn: oklch(0.769 0.188 70);
+    --fail: oklch(0.637 0.237 25);
 }
 
 @media (prefers-reduced-motion: reduce) {

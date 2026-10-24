@@ -1,46 +1,39 @@
 import { useEffect, useMemo, useState } from "react"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bucket, hopColor, SpeedChart, TimeChart } from "@/components/charts"
 import { api, type Sample } from "@/lib/api"
 import { useLive } from "@/lib/live"
-import { cn } from "@/lib/utils"
 
 const RANGES = { "1h": 3600e3, "6h": 6 * 3600e3, "24h": 24 * 3600e3 } as const
 type Range = keyof typeof RANGES
 
-const DEFAULT_HOPS = [
-  { id: "gateway", label: "Gateway" },
-  { id: "isp", label: "ISP" },
-  { id: "internet", label: "Internet" },
-  { id: "dns", label: "DNS" },
-  { id: "web", label: "Web" },
-]
-
 export function HistoryView() {
   const [range, setRange] = useState<Range>("6h")
-  const snapshotHops = useLive((s) => s.snapshot?.hops)
-  const hops = useMemo(
-    () => (snapshotHops ? snapshotHops.filter((h) => h.kind !== "host").map((h) => ({ id: h.id, label: h.label })) : DEFAULT_HOPS),
-    [snapshotHops],
-  )
+  const allHops = useLive((s) => s.snapshot?.hops)
+  const hops = useMemo(() => (allHops ?? []).filter((h) => h.kind !== "host"), [allHops])
   const [hidden, setHidden] = useState<string[]>([])
   const shown = hops.filter((h) => !hidden.includes(h.id))
   const incidents = useLive((s) => s.incidents)
   const speedRuns = useLive((s) => s.speedRuns)
 
   const [samples, setSamples] = useState<Sample[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const [to, setTo] = useState(() => Date.now())
   useEffect(() => {
     let cancel = false
     const load = () => {
       const t = Date.now()
-      api.history({ since: new Date(t - RANGES[range]) }).then((s) => {
-        if (cancel) return
-        setSamples(s)
-        setTo(t)
-      })
+      api
+        .history({ since: new Date(t - RANGES[range]) })
+        .then((s) => {
+          if (cancel) return
+          setSamples(s)
+          setTo(t)
+          setError(null)
+        })
+        .catch((e: Error) => !cancel && setError(e.message))
     }
     setSamples(null)
     load()
@@ -51,90 +44,50 @@ export function HistoryView() {
     }
   }, [range])
   const from = to - RANGES[range]
-  const data = useMemo(() => (samples ? bucket(samples, from, to, 300) : []), [samples, from, to, range])
-  const inRange = incidents.filter((i) => (i.ended ? new Date(i.ended).getTime() : to) >= from)
+  const data = useMemo(() => (samples ? bucket(samples, from, to) : []), [samples, from, to])
+
+  const chart = (title: string, description: string, body: React.ReactNode) => (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="px-2 sm:px-4">
+        {error ? <p className="py-10 text-center text-sm text-fail">Couldn't load history: {error}</p> : samples && hops.length ? body : <Skeleton className="h-56 w-full" />}
+      </CardContent>
+    </Card>
+  )
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-sm text-muted-foreground">Round-trip time, loss, and speed over time. Shaded bands are incidents.</p>
-        </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <ToggleGroup
-          value={[range]}
-          onValueChange={(v) => v[0] && setRange(v[0] as Range)}
           variant="outline"
-          aria-label="Time range"
+          spacing={1}
+          className="flex-wrap"
+          multiple
+          value={shown.map((h) => h.id)}
+          onValueChange={(v) => setHidden(hops.filter((h) => !v.includes(h.id)).map((h) => h.id))}
+          aria-label="Hops"
         >
+          {hops.map((h) => (
+            <ToggleGroupItem key={h.id} value={h.id} className="gap-2 px-3">
+              <span className="size-2 rounded-full" style={{ background: hopColor[h.kind] }} />
+              {h.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <ToggleGroup variant="outline" value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} aria-label="Time range">
           {(Object.keys(RANGES) as Range[]).map((r) => (
-            <ToggleGroupItem key={r} value={r} className="tnum px-3">
+            <ToggleGroupItem key={r} value={r} className="px-3">
               {r}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
       </div>
-
-      <div role="group" aria-label="Hops" className="flex flex-wrap gap-2">
-        {hops.map((h) => {
-          const on = !hidden.includes(h.id)
-          return (
-            <button
-              key={h.id}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setHidden((x) => (on ? [...x, h.id] : x.filter((id) => id !== h.id)))}
-              className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm transition-colors outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring",
-                !on && "text-muted-foreground opacity-60",
-              )}
-            >
-              <span className="size-2.5 rounded-full" style={{ background: on ? hopColor[h.id] : "transparent", border: `2px solid ${hopColor[h.id]}` }} />
-              {h.label}
-            </button>
-          )
-        })}
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Round-trip time</CardTitle>
-          <CardDescription>Mean round-trip time per interval</CardDescription>
-          <CardAction className="text-xs text-muted-foreground">
-            {inRange.length} incident{inRange.length === 1 ? "" : "s"} in range
-          </CardAction>
-        </CardHeader>
-        <CardContent className="px-2 sm:px-4">
-          {samples ? (
-            <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-64 w-full sm:h-80" />
-          ) : (
-            <Skeleton className="h-64 w-full sm:h-80" />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Packet loss</CardTitle>
-          <CardDescription>Worst loss per interval</CardDescription>
-        </CardHeader>
-        <CardContent className="px-2 sm:px-4">
-          {samples ? (
-            <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} step className="aspect-auto h-44 w-full" />
-          ) : (
-            <Skeleton className="h-44 w-full" />
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Speed tests</CardTitle>
-          <CardDescription>Download and upload per test</CardDescription>
-        </CardHeader>
-        <CardContent className="px-2 sm:px-4">
-          <SpeedChart runs={speedRuns} from={from} to={to} incidents={incidents} />
-        </CardContent>
-      </Card>
+      {chart("Round-trip time", "Mean per interval · shaded bands are incidents", <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} />)}
+      {chart("Packet loss", "Worst per interval", <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-44 w-full" />)}
+      {chart("Speed tests", "Download and upload per test", <SpeedChart runs={speedRuns} from={from} to={to} incidents={incidents} />)}
     </div>
   )
 }

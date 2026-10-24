@@ -90,7 +90,7 @@ export function ScenarioSwitcher() {
     <DropdownMenu>
       <DropdownMenuTrigger
         render={<Button variant="outline" aria-label={`Demo scenario: ${current?.name ?? "none"}`} />}
-        className="h-8 gap-1 px-2.5 text-[13px] font-medium"
+        className="h-8 gap-1 px-2.5 text-sm font-medium"
       >
         <span className="text-muted-foreground">Demo:</span>
         <span className="max-w-24 truncate sm:max-w-32">{current?.name ?? "—"}</span>

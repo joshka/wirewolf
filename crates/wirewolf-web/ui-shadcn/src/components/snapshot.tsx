@@ -28,7 +28,6 @@ export function SnapshotView({ snapshot, since, live }: { snapshot: Snapshot; si
         severity={snapshot.verdict.severity}
         returnFocus={opener}
         onClose={() => setSelected(null)}
-        live={live}
         at={live ? undefined : snapshot.at}
       />
     </div>

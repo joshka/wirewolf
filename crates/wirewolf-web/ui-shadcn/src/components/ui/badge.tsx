@@ -18,6 +18,17 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // wirewolf status tones (docs/design-language.md): tinted, never solid.
+        pass: "border-pass/30 bg-pass/10 text-pass",
+        warn: "border-warn/30 bg-warn/10 text-warn",
+        fail: "border-fail/30 bg-fail/10 text-fail",
+        muted: "border-border bg-muted text-muted-foreground",
+        // The open-incident count in the nav.
+        count: "size-5 rounded-full bg-fail px-0 text-white",
+      },
+      // The LIKELY CAUSE label: uppercase on top of a status tone.
+      caps: {
+        true: "tracking-wide uppercase",
       },
     },
     defaultVariants: {
@@ -29,6 +40,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = "default",
+  caps,
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
@@ -36,7 +48,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant }), className),
+        className: cn(badgeVariants({ variant, caps }), className),
       },
       props
     ),
