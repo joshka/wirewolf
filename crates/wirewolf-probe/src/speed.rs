@@ -1,5 +1,5 @@
-//! Throughput tests. Cloudflare's speed endpoints by default; Ookla's `speedtest` CLI if asked
-//! for and installed.
+//! Throughput tests against Cloudflare's speed endpoints (default) or Ookla's speedtest.net server
+//! network. Both are native: one transfer engine with different endpoints, and no external CLI.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -75,8 +75,8 @@ pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig) {
     };
     hub.upsert_speed(run.clone());
     let result = match backend {
-        Backend::Cloudflare => cloudflare(&hub, run.clone(), cf).await,
-        Backend::Ookla => ookla(&hub, run.clone()).await,
+        Backend::Cloudflare => http_test(&hub, run.clone(), cf, Target::cloudflare).await,
+        Backend::Ookla => http_test(&hub, run.clone(), cf, Target::ookla).await,
     };
     let finished = match result {
         Ok(done) => done,
@@ -96,7 +96,125 @@ const CF: &str = "https://speed.cloudflare.com";
 const CHUNK_DOWN: u64 = 25_000_000;
 const CHUNK_UP: usize = 10_000_000;
 
-async fn cloudflare(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig) -> Result<SpeedRun, Failure> {
+/// Where to run the test.
+#[derive(Debug, Clone)]
+struct Target {
+    label: String,
+    /// Download URL for `CHUNK_DOWN` bytes.
+    download: String,
+    upload: String,
+    ping: PingVia,
+}
+
+#[derive(Debug, Clone)]
+enum PingVia {
+    /// Time to response headers of an empty Cloudflare download, minus server time.
+    CloudflareHttp,
+    /// Ookla's text protocol on the server port: `PING <ms>` → `PONG <ms>` on a held connection.
+    OoklaTcp(String),
+}
+
+impl Target {
+    async fn cloudflare(probe: reqwest::Client) -> Result<Self, String> {
+        let colo = match probe.get(format!("{CF}/cdn-cgi/trace")).send().await {
+            Ok(r) => r.text().await.ok().and_then(|b| b.lines().find_map(|l| l.strip_prefix("colo=")).map(str::to_string)),
+            Err(e) => return Err(format!("could not reach speed.cloudflare.com: {}", error_chain(&e))),
+        };
+        Ok(Self {
+            label: colo.map_or("Cloudflare".into(), |c| format!("Cloudflare {c}")),
+            download: format!("{CF}/__down?bytes={CHUNK_DOWN}"),
+            upload: format!("{CF}/__up"),
+            ping: PingVia::CloudflareHttp,
+        })
+    }
+
+    /// Picks the lowest-latency server among the nearest few that speedtest.net suggests.
+    async fn ookla(probe: reqwest::Client) -> Result<Self, String> {
+        let servers: Vec<OoklaServer> = probe
+            .get("https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=8")
+            .send()
+            .await
+            .map_err(|e| format!("could not fetch the speedtest.net server list: {}", error_chain(&e)))?
+            .json()
+            .await
+            .map_err(|e| format!("unexpected speedtest.net server list: {}", error_chain(&e)))?;
+        let pings = servers.iter().map(|s| async move {
+            let mut pinger = Pinger::connect(&PingVia::OoklaTcp(s.host.clone()), None).await?;
+            let mut rtts = Vec::new();
+            for _ in 0..3 {
+                rtts.extend(pinger.ping().await);
+            }
+            median(&rtts)
+        });
+        let rtts = futures_util::future::join_all(pings).await;
+        let best = servers
+            .iter()
+            .zip(rtts)
+            .filter_map(|(s, r)| r.map(|r| (s, r)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .ok_or("no speedtest.net server answered")?
+            .0;
+        Ok(Self {
+            label: format!("{} — {}", crate::assess::sanitize(&best.sponsor), crate::assess::sanitize(&best.name)),
+            download: format!("https://{}/download?size={CHUNK_DOWN}", best.host),
+            upload: format!("https://{}/upload", best.host),
+            ping: PingVia::OoklaTcp(best.host.clone()),
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct OoklaServer {
+    /// `host:port`.
+    host: String,
+    name: String,
+    sponsor: String,
+}
+
+enum Pinger {
+    Http(reqwest::Client),
+    Tcp(tokio::io::BufStream<tokio::net::TcpStream>),
+}
+
+impl Pinger {
+    async fn connect(via: &PingVia, client: Option<reqwest::Client>) -> Option<Self> {
+        match via {
+            PingVia::CloudflareHttp => Some(Self::Http(client?)),
+            PingVia::OoklaTcp(host) => {
+                use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+                let stream = tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect(host.as_str())).await.ok()?.ok()?;
+                stream.set_nodelay(true).ok()?;
+                let mut stream = tokio::io::BufStream::new(stream);
+                stream.write_all(b"HI\n").await.ok()?;
+                stream.flush().await.ok()?;
+                let mut line = String::new();
+                tokio::time::timeout(Duration::from_secs(3), stream.read_line(&mut line)).await.ok()?.ok()?;
+                line.starts_with("HELLO").then_some(Self::Tcp(stream))
+            }
+        }
+    }
+
+    async fn ping(&mut self) -> Option<f64> {
+        match self {
+            Self::Http(client) => latency(client).await,
+            Self::Tcp(stream) => {
+                use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+                let start = Instant::now();
+                stream.write_all(format!("PING {}\n", Timestamp::now().as_millisecond()).as_bytes()).await.ok()?;
+                stream.flush().await.ok()?;
+                let mut line = String::new();
+                tokio::time::timeout(Duration::from_secs(5), stream.read_line(&mut line)).await.ok()?.ok()?;
+                line.starts_with("PONG").then(|| start.elapsed().as_secs_f64() * 1000.0)
+            }
+        }
+    }
+}
+
+async fn http_test<F, Fut>(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig, target: F) -> Result<SpeedRun, Failure>
+where
+    F: FnOnce(reqwest::Client) -> Fut,
+    Fut: Future<Output = Result<Target, String>>,
+{
     let client = reqwest::Client::builder()
         .timeout(cfg.duration + Duration::from_secs(20))
         .user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION")))
@@ -105,22 +223,20 @@ async fn cloudflare(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig) -> Resu
     // A separate client so latency probes don't queue behind the loaded connections.
     let probe = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().map_err(|e| Box::new((run.clone(), e.to_string())))?;
 
-    // Server location.
-    if let Ok(r) = probe.get(format!("{CF}/cdn-cgi/trace")).send().await
-        && let Ok(body) = r.text().await
-    {
-        run.server = body.lines().find_map(|l| l.strip_prefix("colo=")).map(|c| format!("Cloudflare {c}"));
-    }
+    let target = match target(probe.clone()).await {
+        Ok(t) => t,
+        Err(e) => return Err(Box::new((run, e))),
+    };
+    run.server = Some(target.label.clone());
 
-    // Idle latency: time to response headers of empty downloads.
     let mut idle = Vec::new();
-    for _ in 0..10 {
-        if let Some(ms) = latency(&probe).await {
-            idle.push(ms);
+    if let Some(mut pinger) = Pinger::connect(&target.ping, Some(probe.clone())).await {
+        for _ in 0..10 {
+            idle.extend(pinger.ping().await);
         }
     }
     let Some(idle_ms) = median(&idle) else {
-        return Err(Box::new((run, "could not reach speed.cloudflare.com".into())));
+        return Err(Box::new((run, format!("could not reach {}", target.label))));
     };
     run.idle_latency_ms = Some(round1(idle_ms));
     run.progress = Some(0.05);
@@ -137,9 +253,10 @@ async fn cloudflare(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig) -> Resu
         let mut tasks = Vec::new();
         for _ in 0..cfg.streams {
             let (client, counter, stop) = (client.clone(), counter.clone(), stop.clone());
+            let url = if upload { target.upload.clone() } else { target.download.clone() };
             tasks.push(tokio::spawn(async move {
                 while !stop.load(Ordering::Relaxed) {
-                    let ok = if upload { upload_once(&client, &counter, &stop).await } else { download_once(&client, &counter, &stop).await };
+                    let ok = if upload { upload_once(&client, &url, &counter, &stop).await } else { download_once(&client, &url, &counter, &stop).await };
                     if let Err(e) = ok {
                         if stop.load(Ordering::Relaxed) {
                             break;
@@ -152,12 +269,14 @@ async fn cloudflare(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig) -> Resu
         }
         // Latency under load, plus progress, until the phase ends.
         let latency_task = {
-            let (probe, loaded, stop) = (probe.clone(), loaded.clone(), stop.clone());
+            let (probe, loaded, stop, via) = (probe.clone(), loaded.clone(), stop.clone(), target.ping.clone());
             tokio::spawn(async move {
+                let pinger = Pinger::connect(&via, Some(probe)).await;
                 // Let the connections ramp before sampling.
                 tokio::time::sleep(Duration::from_secs(1)).await;
+                let Some(mut pinger) = pinger else { return };
                 while !stop.load(Ordering::Relaxed) {
-                    if let Some(ms) = latency(&probe).await {
+                    if let Some(ms) = pinger.ping().await {
                         loaded.lock().unwrap().push(ms);
                     }
                     tokio::time::sleep(Duration::from_millis(250)).await;
@@ -237,8 +356,8 @@ async fn latency(client: &reqwest::Client) -> Option<f64> {
     Some((ms - server).max(0.1))
 }
 
-async fn download_once(client: &reqwest::Client, counter: &AtomicU64, stop: &AtomicBool) -> Result<(), String> {
-    let r = client.get(format!("{CF}/__down?bytes={CHUNK_DOWN}")).send().await.map_err(|e| error_chain(&e))?;
+async fn download_once(client: &reqwest::Client, url: &str, counter: &AtomicU64, stop: &AtomicBool) -> Result<(), String> {
+    let r = client.get(url).send().await.map_err(|e| error_chain(&e))?;
     if !r.status().is_success() {
         return Err(format!("HTTP {}", r.status()));
     }
@@ -253,7 +372,7 @@ async fn download_once(client: &reqwest::Client, counter: &AtomicU64, stop: &Ato
     Ok(())
 }
 
-async fn upload_once(client: &reqwest::Client, counter: &Arc<AtomicU64>, stop: &Arc<AtomicBool>) -> Result<(), String> {
+async fn upload_once(client: &reqwest::Client, url: &str, counter: &Arc<AtomicU64>, stop: &Arc<AtomicBool>) -> Result<(), String> {
     const PIECE: usize = 64 * 1024;
     static ZEROS: [u8; PIECE] = [0; PIECE];
     let (counter, stop) = (counter.clone(), stop.clone());
@@ -265,7 +384,7 @@ async fn upload_once(client: &reqwest::Client, counter: &Arc<AtomicU64>, stop: &
         Ok::<_, std::io::Error>(bytes::Bytes::from_static(&ZEROS))
     });
     let r = client
-        .post(format!("{CF}/__up"))
+        .post(url)
         .header("content-type", "application/octet-stream")
         .header("content-length", (CHUNK_UP / PIECE * PIECE).to_string())
         .body(reqwest::Body::wrap_stream(pieces))
@@ -278,125 +397,10 @@ async fn upload_once(client: &reqwest::Client, counter: &Arc<AtomicU64>, stop: &
     Ok(())
 }
 
-// ---- Ookla ----
-
-#[derive(Debug, Deserialize)]
-struct OoklaResult {
-    ping: OoklaPing,
-    download: OoklaTransfer,
-    upload: OoklaTransfer,
-    server: Option<OoklaServer>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OoklaPing {
-    latency: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct OoklaTransfer {
-    /// Bytes per second.
-    bandwidth: f64,
-    bytes: u64,
-    latency: Option<OoklaLatency>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OoklaLatency {
-    iqm: f64,
-}
-
-#[derive(Debug, Deserialize)]
-struct OoklaServer {
-    name: Option<String>,
-    location: Option<String>,
-}
-
-async fn ookla(hub: &Hub, mut run: SpeedRun) -> Result<SpeedRun, Failure> {
-    let child = tokio::process::Command::new("speedtest")
-        .args(["--format=json", "--accept-license", "--accept-gdpr"])
-        .kill_on_drop(true)
-        .output();
-    run.progress = Some(0.1);
-    hub.upsert_speed(run.clone());
-    let output = match tokio::time::timeout(Duration::from_secs(120), child).await {
-        Err(_) => return Err(Box::new((run, "speedtest timed out after 120s".into()))),
-        Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(Box::new((run, "the Ookla `speedtest` CLI is not installed (https://www.speedtest.net/apps/cli)".into())));
-        }
-        Ok(Err(e)) => return Err(Box::new((run, format!("running speedtest: {e}")))),
-        Ok(Ok(o)) => o,
-    };
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(Box::new((run, format!("speedtest exited with {}: {}", output.status, crate::assess::sanitize(stderr.trim())))));
-    }
-    parse_ookla(&output.stdout, run.clone()).map_err(|e| Box::new((run, e)))
-}
-
-fn parse_ookla(json: &[u8], run: SpeedRun) -> Result<SpeedRun, String> {
-    let r: OoklaResult = serde_json::from_slice(json).map_err(|e| format!("unexpected speedtest output: {e}"))?;
-    let loaded = [&r.download, &r.upload].iter().filter_map(|t| t.latency.as_ref().map(|l| l.iqm)).fold(None, |m: Option<f64>, x| Some(m.map_or(x, |m| m.max(x))));
-    Ok(SpeedRun {
-        state: SpeedState::Complete,
-        server: r.server.map(|s| match (s.name, s.location) {
-            (Some(n), Some(l)) => format!("{n} ({l})"),
-            (n, l) => n.or(l).unwrap_or_else(|| "Ookla".into()),
-        }),
-        down_mbps: Some(round1(r.download.bandwidth * 8.0 / 1e6)),
-        up_mbps: Some(round1(r.upload.bandwidth * 8.0 / 1e6)),
-        idle_latency_ms: Some(round1(r.ping.latency)),
-        loaded_latency_ms: loaded.map(round1),
-        bloat: loaded.map(|l| BloatGrade::from_increase_ms((l - r.ping.latency).max(0.0))),
-        bytes_used: Some(r.download.bytes + r.upload.bytes),
-        progress: Some(1.0),
-        error: None,
-        ..run
-    })
-}
-
 fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
 
 fn round2(x: f64) -> f64 {
     (x * 100.0).round() / 100.0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_ookla_json() {
-        let json = br#"{"type":"result","timestamp":"2026-10-23T10:00:00Z",
-            "ping":{"jitter":0.3,"latency":4.2,"low":3.9,"high":4.6},
-            "download":{"bandwidth":115000000,"bytes":1200000000,"elapsed":10000,"latency":{"iqm":11.5,"low":4,"high":40,"jitter":2}},
-            "upload":{"bandwidth":110000000,"bytes":1100000000,"elapsed":10000,"latency":{"iqm":9.0,"low":4,"high":30,"jitter":2}},
-            "packetLoss":0,"isp":"Example Fiber",
-            "server":{"id":1,"host":"x","port":8080,"name":"Example ISP","location":"Seattle, WA","country":"United States","ip":"1.2.3.4"},
-            "result":{"id":"abc","url":"https://www.speedtest.net/result/c/abc","persisted":true}}"#;
-        let run = SpeedRun {
-            id: "s".into(),
-            started: Timestamp::UNIX_EPOCH,
-            state: SpeedState::Running,
-            backend: "ookla".into(),
-            server: None,
-            down_mbps: None,
-            up_mbps: None,
-            idle_latency_ms: None,
-            loaded_latency_ms: None,
-            bloat: None,
-            bytes_used: None,
-            progress: None,
-            error: None,
-        };
-        let r = parse_ookla(json, run).unwrap();
-        assert_eq!(r.down_mbps, Some(920.0));
-        assert_eq!(r.up_mbps, Some(880.0));
-        assert_eq!(r.loaded_latency_ms, Some(11.5));
-        assert_eq!(r.bloat, Some(BloatGrade::A));
-        assert_eq!(r.server.as_deref(), Some("Example ISP (Seattle, WA)"));
-        assert_eq!(r.state, SpeedState::Complete);
-    }
 }

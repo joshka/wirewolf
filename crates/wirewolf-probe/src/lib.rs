@@ -64,7 +64,12 @@ fn hostname() -> String {
         .filter(|s| !s.is_empty())
         .or_else(|| std::fs::read_to_string("/etc/hostname").ok().map(|s| s.trim().to_string()))
         .filter(|s| !s.is_empty())
-        .or_else(|| std::process::Command::new("hostname").output().ok().and_then(|o| String::from_utf8(o.stdout).ok()).map(|s| s.trim().to_string()))
+        .or_else(|| {
+            let mut buf = [0u8; 256];
+            // SAFETY: the buffer is valid for its length; gethostname NUL-terminates on success.
+            (unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0)
+                .then(|| String::from_utf8_lossy(buf.split(|b| *b == 0).next().unwrap_or_default()).into_owned())
+        })
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "wirewolf".into())
 }

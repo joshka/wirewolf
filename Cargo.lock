@@ -5013,6 +5013,7 @@ dependencies = [
  "futures-util",
  "hickory-resolver",
  "jiff",
+ "libc",
  "netdev",
  "reqwest",
  "rusqlite",

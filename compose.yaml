@@ -13,7 +13,7 @@ services:
       WIREWOLF_INTERVAL: 30s
       # Every hour; 0 disables scheduled speed tests. Each run uses a few hundred MB on fiber.
       WIREWOLF_SPEED_INTERVAL: 60m
-      # cloudflare (default) or ookla (needs the speedtest CLI in the image).
+      # cloudflare (default) or ookla (speedtest.net servers); both are built in.
       WIREWOLF_SPEED_BACKEND: cloudflare
       WIREWOLF_RETENTION: 30d
       # Shown in the UI; the container hostname is otherwise random.

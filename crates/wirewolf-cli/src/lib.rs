@@ -60,7 +60,7 @@ struct LiveArgs {
     /// Time between scheduled speed tests, for example `60m`. `0` disables them.
     #[arg(long, env = "WIREWOLF_SPEED_INTERVAL", default_value = "60m", value_parser = parse_duration)]
     speed_interval: std::time::Duration,
-    /// Speed test backend: `cloudflare` or `ookla` (needs the `speedtest` CLI).
+    /// Speed test backend: `cloudflare` or `ookla` (speedtest.net servers). Both are built in.
     #[arg(long, env = "WIREWOLF_SPEED_BACKEND", default_value = "cloudflare")]
     speed_backend: wirewolf_probe::Backend,
     /// SQLite history file.
