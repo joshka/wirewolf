@@ -5,6 +5,9 @@
 //! hub keeps bounded in-memory history, opens and closes incidents as the verdict changes, and
 //! broadcasts every change as an [`Event`]. Clients send requests (run a speed test, switch demo
 //! scenario) as [`Command`]s, which the driver receives from [`Hub::take_commands`].
+//!
+//! The hub also keeps the activity timeline: verdict changes, incidents, and speed tests are
+//! recorded as they happen, and drivers and the API add their own with [`Hub::record`].
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
@@ -14,12 +17,14 @@ use tokio::sync::{broadcast, mpsc};
 
 use crate::config::Incidents;
 use crate::editor::Editor;
-use crate::model::{ConfigView, Event, Incident, Meta, Sample, Severity, Snapshot, SpeedRun, SpeedState};
+use crate::logs::Logs;
+use crate::model::{Activity, ActivityKind, ConfigView, Event, Incident, Meta, Sample, Severity, Snapshot, SpeedRun, SpeedState};
 
 /// How many samples to keep in memory (about 48h of 20 hops and targets at one sample per 30s).
 const SAMPLE_CAPACITY: usize = 20 * 2 * 60 * 48;
 const SPEED_CAPACITY: usize = 500;
 const INCIDENT_CAPACITY: usize = 500;
+const ACTIVITY_CAPACITY: usize = 1000;
 
 /// A request from a client to the driver.
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +59,9 @@ struct State {
     next_incident: u64,
     config: Option<ConfigView>,
     editor: Option<Arc<Editor>>,
+    logs: Option<Arc<Logs>>,
+    activity: VecDeque<Activity>,
+    next_activity: u64,
     policy: Incidents,
     /// Unhealthy snapshots in a row while no incident is open: the first one's time, and the
     /// worst one.
@@ -77,6 +85,9 @@ impl Hub {
                     next_incident: 1,
                     config: None,
                     editor: None,
+                    logs: None,
+                    activity: VecDeque::new(),
+                    next_activity: 1,
                     policy: Incidents::default(),
                     pending: None,
                     recovering: None,
@@ -130,6 +141,16 @@ impl Hub {
         self.read().editor.clone()
     }
 
+    /// The server log buffer, if the binary installed one.
+    pub fn logs(&self) -> Option<Arc<Logs>> {
+        self.read().logs.clone()
+    }
+
+    /// The activity timeline, newest first.
+    pub fn activity(&self) -> Vec<Activity> {
+        self.read().activity.iter().rev().cloned().collect()
+    }
+
     pub fn incident(&self, id: &str) -> Option<Incident> {
         self.read().incidents.iter().find(|i| i.id == id).cloned()
     }
@@ -165,6 +186,33 @@ impl Hub {
         self.write().editor = Some(editor);
     }
 
+    /// Lets the API serve recent log lines and change the log filter.
+    pub fn set_logs(&self, logs: Arc<Logs>) {
+        self.write().logs = Some(logs);
+    }
+
+    /// Adds an entry to the activity timeline and broadcasts it.
+    pub fn record(&self, kind: ActivityKind, message: impl Into<String>, subject: Option<String>, actor: Option<String>) {
+        let entry = {
+            let mut state = self.write();
+            let entry = state.activity_entry(kind, message.into(), subject, actor);
+            push_bounded(&mut state.activity, entry.clone(), ACTIVITY_CAPACITY);
+            entry
+        };
+        let _ = self.inner.events.send(Event::Activity(entry));
+    }
+
+    /// Bulk-loads saved activity without broadcasting. Entries must be in time order.
+    pub fn load_activity(&self, entries: Vec<Activity>) {
+        let mut state = self.write();
+        if let Some(max) = entries.iter().map(|a| a.id).max() {
+            state.next_activity = state.next_activity.max(max + 1);
+        }
+        for e in entries {
+            push_bounded(&mut state.activity, e, ACTIVITY_CAPACITY);
+        }
+    }
+
     /// Sets how many cycles in a row open and close an incident.
     pub fn set_incident_policy(&self, policy: Incidents) {
         self.write().policy = policy;
@@ -181,19 +229,30 @@ impl Hub {
             let mut guard = self.write();
             let state = &mut *guard;
             let severity = snapshot.verdict.severity;
+            let previous = state.snapshot.as_ref().map(|s| s.verdict.severity);
+            if previous != Some(severity) {
+                let message = match previous {
+                    Some(p) => format!("Verdict {} → {}: {}", severity_word(p), severity_word(severity), snapshot.verdict.headline),
+                    None => format!("First verdict {}: {}", severity_word(severity), snapshot.verdict.headline),
+                };
+                state.note(&mut events, ActivityKind::Verdict, message, None);
+            }
             let bad = matches!(severity, Severity::Degraded | Severity::Down);
             let open = state.incidents.back_mut().filter(|i| i.ended.is_none());
             match (open, bad) {
                 (Some(incident), true) => {
                     state.recovering = None;
+                    let id = incident.id.clone();
                     if severity > incident.severity {
                         incident.severity = severity;
                         incident.headline = snapshot.verdict.headline.clone();
                         incident.blame = snapshot.verdict.blame.clone();
-                        incident.evidence = Snapshot { open_incident: Some(incident.id.clone()), ..snapshot.clone() };
+                        incident.evidence = Snapshot { open_incident: Some(id.clone()), ..snapshot.clone() };
                         events.push(Event::Incident(incident.clone()));
+                        let message = format!("Incident {id} got worse ({}): {}", severity_word(severity), snapshot.verdict.headline);
+                        state.note(&mut events, ActivityKind::Incident, message, Some(id.clone()));
                     }
-                    snapshot.open_incident = Some(incident.id.clone());
+                    snapshot.open_incident = Some(id);
                 }
                 (Some(incident), false) => {
                     let (n, since) = state.recovering.map_or((1, snapshot.at), |(n, t)| (n + 1, t));
@@ -204,7 +263,10 @@ impl Hub {
                         state.recovering = None;
                         incident.ended = Some(since);
                         events.push(Event::Incident(incident.clone()));
+                        let id = incident.id.clone();
+                        let message = format!("Incident {id} closed after {}", short_duration(since.duration_since(incident.started)));
                         snapshot.open_incident = None;
+                        state.note(&mut events, ActivityKind::Incident, message, Some(id));
                     }
                 }
                 (None, true) => {
@@ -229,8 +291,11 @@ impl Hub {
                             blame: worst.verdict.blame.clone(),
                             evidence: Snapshot { open_incident: Some(id), ..worst },
                         };
+                        let message = format!("Incident {} opened ({}): {}", incident.id, severity_word(incident.severity), incident.headline);
+                        let subject = Some(incident.id.clone());
                         push_bounded(&mut state.incidents, incident.clone(), INCIDENT_CAPACITY);
                         events.push(Event::Incident(incident));
+                        state.note(&mut events, ActivityKind::Incident, message, subject);
                     }
                 }
                 (None, false) => {
@@ -253,14 +318,32 @@ impl Hub {
 
     /// Inserts or replaces (by id) a speed run.
     pub fn upsert_speed(&self, run: SpeedRun) {
+        let mut events = vec![Event::Speed(run.clone())];
         {
             let mut state = self.write();
-            match state.speed.iter_mut().find(|r| r.id == run.id) {
-                Some(existing) => *existing = run.clone(),
-                None => push_bounded(&mut state.speed, run.clone(), SPEED_CAPACITY),
+            let before = match state.speed.iter_mut().find(|r| r.id == run.id) {
+                Some(existing) => Some(std::mem::replace(existing, run.clone()).state),
+                None => {
+                    push_bounded(&mut state.speed, run.clone(), SPEED_CAPACITY);
+                    None
+                }
+            };
+            if before != Some(run.state) {
+                let message = match run.state {
+                    SpeedState::Running => format!("Speed test started ({})", run.backend),
+                    SpeedState::Complete => {
+                        let mbps = |v: Option<f64>| v.map_or("?".into(), |v| format!("{v:.0}"));
+                        let bloat = run.bloat.and_then(|b| serde_json::to_value(b).ok()).and_then(|v| v.as_str().map(|s| format!(", bufferbloat {s}"))).unwrap_or_default();
+                        format!("Speed test finished: {} down, {} up Mbps{bloat}", mbps(run.down_mbps), mbps(run.up_mbps))
+                    }
+                    SpeedState::Failed => format!("Speed test failed: {}", run.error.as_deref().unwrap_or("unknown error")),
+                };
+                state.note(&mut events, ActivityKind::Speed, message, Some(run.id.clone()));
             }
         }
-        let _ = self.inner.events.send(Event::Speed(run));
+        for event in events {
+            let _ = self.inner.events.send(event);
+        }
     }
 
     /// True if a speed test is currently running.
@@ -302,6 +385,41 @@ impl Hub {
 
     fn write(&self) -> std::sync::RwLockWriteGuard<'_, State> {
         self.inner.state.write().unwrap()
+    }
+}
+
+impl State {
+    fn activity_entry(&mut self, kind: ActivityKind, message: String, subject: Option<String>, actor: Option<String>) -> Activity {
+        let id = self.next_activity;
+        self.next_activity += 1;
+        Activity { id, at: Timestamp::now(), kind, message, subject, actor }
+    }
+
+    /// Records an entry whose event goes out with `events`, after what it describes.
+    fn note(&mut self, events: &mut Vec<Event>, kind: ActivityKind, message: String, subject: Option<String>) {
+        let entry = self.activity_entry(kind, message, subject, None);
+        push_bounded(&mut self.activity, entry.clone(), ACTIVITY_CAPACITY);
+        events.push(Event::Activity(entry));
+    }
+}
+
+/// `45s`, `12m`, `3h 5m`.
+fn short_duration(d: jiff::SignedDuration) -> String {
+    let s = d.as_secs().max(0);
+    match s {
+        0..60 => format!("{s}s"),
+        60..3600 => format!("{}m", s / 60),
+        _ if s % 3600 / 60 == 0 => format!("{}h", s / 3600),
+        _ => format!("{}h {}m", s / 3600, s % 3600 / 60),
+    }
+}
+
+fn severity_word(s: Severity) -> &'static str {
+    match s {
+        Severity::Healthy => "healthy",
+        Severity::Degraded => "degraded",
+        Severity::Down => "down",
+        Severity::Unknown => "unknown",
     }
 }
 
@@ -385,5 +503,42 @@ mod tests {
         assert_eq!(hub.incidents().len(), 1);
         hub.publish_snapshot(snap(30, Severity::Healthy));
         assert_eq!(hub.incidents()[0].ended.unwrap().as_second(), 30);
+    }
+
+    #[test]
+    fn records_verdict_incident_and_speed_activity() {
+        let hub = hub(1, 1);
+        hub.publish_snapshot(snap(0, Severity::Healthy));
+        hub.publish_snapshot(snap(30, Severity::Healthy));
+        hub.publish_snapshot(snap(60, Severity::Down));
+        hub.publish_snapshot(snap(90, Severity::Healthy));
+        let run = SpeedRun {
+            id: "s1".into(),
+            started: Timestamp::from_second(100).unwrap(),
+            state: SpeedState::Running,
+            backend: "demo".into(),
+            server: None,
+            down_mbps: None,
+            up_mbps: None,
+            idle_latency_ms: None,
+            loaded_latency_ms: None,
+            bloat: None,
+            bytes_used: None,
+            progress: Some(0.1),
+            error: None,
+        };
+        hub.upsert_speed(run.clone());
+        hub.upsert_speed(SpeedRun { progress: Some(0.5), ..run.clone() });
+        hub.upsert_speed(SpeedRun { state: SpeedState::Complete, down_mbps: Some(500.0), up_mbps: Some(40.0), ..run });
+        let mut log: Vec<_> = hub.activity().into_iter().map(|a| (a.kind, a.message)).collect();
+        log.reverse();
+        let kinds: Vec<_> = log.iter().map(|(k, _)| *k).collect();
+        use ActivityKind::*;
+        assert_eq!(kinds, [Verdict, Verdict, Incident, Verdict, Incident, Speed, Speed], "{log:?}");
+        assert_eq!(log[2].1, "Incident inc-1 opened (down): Down");
+        assert_eq!(log[4].1, "Incident inc-1 closed after 30s");
+        assert_eq!(log[6].1, "Speed test finished: 500 down, 40 up Mbps");
+        let ids: Vec<_> = hub.activity().iter().map(|a| a.id).collect();
+        assert!(ids.windows(2).all(|w| w[0] > w[1]));
     }
 }

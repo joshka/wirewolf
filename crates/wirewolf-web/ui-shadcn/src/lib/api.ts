@@ -111,6 +111,8 @@ export interface Config {
   incidents: { open_after: number; close_after: number }
   speed: { backend: string; interval: string; server: string; streams: number; duration: string }
   storage: { db: string; retention: string }
+  /** Server log filter (1.6). */
+  log?: { filter: string }
   targets: UserTargetConfig[]
   [section: string]: unknown
 }
@@ -178,6 +180,37 @@ export interface Meta {
   scenarios: { id: string; name: string; description: string }[]
   scenario: string | null
 }
+
+export type ActivityKind = "verdict" | "incident" | "speed" | "config" | "auth" | "probe"
+
+/** One entry in the activity timeline (1.6). */
+export interface Activity {
+  id: number
+  at: string
+  kind: ActivityKind | string
+  message: string
+  /** The incident or speed run it's about. */
+  subject: string | null
+  /** Who did it; only sent to visitors who can write. */
+  actor: string | null
+}
+
+/** One server log line (1.6). */
+export interface LogLine {
+  seq: number
+  at: string
+  level: "error" | "warn" | "info" | "debug" | "trace" | string
+  target: string
+  message: string
+}
+
+export interface LogsPage {
+  filter: string
+  capacity: number
+  lines: LogLine[]
+}
+
+export type FilterResult = { ok: true; filter: string; saved: boolean } | { ok: false; status: number; message: string }
 
 /** `GET /session`: who is signed in and what they may do. */
 export interface Session {
@@ -250,5 +283,31 @@ export const api = {
     if (!res.ok || res.status === 204) throw new Error(`GET /brief/prompt: ${res.status}`)
     return res.text()
   },
+  /** `GET /activity`, newest first (1.6). */
+  activity: () => get<Activity[]>("/activity").then((x) => x ?? []),
+  /** `GET /logs` (1.6). Throws with status 403 for visitors who can't write. */
+  logs: async (): Promise<LogsPage | null> => {
+    const res = await fetch(BASE + "/logs")
+    if (res.status === 404) return null
+    if (!res.ok) throw Object.assign(new Error(`GET /logs: ${res.status}`), { status: res.status })
+    return res.json() as Promise<LogsPage>
+  },
+  /** `PUT /logs/filter` (1.6): applies now, and saves when the server can. */
+  setLogFilter: async (filter: string): Promise<FilterResult> => {
+    const headers: Record<string, string> = { "content-type": "application/json" }
+    const csrf = currentSession()?.csrf
+    if (csrf) headers["x-wirewolf-csrf"] = csrf
+    const res = await fetch(BASE + "/logs/filter", { method: "PUT", headers, body: JSON.stringify({ filter }) })
+    if (res.ok) return { ok: true, ...((await res.json()) as { filter: string; saved: boolean }) }
+    const text = await res.text()
+    let message = text || `Failed (${res.status})`
+    try {
+      message = (JSON.parse(text) as { errors: FieldError[] }).errors[0].message
+    } catch {
+      // plain text
+    }
+    return { ok: false, status: res.status, message }
+  },
+  logEventsUrl: `${BASE}/logs/events`,
   eventsUrl: `${BASE}/events`,
 }

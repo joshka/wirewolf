@@ -1,4 +1,4 @@
-// A tiny History API router. The app has six routes, which doesn't justify a router library.
+// A tiny History API router. The app has a handful of routes, which doesn't justify a router library.
 
 import { useSyncExternalStore } from "react"
 
@@ -11,6 +11,7 @@ export type Route =
   | { name: "incident"; id: string }
   | { name: "speed" }
   | { name: "settings" }
+  | { name: "logs"; tab?: "server" }
   | { name: "hop"; id: string; incident?: string } // incident: show that incident's evidence
 
 export function parse(pathname: string): Route {
@@ -28,6 +29,8 @@ export function parse(pathname: string): Route {
       return { name: "speed" }
     case "settings":
       return { name: "settings" }
+    case "logs":
+      return parts[1] === "server" ? { name: "logs", tab: "server" } : { name: "logs" }
     default:
       return { name: "now" }
   }
@@ -41,6 +44,8 @@ export function href(route: Route): string {
       return `${BASE}/incidents/${encodeURIComponent(route.id)}`
     case "hop":
       return `${route.incident ? href({ name: "incident", id: route.incident }) : BASE}/path/${encodeURIComponent(route.id)}`
+    case "logs":
+      return `${BASE}/logs${route.tab ? `/${route.tab}` : ""}`
     default:
       return `${BASE}/${route.name}`
   }

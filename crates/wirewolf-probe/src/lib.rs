@@ -14,7 +14,7 @@ use std::time::Duration;
 use jiff::{SignedDuration, Timestamp};
 use wirewolf_core::config::Config;
 use wirewolf_core::diagnose::{diagnose, with_targets};
-use wirewolf_core::model::{API_VERSION, Meta, Sample, Severity, Snapshot, Status};
+use wirewolf_core::model::{API_VERSION, ActivityKind, Meta, Sample, Severity, Snapshot, Status};
 use wirewolf_core::{Command, Hub};
 
 pub mod assess;
@@ -73,6 +73,7 @@ pub fn attach_store(hub: &Hub, config: &Config) -> anyhow::Result<()> {
         if db.as_os_str().is_empty() { "memory".into() } else { db.display().to_string() }
     );
     hub.load_history(history.samples, history.speed, history.incidents);
+    hub.load_activity(history.activity);
     let retention = SignedDuration::try_from(config.storage.retention.0)?;
     tokio::spawn(store::follow(hub.clone(), store, retention));
     Ok(())
@@ -133,10 +134,15 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
             return;
         }
     };
-    match prober.icmp() {
-        Some(i) if i.can_trace() => tracing::info!("ICMP available ({i:?}); gateway and ISP probes use ICMP"),
-        Some(i) => tracing::info!("ICMP available ({i:?}) without TTL replies; the ISP hop is inferred"),
-        None => tracing::info!("ICMP unavailable; the gateway uses TCP connects and the ISP hop is inferred"),
+    let capability = match prober.icmp() {
+        Some(i) if i.can_trace() => format!("ICMP available ({i:?}); gateway and ISP probes use ICMP"),
+        Some(i) => format!("ICMP available ({i:?}) without TTL replies; the ISP hop is inferred"),
+        None => "ICMP unavailable; the gateway uses TCP connects and the ISP hop is inferred".into(),
+    };
+    tracing::info!("{capability}");
+    // Only when it differs from the last run, so restarts don't fill the timeline.
+    if !hub.activity().iter().find(|a| a.kind == ActivityKind::Probe).is_some_and(|a| a.message == capability) {
+        hub.record(ActivityKind::Probe, capability, None, None);
     }
     let mut ticker = probe_ticker(&config);
     let mut speed_ticker = speed_ticker_for(&hub, &config);

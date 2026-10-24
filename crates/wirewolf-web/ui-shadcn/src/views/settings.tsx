@@ -234,6 +234,13 @@ export function SettingsView() {
           </Field>
         </Rows>
       </Section>
+      <Section ctx={ctx} keys={KEYS.log} title="Logging" description="Which server log lines to keep. Applies at once, without a restart. The Logs page shows them.">
+        <Rows>
+          <Field ctx={ctx} k="log.filter" label="Filter" hint='A level, optionally per module: "info,wirewolf_probe=debug"'>
+            <Text ctx={ctx} k="log.filter" width="long" placeholder="info" />
+          </Field>
+        </Rows>
+      </Section>
       <Section ctx={ctx} keys={KEYS.dns} title="DNS" description="The resolvers compared against this host's own, and the names asked of each. The first name is the headline check.">
         <Rows>
           <Field ctx={ctx} k="dns.system" label="System resolvers" hint="Test the resolvers this host uses">
@@ -831,6 +838,7 @@ const KEYS = {
   incidents: ["incidents.open_after", "incidents.close_after"],
   thresholds: ["gateway", "isp", "internet", "dns", "targets"].map((h) => `thresholds.${h}`),
   speed: ["speed.backend", "speed.interval", "speed.server", "speed.streams", "speed.duration"],
+  log: ["log.filter"],
   dns: ["dns.system", "dns.record_types", "dns.resolvers", "dns.queries"],
   internet: ["internet.port", "internet.icmp", "internet.targets"],
   web: ["web.captive_portal", "web.tls_host", "web.sites"],
@@ -898,7 +906,7 @@ function ResetButton({ ctx, k, label }: { ctx: Ctx; k: string; label: string }) 
 
 /** Keys with a control on this page; errors for anything else go in the banner. */
 function hasControl(key: string) {
-  return /^(probe|incidents|speed|thresholds|dns|internet|web|server|storage|targets)\./.test(key) || key === "targets"
+  return /^(probe|incidents|speed|log|thresholds|dns|internet|web|server|storage|targets)\./.test(key) || key === "targets"
 }
 
 function getPath(obj: unknown, key: string): unknown {

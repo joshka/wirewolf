@@ -270,6 +270,7 @@ impl App {
                     None => self.speed.insert(0, run),
                 }
             }
+            Event::Activity(_) => {}
             Event::Incident(incident) => {
                 match self.incidents.iter_mut().find(|i| i.id == incident.id) {
                     Some(existing) => *existing = incident,

@@ -19,6 +19,7 @@ use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use wirewolf_core::config::{self, Loaded, Override, Source};
 use wirewolf_core::editor::Editor;
+use wirewolf_core::logs::{self, Logs};
 use wirewolf_core::{Hub, demo};
 
 #[derive(Debug, Parser)]
@@ -189,6 +190,19 @@ fn live_overrides(listen: Option<SocketAddr>, live: &LiveArgs) -> Vec<(&'static 
     ]
 }
 
+/// Logs to stderr and to the buffer the Logs page reads, through a filter that can change while
+/// running. Starts from `RUST_LOG` if set (the bool says so), else `info` until the config loads.
+fn init_logging() -> (Arc<Logs>, bool) {
+    use tracing_subscriber::{EnvFilter, prelude::*, reload};
+    let logs = Logs::new();
+    let rust_log = std::env::var("RUST_LOG").ok().filter(|f| logs::check_filter(f).is_ok());
+    let start = rust_log.clone().unwrap_or_else(|| logs::DEFAULT_FILTER.into());
+    let (filter, handle) = reload::Layer::new(EnvFilter::new(&start));
+    tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).with(logs.layer()).init();
+    logs.set_reloader(&start, move |f| handle.reload(EnvFilter::try_new(f).map_err(|e| e.to_string())?).map_err(|e| e.to_string()));
+    (logs, rust_log.is_some())
+}
+
 pub fn run() -> anyhow::Result<()> {
     let matches = Cli::command().get_matches();
     let cli = Cli::from_arg_matches(&matches)?;
@@ -225,16 +239,13 @@ pub fn run() -> anyhow::Result<()> {
         }
         Command::Serve { .. } => {}
     }
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let (logs, rust_log) = init_logging();
     let Command::Serve { listen, demo, scenario, config, live, read_only_settings } = cli.command else { unreachable!("handled above") };
     tokio::runtime::Runtime::new()?.block_on(async {
         if demo {
             let addr = listen.unwrap_or_else(|| ([0, 0, 0, 0], 7465).into());
             let hub = Hub::new(demo::meta(&scenario));
+            hub.set_logs(logs);
             tokio::spawn(demo::run(hub.clone(), scenario));
             wirewolf_web::serve(hub, addr).await?;
             return Ok(());
@@ -245,7 +256,18 @@ pub fn run() -> anyhow::Result<()> {
             None => tracing::info!("no config file; using defaults (`wirewolf config default` prints them)"),
         }
         let addr: SocketAddr = loaded.config.server.listen.parse().map_err(|e| anyhow::anyhow!("server.listen {:?}: {e}", loaded.config.server.listen))?;
+        if !rust_log && let Err(e) = logs.set_filter(&loaded.config.log.filter) {
+            tracing::warn!("log.filter {:?}: {e}", loaded.config.log.filter);
+        }
+        let auth_config = &loaded.config.auth;
+        logs.add_secret(&auth_config.client_secret);
+        if !auth_config.client_secret_file.is_empty()
+            && let Ok(secret) = std::fs::read_to_string(&auth_config.client_secret_file)
+        {
+            logs.add_secret(secret.trim());
+        }
         let hub = Hub::new(wirewolf_probe::meta());
+        hub.set_logs(logs);
         let editor = Arc::new(Editor::new(path.clone(), overrides, wirewolf_probe::field_errors, read_only_settings));
         hub.set_config(editor.view(&loaded));
         hub.set_editor(editor);

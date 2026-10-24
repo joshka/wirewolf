@@ -1,7 +1,7 @@
 // One SSE connection feeding a small external store. Components subscribe with `useLive`.
 
 import { useSyncExternalStore } from "react"
-import { api, type Incident, type Meta, type Sample, type Snapshot, type SpeedRun } from "./api"
+import { api, type Activity, type Incident, type Meta, type Sample, type Snapshot, type SpeedRun } from "./api"
 
 export type Connection = "connecting" | "live" | "reconnecting"
 
@@ -15,6 +15,8 @@ export interface LiveState {
   samples: Record<string, Sample[]>
   speedRuns: SpeedRun[]
   incidents: Incident[]
+  /** The activity timeline, newest first. */
+  activity: Activity[]
   connection: Connection
   /** The last failure to load data outside the SSE stream. */
   error: string | null
@@ -26,6 +28,7 @@ const empty: LiveState = {
   samples: {},
   speedRuns: [],
   incidents: [],
+  activity: [],
   connection: "connecting",
   error: null,
 }
@@ -90,15 +93,16 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
 /** Reload everything that SSE doesn't replay: meta, recent history, speed runs, incidents. */
 async function refresh() {
   const since = new Date(Date.now() - SPARK_WINDOW_MS)
-  const [meta, history, speedRuns, incidents] = await Promise.all([
+  const [meta, history, speedRuns, incidents, activity] = await Promise.all([
     api.meta(),
     api.history({ since }),
     api.speed(),
     api.incidents(),
+    api.activity().catch(() => []),
   ])
   const samples: Record<string, Sample[]> = {}
   for (const s of history) (samples[s.hop] ??= []).push(s)
-  set({ meta, samples, speedRuns, incidents, error: null })
+  set({ meta, samples, speedRuns, incidents, activity, error: null })
 }
 
 let source: EventSource | null = null
@@ -127,6 +131,9 @@ function connect() {
   )
   on("incident", (x): x is Incident => typeof x.id === "string" && Array.isArray(x.evidence?.hops), (x) =>
     set({ incidents: upsertById(state.incidents, x) }),
+  )
+  on("activity", (x): x is Activity => typeof x.id === "number" && typeof x.message === "string", (x) =>
+    set({ activity: [x, ...state.activity.filter((a) => a.id !== x.id)].slice(0, 1000) }),
   )
 }
 

@@ -364,6 +364,24 @@ are open by default.
 From the command line, `wirewolf check --brief` prints the brief, and the API serves it at
 `GET /api/v1/brief` and `GET /api/v1/brief/prompt` (see [api.md](api.md#the-brief-15)).
 
+## Logs
+
+The **Logs** page has two tabs.
+
+- **Activity** is a timeline of what wirewolf did or noticed: the verdict changing, incidents
+  opening and closing, speed test results, settings saved, sign-ins, and whether ICMP works
+  here. It's kept with the rest of the history.
+- **Server logs** shows the server's recent log lines, the same ones `docker logs` shows,
+  and follows new ones live. Narrow them by level or search text. Logs name hosts and
+  addresses on your network, so only people who can change settings see them. Passwords,
+  tokens, and cookies are removed before a line is kept.
+
+The **Filter** box on that tab sets what the server logs, in `RUST_LOG` syntax: a level
+(`error`, `warn`, `info`, `debug`, `trace`), optionally per module. For example,
+`info,wirewolf_probe=debug` shows what each probe does. It applies at once, without a
+restart, and is saved as `log.filter` (also on the Settings page, and `WIREWOLF_LOG_FILTER`).
+If `RUST_LOG` is set when wirewolf starts, it wins until you change the filter.
+
 ## Troubleshooting
 
 ### The ISP hop says "inferred"

@@ -8,6 +8,7 @@
 //!   events to the web server and other clients. Probe drivers publish into it.
 //! - [`config`]: `wirewolf.toml` loading, defaults, and overrides from env vars and flags.
 //! - [`editor`]: saves config changes back to the file, keeping its comments.
+//! - [`logs`]: recent server log lines for the dashboard, and the live log filter.
 //! - [`brief`]: the compact summary of the network for an AI assistant.
 //! - `demo` (feature `demo`): a scripted driver for `wirewolf serve --demo`.
 //!
@@ -22,6 +23,7 @@ pub mod config;
 pub mod diagnose;
 pub mod editor;
 pub mod hub;
+pub mod logs;
 pub mod model;
 
 pub use hub::{Command, Hub};

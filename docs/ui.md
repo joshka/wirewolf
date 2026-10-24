@@ -20,6 +20,7 @@ when?** It works on a LAN whose internet is down, so nothing loads from a CDN.
 | `/incidents/<id>/path/<hop>` | **Hop, as it was** during that incident |
 | `/history` | **History**: RTT, loss, and speed charts with incident bands, by range and hop |
 | `/speed` | **Speed**: latest result, run now, and history |
+| `/logs`, `/logs/server` | **Logs**: the activity timeline, and the server's recent log lines with level, search, and the live log filter (writers only) |
 | `/settings` | **Settings**: the effective config and where each value came from, editable when the server allows writes |
 
 The sidebar holds the logo, the theme and collapse toggles, the live state and host, the

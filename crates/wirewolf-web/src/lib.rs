@@ -26,10 +26,10 @@ use futures_util::StreamExt;
 use jiff::Timestamp;
 use serde::Deserialize;
 use tokio_stream::wrappers::BroadcastStream;
-use wirewolf_core::config::Config;
+use wirewolf_core::config::{self, Config};
 use wirewolf_core::editor::FieldError;
 use wirewolf_core::brief;
-use wirewolf_core::model::Event;
+use wirewolf_core::model::{Activity, ActivityKind, Event, LogLine};
 use wirewolf_core::{Command, Hub};
 
 pub mod auth;
@@ -51,6 +51,7 @@ pub fn router_with_auth(hub: Hub, auth: Arc<AuthState>) -> Router {
     let router = router.merge(ui_shadcn::router());
     router
         .layer(Extension(auth.clone()))
+        .layer(Extension(hub.clone()))
         .layer(axum::middleware::from_fn_with_state(auth, auth::host_guard))
         .layer(axum::middleware::map_response(security_headers))
         .with_state(hub)
@@ -79,6 +80,10 @@ pub fn api_router() -> Router<Hub> {
         .route("/incidents", get(incidents))
         .route("/incidents/{id}", get(incident))
         .route("/events", get(events))
+        .route("/activity", get(activity))
+        .route("/logs", get(logs))
+        .route("/logs/events", get(log_events))
+        .route("/logs/filter", axum::routing::put(put_log_filter))
         .route("/brief", get(brief))
         .route("/brief/prompt", get(brief_prompt))
         .route("/demo/scenario", post(set_scenario))
@@ -118,7 +123,7 @@ async fn config(State(hub): State<Hub>, access: Option<Extension<auth::Access>>)
 
 /// Saves settings to the config file and applies them from the next probe cycle. Whether the
 /// caller may write is checked by the auth layer before this runs.
-async fn put_config(State(hub): State<Hub>, Json(body): Json<serde_json::Value>) -> Response {
+async fn put_config(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Json(body): Json<serde_json::Value>) -> Response {
     let Some(editor) = hub.editor() else { return StatusCode::NOT_FOUND.into_response() };
     let errors = |status, errors: Vec<FieldError>| (status, Json(serde_json::json!({ "errors": errors }))).into_response();
     if editor.read_only() {
@@ -130,6 +135,17 @@ async fn put_config(State(hub): State<Hub>, Json(body): Json<serde_json::Value>)
     };
     match tokio::task::spawn_blocking(move || editor.apply(submitted).map(|l| (editor.view(&l), l.config))).await.expect("editor doesn't panic") {
         Ok((view, config)) => {
+            let before = hub.config().map(|v| v.config);
+            let actor = access.and_then(|a| a.0.user);
+            if let Some(before) = &before {
+                let changed = changed_keys(before, &view.config);
+                if !changed.is_empty() {
+                    hub.record(ActivityKind::Config, format!("Settings saved: {}", changed.join(", ")), None, actor.clone());
+                }
+                if before.log.filter != config.log.filter {
+                    apply_log_filter(&hub, &config.log.filter, actor);
+                }
+            }
             hub.set_config(view.clone());
             hub.send(Command::ApplyConfig(Arc::new(config)));
             Json(view).into_response()
@@ -265,12 +281,178 @@ async fn set_scenario(State(hub): State<Hub>, Json(body): Json<ScenarioBody>) ->
     StatusCode::ACCEPTED
 }
 
+/// The dotted keys whose values differ, at section depth plus one (`probe.interval`,
+/// `targets`), for the activity timeline. Values are never included.
+fn changed_keys(before: &Config, after: &Config) -> Vec<String> {
+    let (a, b) = (serde_json::to_value(before).unwrap_or_default(), serde_json::to_value(after).unwrap_or_default());
+    let mut keys = Vec::new();
+    let (Some(a), Some(b)) = (a.as_object(), b.as_object()) else { return keys };
+    for (section, av) in a {
+        let bv = &b[section];
+        match (av.as_object(), bv.as_object()) {
+            (Some(ao), Some(bo)) => keys.extend(ao.iter().filter(|(k, v)| bo.get(*k) != Some(v)).map(|(k, _)| format!("{section}.{k}"))),
+            _ if av != bv => keys.push(section.clone()),
+            _ => {}
+        }
+    }
+    keys
+}
+
+/// Applies a log filter now and notes it in the activity timeline.
+fn apply_log_filter(hub: &Hub, filter: &str, actor: Option<String>) -> Option<Result<(), String>> {
+    let logs = hub.logs()?;
+    let result = logs.set_filter(filter);
+    match &result {
+        Ok(()) => hub.record(ActivityKind::Config, format!("Log filter set to {filter}"), None, actor),
+        Err(e) => tracing::warn!("log.filter {filter:?}: {e}"),
+    }
+    Some(result)
+}
+
+/// Activity entries, newest first. Who made a change is shown only to those who can write.
+async fn activity(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Query(q): Query<ActivityQuery>) -> impl IntoResponse {
+    let can_write = access.is_some_and(|a| a.can_write);
+    let entries: Vec<Activity> = hub
+        .activity()
+        .into_iter()
+        .filter(|a| q.kind.as_deref().is_none_or(|k| serde_json::to_value(a.kind).ok().and_then(|v| v.as_str().map(|s| s == k)).unwrap_or(false)))
+        .take(q.limit.unwrap_or(500).min(1000))
+        .map(|a| hide_actor(a, can_write))
+        .collect();
+    Json(entries)
+}
+
+#[derive(Debug, Deserialize)]
+struct ActivityQuery {
+    kind: Option<String>,
+    limit: Option<usize>,
+}
+
+fn hide_actor(mut a: Activity, can_write: bool) -> Activity {
+    if !can_write {
+        a.actor = None;
+    }
+    a
+}
+
+const LOGS_NEED_WRITE: &str = "server logs need permission to change settings";
+
+#[derive(Debug, Deserialize)]
+struct LogsQuery {
+    /// Only lines with a `seq` above this.
+    after: Option<u64>,
+    /// The least severe level to include: `error`, `warn`, `info`, `debug`, `trace`.
+    level: Option<String>,
+    /// Only lines whose target starts with this, for example `wirewolf_probe`.
+    target: Option<String>,
+    /// Only lines containing this text (case-insensitive).
+    q: Option<String>,
+    limit: Option<usize>,
+}
+
+fn level_rank(level: &str) -> u8 {
+    match level {
+        "error" => 0,
+        "warn" => 1,
+        "info" => 2,
+        "debug" => 3,
+        _ => 4,
+    }
+}
+
+impl LogsQuery {
+    fn keeps(&self, l: &LogLine) -> bool {
+        self.level.as_deref().is_none_or(|lv| level_rank(&l.level) <= level_rank(&lv.to_ascii_lowercase()))
+            && self.target.as_deref().is_none_or(|t| l.target.starts_with(t))
+            && self.q.as_deref().is_none_or(|q| l.message.to_lowercase().contains(&q.to_lowercase()) || l.target.contains(q))
+    }
+}
+
+/// `GET /logs`: recent server log lines, oldest first, with the filter in effect. Logs name hosts
+/// and addresses, so only those who can write may read them.
+async fn logs(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Query(q): Query<LogsQuery>) -> Response {
+    if !access.is_some_and(|a| a.can_write) {
+        return (StatusCode::FORBIDDEN, LOGS_NEED_WRITE).into_response();
+    }
+    let Some(logs) = hub.logs() else { return StatusCode::NOT_FOUND.into_response() };
+    let mut lines: Vec<LogLine> = logs.lines(q.after.unwrap_or(0)).into_iter().filter(|l| q.keeps(l)).collect();
+    let limit = q.limit.unwrap_or(logs.capacity());
+    if lines.len() > limit {
+        lines.drain(..lines.len() - limit);
+    }
+    Json(serde_json::json!({ "filter": logs.filter(), "capacity": logs.capacity(), "lines": lines })).into_response()
+}
+
+/// `GET /logs/events`: new log lines as `log` server-sent events, with the same filters as
+/// `GET /logs`.
+async fn log_events(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Query(q): Query<LogsQuery>) -> Response {
+    if !access.is_some_and(|a| a.can_write) {
+        return (StatusCode::FORBIDDEN, LOGS_NEED_WRITE).into_response();
+    }
+    let Some(logs) = hub.logs() else { return StatusCode::NOT_FOUND.into_response() };
+    let Ok(permit) = EVENT_STREAMS.clone().try_acquire_owned() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, [(axum::http::header::RETRY_AFTER, "30")], "too many live connections").into_response();
+    };
+    let q = Arc::new(q);
+    let stream = BroadcastStream::new(logs.subscribe()).filter_map(move |l| {
+        let q = q.clone();
+        async move { l.ok().filter(|l| q.keeps(l)) }
+    });
+    let stream = stream.map(move |line| {
+        let _ = &permit;
+        Ok::<_, Infallible>(SseEvent::default().event("log").data(serde_json::to_string(&line).expect("model types serialize")))
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
+}
+
+#[derive(Debug, Deserialize)]
+struct FilterBody {
+    filter: String,
+}
+
+/// `PUT /logs/filter`: changes the log filter now, and saves it as `log.filter` when this
+/// server can save settings and no env var pins it.
+async fn put_log_filter(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Json(body): Json<FilterBody>) -> Response {
+    let errors = |status, errors: Vec<FieldError>| (status, Json(serde_json::json!({ "errors": errors }))).into_response();
+    if hub.logs().is_none() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let filter = body.filter.trim().to_string();
+    if let Err(e) = wirewolf_core::logs::check_filter(&filter) {
+        return errors(StatusCode::UNPROCESSABLE_ENTITY, vec![FieldError::new("log.filter", e)]);
+    }
+    let actor = access.and_then(|a| a.0.user);
+    let pinned = hub.config().is_some_and(|v| matches!(v.sources.get("log.filter"), Some(config::Source::Env | config::Source::Flag)));
+    let mut saved = false;
+    if let (Some(editor), Some(view)) = (hub.editor(), hub.config())
+        && !editor.read_only()
+        && !pinned
+        && view.config.log.filter != filter
+    {
+        let mut submitted = view.config.clone();
+        submitted.log.filter = filter.clone();
+        match tokio::task::spawn_blocking(move || editor.apply(submitted).map(|l| (editor.view(&l), l.config))).await.expect("editor doesn't panic") {
+            Ok((view, config)) => {
+                hub.set_config(view);
+                hub.send(Command::ApplyConfig(Arc::new(config)));
+                saved = true;
+            }
+            Err(e) => return errors(StatusCode::UNPROCESSABLE_ENTITY, e),
+        }
+    }
+    match apply_log_filter(&hub, &filter, actor) {
+        Some(Err(e)) => errors(StatusCode::UNPROCESSABLE_ENTITY, vec![FieldError::new("log.filter", e)]),
+        _ => Json(serde_json::json!({ "filter": filter, "saved": saved })).into_response(),
+    }
+}
+
 /// Open `/events` streams at once. Each is cheap, but anyone who can read could open thousands.
 const MAX_EVENT_STREAMS: usize = 64;
 static EVENT_STREAMS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(MAX_EVENT_STREAMS)));
 
 /// Server-sent events. The current snapshot is sent first so clients render immediately.
-async fn events(State(hub): State<Hub>) -> Response {
+async fn events(State(hub): State<Hub>, access: Option<Extension<auth::Access>>) -> Response {
+    let can_write = access.is_some_and(|a| a.can_write);
     let Ok(permit) = EVENT_STREAMS.clone().try_acquire_owned() else {
         return (StatusCode::SERVICE_UNAVAILABLE, [(axum::http::header::RETRY_AFTER, "30")], "too many live connections").into_response();
     };
@@ -282,6 +464,7 @@ async fn events(State(hub): State<Hub>) -> Response {
             Event::Sample(x) => serde_json::to_string(x),
             Event::Speed(x) => serde_json::to_string(x),
             Event::Incident(x) => serde_json::to_string(x),
+            Event::Activity(x) => serde_json::to_string(&hide_actor(x.clone(), can_write)),
         }
         .expect("model types serialize");
         // The permit lives as long as the stream, so a closed connection frees its slot.
@@ -405,5 +588,74 @@ mod tests {
         assert!(!hub.config().unwrap().editable);
         let c = serde_json::to_value(hub.config().unwrap().config).unwrap();
         assert_eq!(put(&hub, c).await.0, StatusCode::FORBIDDEN);
+    }
+
+    async fn call(app: &Router, req: Request<Body>) -> (StatusCode, serde_json::Value) {
+        let res = app.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    fn filter_req(filter: &str) -> Request<Body> {
+        Request::put("/api/v1/logs/filter").header("content-type", "application/json").body(Body::from(serde_json::json!({ "filter": filter }).to_string())).unwrap()
+    }
+
+    #[tokio::test]
+    async fn logs_need_write_access() {
+        let hub = Hub::new(wirewolf_core::demo::meta("healthy"));
+        let logs = wirewolf_core::logs::Logs::new();
+        hub.set_logs(logs.clone());
+        logs.push("INFO", "wirewolf_probe::measure", "gateway 192.0.2.1 ok");
+        logs.push("DEBUG", "wirewolf_web", "request served");
+        hub.record(ActivityKind::Config, "Settings saved: probe.interval", None, Some("a@example.com".into()));
+        // No sign-in configured and writes off: a reader.
+        let closed = router_with_auth(hub.clone(), Arc::new(auth::AuthState::from_config(&Default::default()).unwrap()));
+        let get = |uri: &str| Request::get(uri).body(Body::empty()).unwrap();
+        assert_eq!(call(&closed, get("/api/v1/logs")).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(call(&closed, get("/api/v1/logs/events")).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(call(&closed, filter_req("debug")).await.0, StatusCode::FORBIDDEN);
+        let (status, body) = call(&closed, get("/api/v1/activity")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body[0]["message"], "Settings saved: probe.interval");
+        assert!(body[0]["actor"].is_null());
+
+        let open = router(hub.clone());
+        let (status, body) = call(&open, get("/api/v1/logs?level=info")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["filter"], "info");
+        assert_eq!(body["lines"].as_array().unwrap().len(), 1);
+        let (_, body) = call(&open, get("/api/v1/logs?target=wirewolf_web&after=0")).await;
+        assert_eq!(body["lines"][0]["message"], "request served");
+        assert_eq!(call(&open, get("/api/v1/activity")).await.1[0]["actor"], "a@example.com");
+    }
+
+    #[tokio::test]
+    async fn log_filter_changes_live_and_saves() {
+        let dir = std::env::temp_dir().join(format!("wirewolf-web-logfilter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("wirewolf.toml");
+        let hub = live_hub(path.clone(), false);
+        let logs = wirewolf_core::logs::Logs::new();
+        hub.set_logs(logs.clone());
+        let app = router(hub.clone());
+        let (status, body) = call(&app, filter_req("info,wirewolf_probe=loud")).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["errors"][0]["key"], "log.filter");
+        let (status, body) = call(&app, filter_req("info,wirewolf_probe=debug")).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["saved"], true);
+        assert_eq!(logs.filter(), "info,wirewolf_probe=debug");
+        assert_eq!(hub.config().unwrap().config.log.filter, "info,wirewolf_probe=debug");
+        assert!(std::fs::read_to_string(&path).unwrap().contains("wirewolf_probe=debug"));
+        assert!(hub.activity().iter().any(|a| a.message == "Log filter set to info,wirewolf_probe=debug"));
+
+        // Through the settings form too, with the changed keys noted.
+        let mut c = serde_json::to_value(hub.config().unwrap().config).unwrap();
+        c["log"]["filter"] = "warn".into();
+        assert_eq!(put(&hub, c).await.0, StatusCode::OK);
+        assert_eq!(logs.filter(), "warn");
+        assert!(hub.activity().iter().any(|a| a.message == "Settings saved: log.filter"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

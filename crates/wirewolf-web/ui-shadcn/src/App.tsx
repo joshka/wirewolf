@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react"
-import { Activity, ChartLine, Flag, Gauge, Settings, type LucideIcon } from "lucide-react"
+import { Activity, ChartLine, Flag, Gauge, ScrollText, Settings, type LucideIcon } from "lucide-react"
 import { ThemeProvider } from "next-themes"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -32,6 +32,7 @@ import { HistoryView } from "@/views/history"
 import { IncidentsView, IncidentView } from "@/views/incidents"
 import { SpeedView } from "@/views/speed"
 import { SettingsView } from "@/views/settings"
+import { LogsView } from "@/views/logs"
 import { findHop, targetHop } from "@/lib/targets"
 import type { Hop } from "@/lib/api"
 import { HopView } from "@/views/hop"
@@ -41,6 +42,7 @@ const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
   { route: { name: "history" }, label: "History", icon: ChartLine },
   { route: { name: "incidents" }, label: "Incidents", icon: Flag },
   { route: { name: "speed" }, label: "Speed", icon: Gauge },
+  { route: { name: "logs" }, label: "Logs", icon: ScrollText },
   { route: { name: "settings" }, label: "Settings", icon: Settings },
 ]
 
@@ -222,6 +224,7 @@ function Main() {
             {route.name === "incident" && <IncidentView id={route.id} />}
             {route.name === "speed" && <SpeedView />}
             {route.name === "settings" && <SettingsView />}
+            {route.name === "logs" && <LogsView tab={route.tab ?? "activity"} />}
             {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
           </>
         )}

@@ -35,6 +35,9 @@ The first release has not been cut yet. This is what exists today.
 - The `wirewolf` command line: `serve` (with `--demo` scenarios), `check` with exit codes and
   `--json`, `tui`, and `config default` / `config show`.
 - A terminal dashboard (`wirewolf tui`).
+- A Logs page: an activity timeline kept with the history, and recent server log lines
+  (redacted, for users who can write) with a log filter (`log.filter`) that changes without a
+  restart.
 - A hardened container image and compose file, and a signed release workflow.
 - A user guide, a deployment guide, and a CLI reference generated from `--help`.
 

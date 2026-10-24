@@ -31,6 +31,8 @@ pub struct Config {
     pub incidents: Incidents,
     pub speed: Speed,
     pub storage: Storage,
+    /// Server log verbosity.
+    pub log: Log,
     /// Who may sign in, and what anonymous visitors may do.
     pub auth: Auth,
     /// Your own things to watch: a NAS, the router admin page, a Pi-hole.
@@ -199,6 +201,20 @@ pub struct Storage {
     /// SQLite history file.
     pub db: PathBuf,
     pub retention: Dur,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Log {
+    /// Which log lines to keep, in `RUST_LOG` syntax, for example `info,wirewolf_probe=debug`.
+    /// Changes apply without a restart. `RUST_LOG`, when set, wins at startup.
+    pub filter: String,
+}
+
+impl Default for Log {
+    fn default() -> Self {
+        Self { filter: crate::logs::DEFAULT_FILTER.into() }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

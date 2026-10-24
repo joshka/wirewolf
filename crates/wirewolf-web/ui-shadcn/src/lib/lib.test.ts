@@ -59,7 +59,7 @@ describe("bucket", () => {
 
 describe("router", () => {
   it("round-trips routes", () => {
-    for (const r of [{ name: "now" }, { name: "history" }, { name: "incidents" }, { name: "speed" }, { name: "incident", id: "inc 3/x" }, { name: "hop", id: "isp" }, { name: "hop", id: "dns/1", incident: "inc 3" }] as const) {
+    for (const r of [{ name: "now" }, { name: "history" }, { name: "incidents" }, { name: "speed" }, { name: "logs" }, { name: "logs", tab: "server" }, { name: "incident", id: "inc 3/x" }, { name: "hop", id: "isp" }, { name: "hop", id: "dns/1", incident: "inc 3" }] as const) {
       expect(parse(href(r))).toEqual(r)
     }
   })

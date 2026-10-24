@@ -34,6 +34,10 @@ publishes a live snapshot every 2s.
 | GET | `/api/v1/brief?format=&redact=&window=&incident=` | The brief: a compact summary for an AI assistant (1.5). See below |
 | GET | `/api/v1/brief/prompt?redact=&window=&incident=` | `text/plain`: a request to explain the problem, then the brief in `<brief>` tags (1.5) |
 | GET | `/api/v1/events` | SSE stream (see below) |
+| GET | `/api/v1/activity?kind=&limit=` | `[Activity]`, newest first, at most 1000 (1.6). `kind` keeps one kind |
+| GET | `/api/v1/logs?after=&level=&target=&q=&limit=` | `{ filter, capacity, lines: [LogLine] }`: recent server log lines, oldest first (1.6). Needs a user who can write (`403`). See below |
+| GET | `/api/v1/logs/events?level=&target=&q=` | SSE: each new `LogLine` as a `log` event, same filters (1.6). Needs a user who can write |
+| PUT | `/api/v1/logs/filter` | Body `{"filter":"info,wirewolf_probe=debug"}`. Changes the log filter now and saves it as `log.filter` when it can (1.6). `200` `{ filter, saved }`, `422` `{ errors: [FieldError] }` |
 | POST | `/api/v1/demo/scenario` | Body `{"id":"dns_down"}`. Returns `202`, `422` for an unknown id, or `404` in live mode |
 | GET | `/api/v1/session` | `Session`: who is signed in and what they may do (1.3). Always readable |
 
@@ -73,6 +77,7 @@ sent first on connect.
 | `sample` | `Sample` | One per hop per cycle, for sparklines |
 | `speed` | `SpeedRun` | Progress updates (`state: running`, `progress` 0–1), then the final result |
 | `incident` | `Incident` | Opened, escalated, or closed (`ended` set) |
+| `activity` | `Activity` | Anything added to the activity timeline (1.6) |
 
 ## Shapes (abridged)
 
@@ -99,6 +104,9 @@ SpeedRun  { id, started, state: running|complete|failed, backend, server?, down_
             up_mbps?, idle_latency_ms?, loaded_latency_ms?, bloat?, bytes_used?, progress?,
             error? }
 Incident  { id, started, ended?, severity, headline, blame?, evidence: Snapshot }
+Activity  { id, at, kind: verdict|incident|speed|config|auth|probe, message, subject?,
+            actor? }                                                              (1.6)
+LogLine   { seq, at, level: error|warn|info|debug|trace, target, message }        (1.6)
 Session   { methods: [oidc|header], user: { id, name?, email?, via: oidc|header }?,
             can_write, reads_require_login, csrf?, login_url?, logout_url? }      (1.3)
 ```
@@ -138,6 +146,30 @@ its link and reconnects (`eth0 flapping`), and when two connected ports share an
 
 Hops always come in path order: `host`, `gateway`, `isp`, `internet`, `dns`, `web`. A
 `skip` hop is collateral damage from an earlier failure. Show it, but de-emphasize it.
+
+## Activity and server logs (1.6)
+
+The activity timeline records what wirewolf did or noticed: verdict changes, incidents
+opening, getting worse, and closing, speed tests starting and finishing, settings saved
+(the keys, never the values), sign-ins and sign-outs, log filter changes, and what the
+probes can do here (ICMP and TTL replies, recorded when it changes). It's kept in the
+history database with the same retention. `subject` is the incident or speed run id.
+`actor` says who made a change, and is `null` for viewers who can't write.
+
+`GET /logs` serves the last 2,000 server log lines (`capacity`) from memory. They name
+hosts and addresses, so they need a user who can write, like `/brief?redact=false`. Before a
+line is stored, URL credentials, the values of secret-looking keys (`client_secret=`,
+`token=`, `code=`, `Cookie:`, `X-Wirewolf-CSRF:` and the like), and the configured OIDC
+client secret are replaced with `***`. `level` keeps that level and more severe ones,
+`target` keeps modules starting with it, `q` matches text case-insensitively, and `after`
+returns only lines with a higher `seq`.
+
+`filter` is the log filter in effect, in `RUST_LOG` syntax. It decides what the server
+records at all, both here and on stderr. `PUT /logs/filter` changes it at once. It also
+saves it as `log.filter` (`saved: true`), unless settings are read-only, an env var
+(`WIREWOLF_LOG_FILTER`) sets it, or the server has no config file to write (the demo).
+`PUT /config` with a new `log.filter` applies it the same way. At startup, `RUST_LOG`, when
+set, wins over `log.filter`.
 
 ## Demo scenarios
 

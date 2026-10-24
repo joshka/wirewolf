@@ -151,6 +151,12 @@ db = "wirewolf.db"
 # How long to keep history. WIREWOLF_RETENTION, --retention.
 retention = "30d"
 
+[log]
+# Which log lines to keep: a level (error, warn, info, debug, trace), optionally per module, as
+# in RUST_LOG. For example "info,wirewolf_probe=debug". The Logs page can change it without a
+# restart. WIREWOLF_LOG_FILTER; RUST_LOG, when set, wins at startup.
+filter = "info"
+
 # Sign-in. Reads (the dashboard, GET API, live events) are open unless `require_for_reads`.
 # Writes (speed tests, settings) need a signed-in user. With no sign-in configured, writes are
 # refused unless `allow_unauthenticated_writes = true`.

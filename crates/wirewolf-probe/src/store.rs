@@ -1,4 +1,4 @@
-//! SQLite history: samples, speed runs, and incidents.
+//! SQLite history: samples, speed runs, incidents, and the activity timeline.
 //!
 //! The store follows the hub's event stream rather than hooking into it, so the hub stays
 //! storage-agnostic: samples, finished speed runs, and every incident change are written as they
@@ -11,7 +11,7 @@ use jiff::{SignedDuration, Timestamp};
 use rusqlite::{Connection, params};
 use tokio::sync::broadcast::error::RecvError;
 use wirewolf_core::Hub;
-use wirewolf_core::model::{Event, Incident, Sample, SpeedRun, SpeedState, Status};
+use wirewolf_core::model::{Activity, Event, Incident, Sample, SpeedRun, SpeedState, Status};
 
 pub struct Store {
     conn: Connection,
@@ -22,6 +22,7 @@ pub struct History {
     pub samples: Vec<Sample>,
     pub speed: Vec<SpeedRun>,
     pub incidents: Vec<Incident>,
+    pub activity: Vec<Activity>,
 }
 
 impl Store {
@@ -58,7 +59,13 @@ impl Store {
                  id TEXT PRIMARY KEY,
                  started_ms INTEGER NOT NULL,
                  json TEXT NOT NULL
-             );",
+             );
+             CREATE TABLE IF NOT EXISTS activity (
+                 id INTEGER PRIMARY KEY,
+                 at_ms INTEGER NOT NULL,
+                 json TEXT NOT NULL
+             );
+             CREATE INDEX IF NOT EXISTS activity_at ON activity (at_ms);",
         )?;
         Ok(Self { conn })
     }
@@ -87,11 +94,17 @@ impl Store {
         Ok(())
     }
 
+    pub fn insert_activity(&self, a: &Activity) -> anyhow::Result<()> {
+        self.conn.execute("INSERT OR REPLACE INTO activity (id, at_ms, json) VALUES (?1, ?2, ?3)", params![a.id as i64, a.at.as_millisecond(), serde_json::to_string(a)?])?;
+        Ok(())
+    }
+
     /// Deletes everything older than `keep`.
     pub fn prune(&self, now: Timestamp, keep: SignedDuration) -> rusqlite::Result<usize> {
         let cutoff = (now - keep).as_millisecond();
         let mut n = self.conn.execute("DELETE FROM samples WHERE at_ms < ?1", [cutoff])?;
         n += self.conn.execute("DELETE FROM speed_runs WHERE started_ms < ?1", [cutoff])?;
+        n += self.conn.execute("DELETE FROM activity WHERE at_ms < ?1", [cutoff])?;
         n += self.conn.execute("DELETE FROM incidents WHERE started_ms < ?1 AND json_extract(json, '$.ended') IS NOT NULL", [cutoff])?;
         Ok(n)
     }
@@ -126,7 +139,9 @@ impl Store {
             incident.ended = Some(ended);
             self.upsert_incident(incident)?;
         }
-        Ok(History { samples, speed, incidents })
+        let mut stmt = self.conn.prepare("SELECT json FROM (SELECT id, json FROM activity ORDER BY id DESC LIMIT ?1) ORDER BY id")?;
+        let activity = stmt.query_map([limit as i64], |row| row.get::<_, String>(0))?.filter_map(|j| serde_json::from_str(&j.ok()?).ok()).collect();
+        Ok(History { samples, speed, incidents, activity })
     }
 }
 
@@ -150,6 +165,7 @@ pub async fn follow(hub: Hub, store: Store, retention: SignedDuration) {
                 Event::Sample(s) => store.insert_sample(s).map_err(Into::into),
                 Event::Speed(r) if r.state != SpeedState::Running => store.upsert_speed(r),
                 Event::Incident(i) => store.upsert_incident(i),
+                Event::Activity(a) => store.insert_activity(a),
                 _ => Ok(()),
             };
             if let Err(e) = result {
@@ -230,8 +246,13 @@ mod tests {
         assert_eq!(h.samples[2].at, t0 + 60.seconds());
         assert_eq!(h.incidents.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["inc-1", "inc-2"]);
         assert_eq!(h.incidents[1].ended, Some(t0 + 60.seconds()));
+        let entry = |id, at| Activity { id, at, kind: wirewolf_core::model::ActivityKind::Probe, message: "ICMP unavailable".into(), subject: None, actor: None };
+        store.insert_activity(&entry(7, t0)).unwrap();
+        store.insert_activity(&entry(8, t0 + 60.seconds())).unwrap();
+        assert_eq!(store.load(t0 - 1.hour(), 10).unwrap().activity.iter().map(|a| a.id).collect::<Vec<_>>(), [7, 8]);
         // Pruning keeps recent rows.
-        assert_eq!(store.prune(t0 + 90.seconds(), SignedDuration::from_secs(45)), Ok(3));
-        assert_eq!(store.load(t0 - 1.hour(), 10).unwrap().samples.len(), 1);
+        assert_eq!(store.prune(t0 + 90.seconds(), SignedDuration::from_secs(45)), Ok(4));
+        let h = store.load(t0 - 1.hour(), 10).unwrap();
+        assert_eq!((h.samples.len(), h.activity.len()), (1, 1));
     }
 }

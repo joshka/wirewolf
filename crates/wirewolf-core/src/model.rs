@@ -336,6 +336,8 @@ pub enum Event {
     Sample(Sample),
     Speed(SpeedRun),
     Incident(Incident),
+    /// Something wirewolf did or noticed (1.6).
+    Activity(Activity),
 }
 
 impl Event {
@@ -346,8 +348,57 @@ impl Event {
             Event::Sample(_) => "sample",
             Event::Speed(_) => "speed",
             Event::Incident(_) => "incident",
+            Event::Activity(_) => "activity",
         }
     }
+}
+
+/// What an [`Activity`] entry is about (1.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActivityKind {
+    /// The overall verdict changed severity.
+    Verdict,
+    /// An incident opened, got worse, or closed.
+    Incident,
+    /// A speed test started or finished.
+    Speed,
+    /// Settings were saved, or the log filter changed.
+    Config,
+    /// Someone signed in or out.
+    Auth,
+    /// What the probes can do here, for example whether ICMP is available.
+    Probe,
+}
+
+/// One entry in the activity timeline, `GET /api/v1/activity` (1.6).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Activity {
+    /// Increases with every entry.
+    pub id: u64,
+    pub at: Timestamp,
+    pub kind: ActivityKind,
+    /// One line, for example "Incident inc-3 opened: DNS is failing".
+    pub message: String,
+    /// The incident or speed run this is about, if any.
+    #[serde(default)]
+    pub subject: Option<String>,
+    /// Who did it, for changes people make. Shown only to visitors who can write.
+    #[serde(default)]
+    pub actor: Option<String>,
+}
+
+/// One server log line, `GET /api/v1/logs` (1.6). Credentials are removed before it's stored.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogLine {
+    /// Increases with every line; pass the last one seen as `after` to get only newer lines.
+    pub seq: u64,
+    pub at: Timestamp,
+    /// `error`, `warn`, `info`, `debug`, or `trace`.
+    pub level: String,
+    /// The module that logged it, for example `wirewolf_probe::measure`.
+    pub target: String,
+    pub message: String,
 }
 
 /// `GET /api/v1/session`: who is signed in and what they may do.

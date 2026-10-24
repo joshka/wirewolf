@@ -151,6 +151,9 @@ pub fn check(c: &Config) -> Vec<FieldError> {
     if c.probe.interval.0.as_secs() < 5 {
         err("probe.interval".into(), "must be at least 5s");
     }
+    if let Err(m) = crate::logs::check_filter(&c.log.filter) {
+        err("log.filter".into(), &m);
+    }
     if c.internet.port == 0 {
         err("internet.port".into(), "must be a port from 1 to 65535");
     }

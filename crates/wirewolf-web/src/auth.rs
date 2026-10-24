@@ -244,9 +244,11 @@ struct Pending {
 }
 
 /// What the request's viewer may do, for handlers that show more to writers.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Access {
     pub can_write: bool,
+    /// Who is signed in, for the activity timeline: email, else name, else id.
+    pub user: Option<String>,
 }
 
 #[derive(Clone, Default)]
@@ -260,7 +262,8 @@ pub async fn policy(State(auth): State<Arc<AuthState>>, mut req: Request, next: 
     let ext = req.extensions();
     let peer = ext.get::<ConnectInfo<SocketAddr>>().map(|c| c.0).or_else(|| ext.get::<MockConnectInfo<SocketAddr>>().map(|c| c.0)).map(|a| a.ip());
     let viewer = auth.identify(req.headers(), peer);
-    req.extensions_mut().insert(Access { can_write: auth.can_write(&viewer) });
+    let user = viewer.user.as_ref().map(|u| u.email.clone().or_else(|| u.name.clone()).unwrap_or_else(|| u.id.clone()));
+    req.extensions_mut().insert(Access { can_write: auth.can_write(&viewer), user });
     let write = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
     // Exactly `/session` (the path inside the `/api/v1` nest), so no other route skips the read check.
     if req.uri().path() == "/session" && !write {
@@ -410,7 +413,7 @@ struct CallbackQuery {
     error_description: Option<String>,
 }
 
-async fn callback(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap, Query(q): Query<CallbackQuery>) -> Response {
+async fn callback(Extension(auth): Extension<Arc<AuthState>>, hub: Option<Extension<wirewolf_core::Hub>>, headers: HeaderMap, Query(q): Query<CallbackQuery>) -> Response {
     let Some(oidc) = &auth.oidc else { return StatusCode::NOT_FOUND.into_response() };
     if let Some(error) = q.error {
         return fail(StatusCode::UNAUTHORIZED, format!("{error} {}", q.error_description.unwrap_or_default()));
@@ -468,7 +471,11 @@ async fn callback(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap
         csrf: CsrfToken::new_random().secret().clone(),
         exp: jiff::Timestamp::now().as_second() + ttl.as_secs() as i64,
     };
-    tracing::info!("signed in {}", stored.email.as_deref().unwrap_or(&stored.id));
+    let who = stored.email.clone().or_else(|| stored.name.clone()).unwrap_or_else(|| stored.id.clone());
+    tracing::info!("signed in {who}");
+    if let Some(Extension(hub)) = hub {
+        hub.record(wirewolf_core::model::ActivityKind::Auth, "Signed in", None, Some(who));
+    }
     let jar = jar
         .remove(Cookie::build(LOGIN_COOKIE).path("/auth"))
         .add(auth.cookie(SESSION_COOKIE, serde_json::to_string(&stored).expect("serializes"), "/", ttl));
@@ -492,11 +499,15 @@ fn groups_in(value: &serde_json::Value) -> Vec<String> {
     }
 }
 
-async fn logout(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap) -> Response {
+async fn logout(Extension(auth): Extension<Arc<AuthState>>, hub: Option<Extension<wirewolf_core::Hub>>, headers: HeaderMap) -> Response {
     let viewer = auth.identify(&headers, None);
     let sent = headers.get(CSRF_HEADER).and_then(|v| v.to_str().ok());
     if viewer.csrf.is_none() || sent != viewer.csrf.as_deref() {
         return StatusCode::FORBIDDEN.into_response();
+    }
+    if let (Some(Extension(hub)), Some(user)) = (hub, &viewer.user) {
+        let who = user.email.clone().or_else(|| user.name.clone()).unwrap_or_else(|| user.id.clone());
+        hub.record(wirewolf_core::model::ActivityKind::Auth, "Signed out", None, Some(who));
     }
     let jar = PrivateCookieJar::from_headers(&headers, auth.key.clone()).remove(Cookie::build(SESSION_COOKIE).path("/"));
     (jar, StatusCode::NO_CONTENT).into_response()
