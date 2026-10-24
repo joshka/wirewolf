@@ -2,7 +2,10 @@
 # Multi-stage build for ghcr.io/joshka/wirewolf.
 #
 #   docker build -t ghcr.io/joshka/wirewolf .
-#   docker run --rm --network host -v wirewolf:/data ghcr.io/joshka/wirewolf
+#   docker run --rm --network host --cap-drop ALL --cap-add NET_RAW --read-only \
+#     --security-opt no-new-privileges -v wirewolf:/data ghcr.io/joshka/wirewolf
+#
+# docs/deploy.md explains these options and the security settings.
 #
 # `--network host` lets the probes see your real LAN and router. In bridge mode the gateway hop
 # measures the Docker bridge instead (the UI says so).

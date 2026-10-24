@@ -45,7 +45,9 @@ publishes a live snapshot every 2s.
 set by a proxy listed in `auth.trusted_header.proxies`.
 
 - **Reads** (every `GET`, including SSE) are open, or need a user with
-  `auth.require_for_reads` (`401` otherwise).
+  `auth.require_for_reads` (`401` otherwise). Viewers who can't write get `GET /config` with
+  `config.auth` at its defaults and no `save_path`, and `403` for `/brief?redact=false`.
+  At most 64 `/events` streams are open at once; more get `503` with `Retry-After`.
 - **Writes** (every other method) need a user when a sign-in method is configured (`401`).
   With none configured they're refused (`403`) unless `auth.allow_unauthenticated_writes`;
   `serve --demo` allows them.
