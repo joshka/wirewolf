@@ -9,9 +9,10 @@
 //! (`cargo install wirewolf`). This crate's API is internal and may change in any release.
 
 mod check;
+mod writable;
 
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::parser::ValueSource;
@@ -152,6 +153,31 @@ fn load_config_for_edit(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[
     Ok((loaded, path, overrides))
 }
 
+/// Fails with the path and the ids to fix if a file `serve` writes isn't writable.
+fn check_writable(config: &config::Config, config_path: &Path, read_only_settings: bool) -> anyhow::Result<()> {
+    use writable::Need;
+    let mut needs = Vec::new();
+    let db = &config.storage.db;
+    if !db.as_os_str().is_empty() {
+        needs.push(Need { what: "storage.db", path: db.clone(), read_only_if_present: false });
+        for suffix in ["-wal", "-shm"] {
+            let mut side = db.clone().into_os_string();
+            side.push(suffix);
+            let side = PathBuf::from(side);
+            if side.exists() {
+                needs.push(Need { what: "storage.db", path: side, read_only_if_present: false });
+            }
+        }
+    }
+    if !read_only_settings {
+        needs.push(Need { what: "config (or pass --read-only-settings)", path: config_path.to_path_buf(), read_only_if_present: false });
+    }
+    if !config.auth.issuer.is_empty() {
+        needs.push(Need { what: "auth.session_key_file", path: config.auth.session_key_file.clone(), read_only_if_present: true });
+    }
+    writable::check(&needs).map_err(anyhow::Error::msg)
+}
+
 fn live_overrides(listen: Option<SocketAddr>, live: &LiveArgs) -> Vec<(&'static str, &'static str, Option<String>)> {
     vec![
         ("server.listen", "listen", listen.map(|l| l.to_string())),
@@ -220,10 +246,11 @@ pub fn run() -> anyhow::Result<()> {
         }
         let addr: SocketAddr = loaded.config.server.listen.parse().map_err(|e| anyhow::anyhow!("server.listen {:?}: {e}", loaded.config.server.listen))?;
         let hub = Hub::new(wirewolf_probe::meta());
-        let editor = Arc::new(Editor::new(path, overrides, wirewolf_probe::field_errors, read_only_settings));
+        let editor = Arc::new(Editor::new(path.clone(), overrides, wirewolf_probe::field_errors, read_only_settings));
         hub.set_config(editor.view(&loaded));
         hub.set_editor(editor);
         let config = Arc::new(loaded.config);
+        check_writable(&config, &path, read_only_settings)?;
         wirewolf_probe::attach_store(&hub, &config)?;
         let auth = wirewolf_web::auth::AuthState::from_config(&config.auth).map_err(anyhow::Error::msg)?.with_allowed_hosts(&config.server.allowed_hosts);
         tokio::spawn(wirewolf_probe::run(hub.clone(), config));
