@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { ArrowLeft, Check, ClipboardCopy } from "lucide-react"
+import { ArrowLeft, Check, ClipboardCopy, FileText } from "lucide-react"
 import { toast } from "sonner"
-import { Button } from "@/components/ui/button"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -26,7 +26,13 @@ export function IncidentsView() {
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Incidents" description="Every period the network was degraded or down, open ones first. Each keeps the evidence from its worst moment.">
-        <CsvLink what="incidents" />
+        <div className="flex flex-wrap gap-2">
+          <a href={href({ name: "report" })} onClick={onLinkClick} className={buttonVariants({ variant: "outline", size: "sm" })}>
+            <FileText aria-hidden />
+            Connection report
+          </a>
+          <CsvLink what="incidents" />
+        </div>
       </PageHeader>
       <UptimeStrip incidents={incidents} since={meta?.monitoring_since} now={now} />
       <IncidentList />

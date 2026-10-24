@@ -12,6 +12,7 @@ export type Route =
   | { name: "speed" }
   | { name: "settings" }
   | { name: "logs"; tab?: "server" }
+  | { name: "report" }
   | { name: "hop"; id: string; incident?: string } // incident: show that incident's evidence
 
 export function parse(pathname: string): Route {
@@ -29,6 +30,8 @@ export function parse(pathname: string): Route {
       return { name: "speed" }
     case "settings":
       return { name: "settings" }
+    case "report":
+      return { name: "report" }
     case "logs":
       return parts[1] === "server" ? { name: "logs", tab: "server" } : { name: "logs" }
     default:

@@ -3,7 +3,7 @@ import type { Hop, Incident, Interface, Sample } from "./api"
 import { bucket, sparkSeries } from "./bucket"
 import { duration, mbps, ms, pct, relative } from "./format"
 import { linkSpeed, portStatus, total } from "./ports"
-import { reportText } from "./report"
+import { periodReport, reportText } from "./report"
 import { uptime } from "./uptime"
 import { href, parse } from "./router"
 
@@ -178,5 +178,32 @@ describe("uptime", () => {
 
   it("has no ratio with nothing watched", () => {
     expect(uptime([], null, now, 3).ratio).toBeNull()
+  })
+})
+
+describe("periodReport", () => {
+  const now = new Date(at(24 * 60)).getTime()
+  const inc = (id: string, startMin: number, endMin: number, blame: string, severity: "down" | "degraded" = "down"): Incident => ({
+    id,
+    started: at(startMin),
+    ended: at(endMin),
+    severity,
+    headline: id,
+    blame,
+    evidence: {} as Incident["evidence"],
+  })
+  const run = (min: number, down: number, up: number) => ({ id: `s${min}`, started: at(min), state: "complete" as const, backend: "demo", server: null, down_mbps: down, up_mbps: up, idle_latency_ms: 9, loaded_latency_ms: 15, bloat: "A" as const, bytes_used: 1, progress: null, error: null })
+
+  it("separates provider-side outages and clips downtime to the period", () => {
+    const r = periodReport([inc("isp", 60, 70, "isp"), inc("wifi", 100, 130, "gateway"), inc("old", -120, 30, "internet")], [], { down: null, up: null }, now, 1)
+    expect(r.provider.map((i) => i.id)).toEqual(["old", "isp"])
+    expect(r.providerDown).toBe((30 + 10) * 60e3)
+    expect(r.down).toBe((30 + 10 + 30) * 60e3)
+  })
+
+  it("counts tests under 80% of the plan", () => {
+    const r = periodReport([], [run(10, 900, 900), run(20, 700, 900), run(30, 950, 100)], { down: 1000, up: 1000 }, now, 1)
+    expect(r.medianDown).toBe(900)
+    expect(r.underPlan).toBe(2)
   })
 })

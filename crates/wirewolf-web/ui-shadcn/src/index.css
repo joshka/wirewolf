@@ -179,3 +179,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Printing (the connection report): drop the app chrome and print on white. */
+@media print {
+  [data-slot="sidebar-gap"],
+  [data-slot="sidebar-container"],
+  [data-slot="sidebar-wrapper"] > a[href="#main"],
+  header.sticky,
+  [data-sonner-toaster] {
+    display: none !important;
+  }
+}

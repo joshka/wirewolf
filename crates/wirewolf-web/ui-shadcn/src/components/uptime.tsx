@@ -37,7 +37,8 @@ export function UptimeStrip({ incidents, since, now, days = 30 }: { incidents: I
         <h2 className="text-sm font-medium">Last {days} days</h2>
         <p className="text-sm text-muted-foreground tabular-nums">{summary.join(" · ")}</p>
       </div>
-      <ol className="flex h-8 gap-0.5">
+      {/* The bars are background colours, which printing drops unless told otherwise. */}
+      <ol className="flex h-8 gap-0.5 [print-color-adjust:exact]">
         {u.days.map((d) => (
           <li
             key={d.start}

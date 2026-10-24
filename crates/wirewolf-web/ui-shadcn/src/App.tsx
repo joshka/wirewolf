@@ -39,6 +39,7 @@ const IncidentView = lazy(() => import("@/views/incidents").then((m) => ({ defau
 const SpeedView = lazy(() => import("@/views/speed").then((m) => ({ default: m.SpeedView })))
 const SettingsView = lazy(() => import("@/views/settings").then((m) => ({ default: m.SettingsView })))
 const LogsView = lazy(() => import("@/views/logs").then((m) => ({ default: m.LogsView })))
+const ReportView = lazy(() => import("@/views/report").then((m) => ({ default: m.ReportView })))
 const HopView = lazy(() => import("@/views/hop").then((m) => ({ default: m.HopView })))
 
 const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
@@ -202,7 +203,7 @@ function Main() {
   const session = useSession()
   const locked = !!session?.reads_require_login && !session.user
   const snapshotHop = useLive((s) => (route.name === "hop" ? findHop(s.snapshot, route.id)?.label : undefined))
-  const title = route.name === "incident" ? "Incident" : route.name === "hop" ? (snapshotHop ?? route.id) : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
+  const title = route.name === "incident" ? "Incident" : route.name === "report" ? "Connection report" : route.name === "hop" ? (snapshotHop ?? route.id) : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
     const sev = severity && severity !== "healthy" ? `⚠ ${severity} · ` : ""
     document.title = `${sev}${title} · wirewolf`
@@ -240,6 +241,7 @@ function Main() {
               {route.name === "speed" && <SpeedView />}
               {route.name === "settings" && <SettingsView />}
               {route.name === "logs" && <LogsView tab={route.tab ?? "activity"} />}
+              {route.name === "report" && <ReportView />}
               {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
             </Suspense>
           </>

@@ -334,6 +334,15 @@ A poor grade means your router's queues fill up when the line is busy, so calls 
 while anything big is downloading or uploading. Smart queue management (SQM, such as `cake` or
 `fq_codel`) on the router usually fixes it.
 
+## The connection report
+
+Incidents → **Connection report** (`/report`) summarizes the last 7 or 30 days for your ISP:
+outages on the provider's side (blamed on the ISP or internet hop) apart from problems on your
+own network, total downtime, the last 30 days as a strip, and speed tests against your plan
+(`speed.plan_*`). **Print** prints it on white (or saves a PDF from the print dialog), and **Copy
+as text** gives the same summary for an email or a support chat. Each incident links to its page,
+which keeps the evidence from its worst moment and has its own **Copy report**.
+
 ## Export and Prometheus
 
 The History, Incidents, and Speed pages each have a **Download CSV** button (History exports the
