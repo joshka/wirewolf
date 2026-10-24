@@ -308,6 +308,14 @@ export function SettingsView() {
             <Text ctx={ctx} k="storage.retention" width="short" />
           </Field>
         </Rows>
+        <List
+          ctx={ctx}
+          k="server.allowed_hosts"
+          title="Allowed host names"
+          empty="Only localhost, IP addresses, local names (.local, .lan, …), and the sign-in redirect host. Other names are refused, which blocks DNS rebinding."
+          cols={[{ key: "", label: "Host name", placeholder: "wirewolf.example.com", mono: true }]}
+          blank=""
+        />
       </Section>
 
       <Dialog open={!!leavingTo} onOpenChange={(open) => !open && setLeavingTo(null)}>
@@ -529,7 +537,7 @@ interface Col {
 }
 
 /** An editable list such as `[[dns.resolvers]]`: a titled block, column labels once, then rows. */
-function List({ ctx, k, title, cols, blank }: { ctx: Ctx; k: string; title: string; cols: Col[]; blank: unknown }) {
+function List({ ctx, k, title, cols, blank, empty = "None." }: { ctx: Ctx; k: string; title: string; cols: Col[]; blank: unknown; empty?: string }) {
   const state = changeOf(ctx, k)
   if (ctx.changedOnly && !state.changed && !state.unsaved) return null
   const rows = (getPath(ctx.draft, k) as unknown[]) ?? []
@@ -556,7 +564,7 @@ function List({ ctx, k, title, cols, blank }: { ctx: Ctx; k: string; title: stri
       <ChangeNote ctx={ctx} k={k} list />
       {ctx.errors[k] && <p className="text-xs text-destructive">{ctx.errors[k]}</p>}
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">None.</p>
+        <p className="text-sm text-muted-foreground">{empty}</p>
       ) : (
         <div className="grid items-center gap-x-2 gap-y-2" style={grid}>
           {cols.map((c) => (
@@ -826,7 +834,7 @@ const KEYS = {
   dns: ["dns.system", "dns.record_types", "dns.resolvers", "dns.queries"],
   internet: ["internet.port", "internet.icmp", "internet.targets"],
   web: ["web.captive_portal", "web.tls_host", "web.sites"],
-  server: ["server.listen", "storage.db", "storage.retention"],
+  server: ["server.listen", "server.allowed_hosts", "storage.db", "storage.retention"],
 }
 const ALL_KEYS = ["targets", ...Object.values(KEYS).flat()]
 

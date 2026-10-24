@@ -76,7 +76,7 @@ export interface UserTargetConfig {
 
 /** `wirewolf.toml` as JSON. Durations are strings such as `"30s"`. */
 export interface Config {
-  server: { listen: string }
+  server: { listen: string; allowed_hosts: string[] }
   probe: { interval: string; ipv6: "auto" | "on" | "off"; path_mtu: boolean }
   internet: { port: number; icmp: boolean; targets: { name: string; v4: string | null; v6: string | null }[] }
   dns: {
