@@ -17,7 +17,7 @@ tokio = { version = "1.54.1", features = ["net", "rt-multi-thread", "macros", "s
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tracing = "0.1.44"
 wirewolf-core = { version = "0.0.0", path = "../wirewolf-core" }
-rust-embed = { version = "8.13.0", optional = true, features = ["mime-guess"] }
+rust-embed = { version = "8.13.0", optional = true, features = ["mime-guess", "debug-embed"] }
 
 [features]
 default = ["ui-shadcn"]

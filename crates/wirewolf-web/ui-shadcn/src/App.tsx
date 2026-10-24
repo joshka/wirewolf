@@ -73,26 +73,30 @@ function AppSidebar() {
   }
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <div className="flex items-center group-data-[collapsible=icon]:flex-col">
-          <SidebarMenu className="min-w-0 flex-1">
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" className="group-data-[collapsible=icon]:p-0!" render={<a href={href({ name: "now" })} onClick={go} />}>
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-                  <Activity aria-hidden className="size-4" />
-                </span>
-                <span className="font-semibold">wirewolf</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-          <div className="flex items-center gap-0.5 group-data-[collapsible=icon]:flex-col">
-            <ThemeToggle />
-            <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
-          </div>
+      <SidebarHeader className="gap-3 p-4 group-data-[collapsible=icon]:p-2">
+        <div className="flex justify-end gap-0.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-center">
+          <ThemeToggle />
+          <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
         </div>
-        <div className="flex min-w-0 items-center gap-2 px-2 group-data-[collapsible=icon]:hidden">
+        <a
+          href={href({ name: "now" })}
+          onClick={go}
+          aria-label="wirewolf home"
+          className="flex items-center gap-3 rounded-md py-2 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
+        >
+          <svg
+            viewBox="0 0 32 32"
+            fill="currentColor"
+            aria-hidden="true"
+            className="size-12 shrink-0 text-violet-500 group-data-[collapsible=icon]:size-6"
+          >
+            <path fillRule="evenodd" d="M4 3 12 9H20L28 3 26 13H30L27 22 16 30 5 22 2 13H6ZM8 14 10 19 14 17ZM24 14 18 17 22 19Z" />
+          </svg>
+          <span className="text-2xl font-semibold tracking-tight group-data-[collapsible=icon]:hidden">wirewolf</span>
+        </a>
+        <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
           <LiveIndicator />
-          {meta && <span className="truncate font-mono text-xs text-muted-foreground" title={meta.host}>{meta.host}</span>}
+          {meta && <span className="truncate font-mono text-[11px] text-muted-foreground" title={meta.host}>{meta.host}</span>}
         </div>
       </SidebarHeader>
       <SidebarContent>
