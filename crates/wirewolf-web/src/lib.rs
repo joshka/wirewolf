@@ -93,9 +93,17 @@ async fn meta(State(hub): State<Hub>) -> impl IntoResponse {
     Json(hub.meta())
 }
 
-async fn config(State(hub): State<Hub>) -> Response {
+/// The settings. Readers who can't write don't see `[auth]` (issuer, client ID, allowlists,
+/// proxy addresses) or where the file is saved.
+async fn config(State(hub): State<Hub>, access: Option<Extension<auth::Access>>) -> Response {
     match hub.config() {
-        Some(view) => Json(view).into_response(),
+        Some(mut view) => {
+            if !access.is_some_and(|a| a.can_write) {
+                view.config.auth = Default::default();
+                view.save_path = None;
+            }
+            Json(view).into_response()
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -200,12 +208,20 @@ fn build_brief(hub: &Hub, q: &BriefQuery) -> Result<brief::Brief, (StatusCode, S
     Ok(brief::build(input, &options))
 }
 
+/// `redact=false` shows public IPs and host names, so only those who can write may ask for it.
+fn refuse_unredacted(q: &BriefQuery, access: Option<Extension<auth::Access>>) -> Option<Response> {
+    (q.redact == Some(false) && !access.is_some_and(|a| a.can_write)).then(|| (StatusCode::FORBIDDEN, "redact=false needs permission to change settings").into_response())
+}
+
 fn plain_text(text: String) -> Response {
     ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
 }
 
 /// `GET /brief`: a compact, redacted summary for an AI assistant (see `wirewolf_core::brief`).
-async fn brief(State(hub): State<Hub>, Query(q): Query<BriefQuery>) -> Response {
+async fn brief(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Query(q): Query<BriefQuery>) -> Response {
+    if let Some(e) = refuse_unredacted(&q, access) {
+        return e;
+    }
     match build_brief(&hub, &q) {
         Ok(b) if q.format.as_deref() == Some("json") => Json(b).into_response(),
         Ok(b) => plain_text(b.text()),
@@ -214,7 +230,10 @@ async fn brief(State(hub): State<Hub>, Query(q): Query<BriefQuery>) -> Response 
 }
 
 /// `GET /brief/prompt`: the brief wrapped in a request to explain it, ready to paste.
-async fn brief_prompt(State(hub): State<Hub>, Query(q): Query<BriefQuery>) -> Response {
+async fn brief_prompt(State(hub): State<Hub>, access: Option<Extension<auth::Access>>, Query(q): Query<BriefQuery>) -> Response {
+    if let Some(e) = refuse_unredacted(&q, access) {
+        return e;
+    }
     match build_brief(&hub, &q) {
         Ok(b) => plain_text(brief::prompt(&b)),
         Err(e) => e.into_response(),
@@ -340,6 +359,27 @@ mod tests {
         let res = router(hub).oneshot(Request::get("/api/v1/meta").body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(res.headers()["x-content-type-options"], "nosniff");
         assert_eq!(res.headers()["x-frame-options"], "DENY");
+    }
+
+    #[tokio::test]
+    async fn readers_who_cannot_write_see_less() {
+        let path = std::env::temp_dir().join("wirewolf-web-readers/wirewolf.toml");
+        let hub = live_hub(path, false);
+        let mut view = hub.config().unwrap();
+        view.config.auth.allowed_emails = vec!["a@example.com".into()];
+        hub.set_config(view);
+        hub.publish_snapshot(wirewolf_core::demo::snapshot("healthy", jiff::Timestamp::now()));
+        let closed = router_with_auth(hub.clone(), Arc::new(auth::AuthState::from_config(&Default::default()).unwrap()));
+        let get = |app: &Router, uri: &'static str| app.clone().oneshot(Request::get(uri).body(Body::empty()).unwrap());
+        let body = to_bytes(get(&closed, "/api/v1/config").await.unwrap().into_body(), 1 << 20).await.unwrap();
+        let view: ConfigView = serde_json::from_slice(&body).unwrap();
+        assert!(view.config.auth.allowed_emails.is_empty() && view.save_path.is_none());
+        assert_eq!(get(&closed, "/api/v1/brief?redact=false").await.unwrap().status(), StatusCode::FORBIDDEN);
+        assert_eq!(get(&closed, "/api/v1/brief").await.unwrap().status(), StatusCode::OK);
+        let open = router(hub);
+        let body = to_bytes(get(&open, "/api/v1/config").await.unwrap().into_body(), 1 << 20).await.unwrap();
+        assert_eq!(serde_json::from_slice::<ConfigView>(&body).unwrap().config.auth.allowed_emails, ["a@example.com"]);
+        assert_eq!(get(&open, "/api/v1/brief?redact=false").await.unwrap().status(), StatusCode::OK);
     }
 
     #[tokio::test]

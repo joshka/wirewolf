@@ -238,6 +238,12 @@ struct Pending {
     return_to: String,
 }
 
+/// What the request's viewer may do, for handlers that show more to writers.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Access {
+    pub can_write: bool,
+}
+
 #[derive(Clone, Default)]
 struct Viewer {
     user: Option<SessionUser>,
@@ -249,6 +255,7 @@ pub async fn policy(State(auth): State<Arc<AuthState>>, mut req: Request, next: 
     let ext = req.extensions();
     let peer = ext.get::<ConnectInfo<SocketAddr>>().map(|c| c.0).or_else(|| ext.get::<MockConnectInfo<SocketAddr>>().map(|c| c.0)).map(|a| a.ip());
     let viewer = auth.identify(req.headers(), peer);
+    req.extensions_mut().insert(Access { can_write: auth.can_write(&viewer) });
     let write = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
     // Exactly `/session` (the path inside the `/api/v1` nest), so no other route skips the read check.
     if req.uri().path() == "/session" && !write {

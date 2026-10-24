@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch"
 import { api } from "@/lib/api"
 import { ASSISTANTS, assistantUrl, type Assistant } from "@/lib/assistants"
 import { copyText, downloadText } from "@/lib/clipboard"
+import { useSession } from "@/lib/session"
 
 /**
  * "Ask an AI": shows the prompt plus brief (`GET /brief/prompt`) to copy into any chat assistant,
@@ -21,6 +22,8 @@ export function AskAi({ incident, size }: { incident?: string; size?: "sm" | "de
   const [text, setText] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
   const [copied, setCopied] = useState(false)
+  // The server shows public addresses only to those who may change settings.
+  const canUnredact = useSession()?.can_write ?? false
 
   useEffect(() => {
     if (!open) return
@@ -79,9 +82,13 @@ export function AskAi({ incident, size }: { incident?: string; size?: "sm" | "de
         <Label className="flex items-center justify-between gap-4">
           <span className="flex flex-col gap-1">
             Hide public IP addresses
-            <span className="text-xs font-normal text-muted-foreground">Local, provider-internal, and well-known resolver addresses stay: they help the diagnosis</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              {canUnredact
+                ? "Local, provider-internal, and well-known resolver addresses stay: they help the diagnosis"
+                : "Always on unless you can change settings on this server"}
+            </span>
           </span>
-          <Switch checked={redact} onCheckedChange={setRedact} />
+          <Switch checked={redact || !canUnredact} onCheckedChange={setRedact} disabled={!canUnredact} />
         </Label>
         <DialogFooter>
           <Button variant="outline" onClick={download} disabled={!text}>
