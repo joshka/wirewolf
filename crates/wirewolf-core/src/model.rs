@@ -292,6 +292,10 @@ pub struct Meta {
     pub scenarios: Vec<Scenario>,
     /// The active demo scenario, if in demo mode.
     pub scenario: Option<String>,
+    /// The oldest measurement kept, so a view of the last N days can tell "no problems" from
+    /// "not watching yet" (1.7). `null` from older servers.
+    #[serde(default)]
+    pub monitoring_since: Option<Timestamp>,
 }
 
 /// The effective configuration, from `GET /api/v1/config`.

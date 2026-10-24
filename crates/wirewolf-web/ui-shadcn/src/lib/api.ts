@@ -179,6 +179,8 @@ export interface Meta {
   host: string
   scenarios: { id: string; name: string; description: string }[]
   scenario: string | null
+  /** The oldest measurement kept (API 1.7; missing from older servers). */
+  monitoring_since?: string | null
 }
 
 export type ActivityKind = "verdict" | "incident" | "speed" | "config" | "auth" | "probe"

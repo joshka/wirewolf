@@ -491,6 +491,7 @@ mod tests {
             host: String::new(),
             scenarios: vec![],
             scenario: None,
+            monitoring_since: None,
         });
         hub.set_incident_policy(Incidents { open_after, close_after });
         hub

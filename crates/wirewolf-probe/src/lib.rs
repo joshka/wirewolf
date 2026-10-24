@@ -35,6 +35,7 @@ pub fn meta() -> Meta {
         host: hostname(),
         scenarios: vec![],
         scenario: None,
+        monitoring_since: None,
     }
 }
 
@@ -72,6 +73,8 @@ pub fn attach_store(hub: &Hub, config: &Config) -> anyhow::Result<()> {
         history.incidents.len(),
         if db.as_os_str().is_empty() { "memory".into() } else { db.display().to_string() }
     );
+    // Watching starts now if nothing older is stored.
+    hub.update_meta(|m| m.monitoring_since = Some(history.first_sample.unwrap_or_else(Timestamp::now)));
     hub.load_history(history.samples, history.speed, history.incidents);
     hub.load_activity(history.activity);
     let retention = SignedDuration::try_from(config.storage.retention.0)?;

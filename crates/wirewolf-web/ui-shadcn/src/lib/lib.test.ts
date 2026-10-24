@@ -4,6 +4,7 @@ import { bucket, sparkSeries } from "./bucket"
 import { duration, mbps, ms, pct, relative } from "./format"
 import { linkSpeed, portStatus, total } from "./ports"
 import { reportText } from "./report"
+import { uptime } from "./uptime"
 import { href, parse } from "./router"
 
 const at = (min: number) => new Date(Date.UTC(2026, 9, 24, 0, min)).toISOString()
@@ -146,5 +147,36 @@ describe("ports", () => {
     expect(linkSpeed(port("eth0", false))).toBe("—")
     expect(total(null, null)).toBeNull()
     expect(total(2, null)).toBe(2)
+  })
+})
+
+describe("uptime", () => {
+  const inc = (startMin: number, endMin: number | null, severity: "down" | "degraded"): Incident => ({
+    id: `i${startMin}`,
+    started: at(startMin),
+    ended: endMin == null ? null : at(endMin),
+    severity,
+    headline: "",
+    blame: null,
+    evidence: {} as Incident["evidence"],
+  })
+  const now = new Date(at(24 * 60)).getTime()
+
+  it("counts only down time against uptime, and only while watching", () => {
+    const u = uptime([inc(60, 90, "down"), inc(120, 180, "degraded")], at(0), now, 3)
+    expect(u.watched).toBe(24 * 3600e3)
+    expect(u.down).toBe(30 * 60e3)
+    expect(u.incidents).toBe(2)
+    expect(u.ratio).toBeCloseTo(1 - 30 / (24 * 60))
+  })
+
+  it("marks days before monitoring began as unwatched", () => {
+    const u = uptime([], at(12 * 60), now, 3)
+    expect(u.days[0].watched).toBe(0)
+    expect(u.watched).toBe(12 * 3600e3)
+  })
+
+  it("has no ratio with nothing watched", () => {
+    expect(uptime([], null, now, 3).ratio).toBeNull()
   })
 })

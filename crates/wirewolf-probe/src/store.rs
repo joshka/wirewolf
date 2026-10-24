@@ -19,6 +19,8 @@ pub struct Store {
 
 /// History loaded at startup.
 pub struct History {
+    /// The oldest sample kept, which may be older than `samples`.
+    pub first_sample: Option<Timestamp>,
     pub samples: Vec<Sample>,
     pub speed: Vec<SpeedRun>,
     pub incidents: Vec<Incident>,
@@ -141,7 +143,9 @@ impl Store {
         }
         let mut stmt = self.conn.prepare("SELECT json FROM (SELECT id, json FROM activity ORDER BY id DESC LIMIT ?1) ORDER BY id")?;
         let activity = stmt.query_map([limit as i64], |row| row.get::<_, String>(0))?.filter_map(|j| serde_json::from_str(&j.ok()?).ok()).collect();
-        Ok(History { samples, speed, incidents, activity })
+        let first: Option<i64> = self.conn.query_row("SELECT min(at_ms) FROM samples", [], |r| r.get(0))?;
+        let first_sample = first.and_then(|ms| Timestamp::from_millisecond(ms).ok());
+        Ok(History { first_sample, samples, speed, incidents, activity })
     }
 }
 

@@ -17,13 +17,18 @@ import { reportText } from "@/lib/report"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import { CsvLink, PageHeader } from "@/components/page-header"
+import { UptimeStrip } from "@/components/uptime"
 
 export function IncidentsView() {
+  const incidents = useLive((s) => s.incidents)
+  const meta = useLive((s) => s.meta)
+  const now = useNow(60_000)
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Incidents" description="Every period the network was degraded or down, open ones first. Each keeps the evidence from its worst moment.">
         <CsvLink what="incidents" />
       </PageHeader>
+      <UptimeStrip incidents={incidents} since={meta?.monitoring_since} now={now} />
       <IncidentList />
     </div>
   )

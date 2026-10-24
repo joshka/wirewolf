@@ -65,6 +65,8 @@ pub fn meta(scenario: &str) -> Meta {
         host: "wirewolf-demo".into(),
         scenarios: scenarios(),
         scenario: Some(scenario.into()),
+        // The demo backfills 24 hours of history.
+        monitoring_since: Some(jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24)),
     }
 }
 

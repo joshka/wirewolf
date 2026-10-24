@@ -558,7 +558,7 @@ mod tests {
     use wirewolf_core::model::{ConfigView, Meta};
 
     fn live_hub(path: std::path::PathBuf, read_only: bool) -> Hub {
-        let hub = Hub::new(Meta { version: "0".into(), api_version: "1".into(), mode: "live".into(), host: "h".into(), scenarios: vec![], scenario: None });
+        let hub = Hub::new(Meta { version: "0".into(), api_version: "1".into(), mode: "live".into(), host: "h".into(), scenarios: vec![], scenario: None, monitoring_since: None });
         let editor = Arc::new(Editor::new(path.clone(), vec![], |_| vec![], read_only));
         hub.set_config(editor.view(&config::load(Some(&path), false, &[]).unwrap()));
         hub.set_editor(editor);

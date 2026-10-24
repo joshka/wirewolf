@@ -22,7 +22,7 @@ publishes a live snapshot every 2s.
 
 | Method | Path | Returns |
 |---|---|---|
-| GET | `/api/v1/meta` | `Meta`: version, `mode` (`demo`/`live`), host, scenarios, active scenario |
+| GET | `/api/v1/meta` | `Meta`: version, `mode` (`demo`/`live`), host, scenarios, active scenario, and `monitoring_since`, the oldest measurement kept (1.7) |
 | GET | `/api/v1/config` | `ConfigView`: the effective config and where each value came from (1.1). `404` if the server didn't publish one |
 | PUT | `/api/v1/config` | Body: a whole `ConfigView.config`. Saves it to the config file and applies it from the next probe cycle (1.2). `200` with the new `ConfigView`, `422` `{ errors: [FieldError] }`, `403` with `--read-only-settings` (or when the auth layer refuses the write), `404` in demo mode |
 | GET | `/api/v1/now` | `Snapshot`, or `204` before the first measurement |
