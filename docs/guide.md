@@ -313,6 +313,11 @@ line is loaded.
 on gigabit, about 2 GB. Hourly on gigabit adds up to tens of gigabytes a day. If your plan has a
 cap, lengthen `speed.interval` or set it to `"0"`. Each result records the bytes it used.
 
+**Your plan.** Set `speed.plan_down_mbps` and `speed.plan_up_mbps` to the speeds you pay for
+(Settings → Speed tests, or in `wirewolf.toml`). Results then show as a share of the plan ("91% of
+1000 Mbps plan"), the speed chart draws the plan as a dashed line, and runs under 80% of it are
+flagged in the table. Without a plan, runs under half your usual speed are flagged instead.
+
 **Bufferbloat grade.** The grade comes from how much latency rises under load (loaded minus idle),
 using the common Waveform thresholds:
 

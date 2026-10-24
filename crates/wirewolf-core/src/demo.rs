@@ -133,9 +133,16 @@ pub fn config() -> crate::config::Loaded {
             t("Printer", "ping://10.0.0.5", false),
             t("Pi-hole", "dns://pihole.local", false),
         ],
+        // A gigabit plan, which the demo's healthy speed tests (about 900 Mbps) roughly meet.
+        speed: crate::config::Speed { plan_down_mbps: 1000.0, plan_up_mbps: 1000.0, ..Default::default() },
         ..Config::default()
     };
-    let sources = [("targets".to_string(), Source::File)].into();
+    let sources = [
+        ("targets".to_string(), Source::File),
+        ("speed.plan_down_mbps".to_string(), Source::File),
+        ("speed.plan_up_mbps".to_string(), Source::File),
+    ]
+    .into();
     Loaded { config, path: Some("wirewolf.toml (demo)".into()), sources }
 }
 

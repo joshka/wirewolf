@@ -4,7 +4,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { api, type BloatGrade, type SpeedRun } from "@/lib/api"
-import { useLive } from "@/lib/live"
+import { ofPlan, PLAN_SHORTFALL, useLive } from "@/lib/live"
 import { useSession, writeBlocked } from "@/lib/session"
 import { Gated } from "./chrome"
 import { cn } from "@/lib/utils"
@@ -89,6 +89,20 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
   )
 }
 
+/**
+ * "92% of plan" under a result, in the warn colour below 80%. Nothing when no plan is set, or
+ * while the test is still running (a partial figure would read as a shortfall).
+ */
+function PlanShare({ value, plan, running }: { value: number | null | undefined; plan: number | null; running: boolean }) {
+  const share = ofPlan(value, plan)
+  if (share == null || running) return null
+  return (
+    <div className={cn("text-xs tabular-nums", share < PLAN_SHORTFALL ? "text-warn" : "text-muted-foreground")}>
+      {Math.round(share * 100)}% of {plan} Mbps plan
+    </div>
+  )
+}
+
 /** A note for a test that failed after `run` (the last good result) was measured. */
 function FailedNote({ failed }: { failed: SpeedRun }) {
   return (
@@ -105,13 +119,14 @@ function FailedNote({ failed }: { failed: SpeedRun }) {
 export function SpeedSummary({ run, running, failed }: { run: SpeedRun | null; running: boolean; failed?: SpeedRun | null }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
   const big = "text-3xl sm:text-4xl"
+  const plan = useLive((s) => s.plan)
   return (
     <div className="flex flex-col gap-4">
       <dl className="grid grid-cols-2 gap-4">
         {[
-          { icon: ArrowDown, label: "Download", value: num(run?.down_mbps) },
-          { icon: ArrowUp, label: "Upload", value: num(run?.up_mbps) },
-        ].map(({ icon: Icon, label, value }) => (
+          { icon: ArrowDown, label: "Download", value: num(run?.down_mbps), raw: run?.down_mbps, of: plan.down },
+          { icon: ArrowUp, label: "Upload", value: num(run?.up_mbps), raw: run?.up_mbps, of: plan.up },
+        ].map(({ icon: Icon, label, value, raw, of }) => (
           <div key={label} className="min-w-0">
             <dt className="flex items-center gap-1 text-xs text-muted-foreground">
               <Icon aria-hidden className="size-3.5" />
@@ -121,6 +136,7 @@ export function SpeedSummary({ run, running, failed }: { run: SpeedRun | null; r
               <span className={cn("font-semibold tracking-tight", big)}>{value}</span>
               <span className="text-2xl text-muted-foreground">Mbps</span>
             </dd>
+            <PlanShare value={raw} plan={of} running={running} />
           </div>
         ))}
       </dl>
@@ -165,21 +181,23 @@ export function SpeedSummary({ run, running, failed }: { run: SpeedRun | null; r
  */
 export function SpeedCompact({ run, running, failed }: { run: SpeedRun | null; running: boolean; failed?: SpeedRun | null }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
+  const plan = useLive((s) => s.plan)
   const stats = [
-    { label: "Down", value: num(run?.down_mbps), unit: "Mbps" },
-    { label: "Up", value: num(run?.up_mbps), unit: "Mbps" },
-    { label: "Loaded", value: num(run?.loaded_latency_ms), unit: "ms" },
+    { label: "Down", value: num(run?.down_mbps), unit: "Mbps", raw: run?.down_mbps, of: plan.down },
+    { label: "Up", value: num(run?.up_mbps), unit: "Mbps", raw: run?.up_mbps, of: plan.up },
+    { label: "Loaded", value: num(run?.loaded_latency_ms), unit: "ms", raw: null, of: null },
   ]
   return (
     <div className="flex flex-col gap-3">
       <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        {stats.map(({ label, value, unit }) => (
+        {stats.map(({ label, value, unit, raw, of }) => (
           <div key={label} className="min-w-0">
             <dt className="text-xs text-muted-foreground">{label}</dt>
             <dd className="tabular-nums flex items-baseline gap-1">
               <span className="text-3xl font-semibold tracking-tight">{value}</span>
               <span className="text-xs text-muted-foreground">{unit}</span>
             </dd>
+            <PlanShare value={raw} plan={of} running={running} />
           </div>
         ))}
         <div>

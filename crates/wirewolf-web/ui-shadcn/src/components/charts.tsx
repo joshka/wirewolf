@@ -1,9 +1,10 @@
-import { CartesianGrid, Line, LineChart, ReferenceArea, XAxis, YAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { HopKind, Incident, SpeedRun } from "@/lib/api"
 import { bucket, type Point } from "@/lib/bucket"
 import { clock, mbps, ms, pct } from "@/lib/format"
 import { hopColor } from "@/lib/colors"
+import { useLive } from "@/lib/live"
 
 export { bucket }
 export { hopColor }
@@ -159,7 +160,8 @@ export function SpeedChart({
   const lo = from ?? data[0].t
   const hi = to ?? data[data.length - 1].t
   // Three round ticks, the same on every speed chart, so small and large charts read alike.
-  const peak = Math.max(...data.flatMap((p) => [p.down ?? 0, p.up ?? 0]))
+  const plan = useLive((s) => s.plan)
+  const peak = Math.max(...data.flatMap((p) => [p.down ?? 0, p.up ?? 0]), plan.down ?? 0, plan.up ?? 0)
   const step = peak > 2000 ? 1000 : peak > 400 ? 250 : peak > 80 ? 50 : 10
   const top = Math.max(step, Math.ceil(peak / step / 2) * step * 2)
   return (
@@ -169,6 +171,10 @@ export function SpeedChart({
         {timeAxis(from ?? "dataMin", to ?? "dataMax", hi - lo)}
         <YAxis width={84} tickLine={false} axisLine={false} domain={[0, top]} ticks={[0, top / 2, top]} interval={0} tickFormatter={(v: number) => `${v} Mbps`} />
         {incidentBands(incidents, lo, hi)}
+        {/* The speeds paid for, dashed in each direction's colour. */}
+        {(["down", "up"] as const).map((k) =>
+          plan[k] != null ? <ReferenceLine key={k} y={plan[k]!} stroke={`var(--color-${k})`} strokeDasharray="4 4" strokeOpacity={0.6} ifOverflow="extendDomain" /> : null,
+        )}
         {tooltip(speedConfig)}
         {/* Tests are separate measurements, so straight segments: a curve invents values between them. */}
         {(["down", "up"] as const).map((k) => (

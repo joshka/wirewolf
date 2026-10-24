@@ -144,6 +144,10 @@ server = ""
 # Parallel connections per direction, and how long each direction runs.
 streams = 8
 duration = "10s"
+# The speeds you pay for, in Mbps. Results are shown as a share of these, and runs under 80% are
+# flagged. 0 means not set.
+plan_down_mbps = 0
+plan_up_mbps = 0
 
 [storage]
 # SQLite history file. WIREWOLF_DB, --db.

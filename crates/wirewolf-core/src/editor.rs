@@ -218,6 +218,11 @@ pub fn check(c: &Config) -> Vec<FieldError> {
     if !(2..=60).contains(&c.speed.duration.0.as_secs()) {
         err("speed.duration".into(), "must be from 2s to 60s");
     }
+    for (key, v) in [("speed.plan_down_mbps", c.speed.plan_down_mbps), ("speed.plan_up_mbps", c.speed.plan_up_mbps)] {
+        if !(0.0..=100_000.0).contains(&v) {
+            err(key.into(), "must be from 0 (not set) to 100000");
+        }
+    }
     let mut names = BTreeMap::new();
     for (i, t) in c.targets.iter().enumerate() {
         if t.name.trim().is_empty() {

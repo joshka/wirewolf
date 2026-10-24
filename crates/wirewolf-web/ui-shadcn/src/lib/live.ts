@@ -8,6 +8,12 @@ export type Connection = "connecting" | "live" | "reconnecting"
 /** How much recent history the Now view keeps for sparklines. */
 export const SPARK_WINDOW_MS = 15 * 60 * 1000
 
+/** The speeds the user pays for (`speed.plan_*` in the config). `null` when not set. */
+export interface Plan {
+  down: number | null
+  up: number | null
+}
+
 export interface LiveState {
   meta: Meta | null
   snapshot: Snapshot | null
@@ -20,6 +26,7 @@ export interface LiveState {
   connection: Connection
   /** The last failure to load data outside the SSE stream. */
   error: string | null
+  plan: Plan
 }
 
 const empty: LiveState = {
@@ -31,6 +38,7 @@ const empty: LiveState = {
   activity: [],
   connection: "connecting",
   error: null,
+  plan: { down: null, up: null },
 }
 
 // A reload (Cmd+R) would otherwise paint skeletons until the API answers, which reads as a flash.
@@ -155,7 +163,23 @@ export function start() {
   if (started) return
   started = true
   connect()
+  void reloadPlan()
 }
+
+/** Re-read the speed plan from the config (at start, and after Settings saves). */
+export async function reloadPlan() {
+  const view = await api.config().catch(() => null)
+  const pos = (v: number | undefined) => (v && v > 0 ? v : null)
+  set({ plan: { down: pos(view?.config.speed.plan_down_mbps), up: pos(view?.config.speed.plan_up_mbps) } })
+}
+
+/** A speed as a share of the plan, or null when there's no plan or no result. */
+export function ofPlan(value: number | null | undefined, plan: number | null): number | null {
+  return value == null || plan == null ? null : value / plan
+}
+
+/** Below this share of the plan, a result is flagged. */
+export const PLAN_SHORTFALL = 0.8
 
 export function useLive<T>(select: (s: LiveState) => T): T {
   return useSyncExternalStore(

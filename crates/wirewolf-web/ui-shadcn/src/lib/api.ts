@@ -109,7 +109,7 @@ export interface Config {
   web: { captive_portal: string; tls_host: string; sites: string[] }
   thresholds: Record<"gateway" | "isp" | "internet" | "dns" | "targets", Limits>
   incidents: { open_after: number; close_after: number }
-  speed: { backend: string; interval: string; server: string; streams: number; duration: string }
+  speed: { backend: string; interval: string; server: string; streams: number; duration: string; plan_down_mbps?: number; plan_up_mbps?: number }
   storage: { db: string; retention: string }
   /** Server log filter (1.6). */
   log?: { filter: string }

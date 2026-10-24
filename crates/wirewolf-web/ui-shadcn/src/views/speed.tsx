@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SpeedChart } from "@/components/charts"
 import { BloatBadge, RunSpeedButton, SpeedSummary, useSpeed } from "@/components/speed"
 import { RelTime } from "@/components/time"
-import { useLive } from "@/lib/live"
+import { PLAN_SHORTFALL, useLive } from "@/lib/live"
 import { bytes, mbps, ms } from "@/lib/format"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils"
 
 export function SpeedView() {
   const { runs, running, latest, failed } = useSpeed()
+  const plan = useLive((s) => s.plan)
   const incidents = useLive((s) => s.incidents)
   const done = runs.filter((r) => r.state === "complete").length
   return (
@@ -42,6 +43,7 @@ export function SpeedView() {
           <CardTitle>History</CardTitle>
           <CardDescription>
             {done} completed test{done === 1 ? "" : "s"}
+            {(plan.down != null || plan.up != null) && " · the dashed line is your plan"}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-2 sm:px-4">
@@ -60,14 +62,18 @@ const RECENT_RUNS = 10
 /**
  * Every run, newest first: the latest ten, then the rest on request. A column whose values are
  * all the same (one backend, one server) moves into the description instead of repeating on
- * every row, and speeds under half the median are coloured so slow runs stand out.
+ * every row, and slow speeds are coloured: under 80% of the plan if one is set, otherwise under
+ * half the median.
  */
 function RunsTable({ runs }: { runs: SpeedRun[] }) {
   const [all, setAll] = useState(false)
   const done = runs.filter((r) => r.state === "complete")
   const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
   const mid = { down: median(done.map((r) => r.down_mbps ?? 0)), up: median(done.map((r) => r.up_mbps ?? 0)) }
-  const slow = (v: number | null, m: number | undefined) => v != null && m != null && v < m / 2
+  const plan = useLive((s) => s.plan)
+  // Against the plan when one is set, otherwise against this network's own median.
+  const slow = (v: number | null, m: number | undefined, of: number | null) =>
+    v != null && (of != null ? v < of * PLAN_SHORTFALL : m != null && v < m / 2)
   const same = (f: (r: SpeedRun) => string | null) => new Set(runs.map(f)).size <= 1
   const oneBackend = same((r) => r.backend)
   const oneServer = same((r) => r.server)
@@ -103,8 +109,8 @@ function RunsTable({ runs }: { runs: SpeedRun[] }) {
                 </TableCell>
                 {!oneBackend && <TableCell className="hidden text-muted-foreground lg:table-cell">{r.backend}</TableCell>}
                 {!oneServer && <TableCell className="hidden text-muted-foreground lg:table-cell">{r.server ?? "—"}</TableCell>}
-                <TableCell className={cn("text-right", slow(r.down_mbps, mid.down) && "text-warn")}>{mbps(r.down_mbps)}</TableCell>
-                <TableCell className={cn("text-right", slow(r.up_mbps, mid.up) && "text-warn")}>{mbps(r.up_mbps)}</TableCell>
+                <TableCell className={cn("text-right", slow(r.down_mbps, mid.down, plan.down) && "text-warn")}>{mbps(r.down_mbps)}</TableCell>
+                <TableCell className={cn("text-right", slow(r.up_mbps, mid.up, plan.up) && "text-warn")}>{mbps(r.up_mbps)}</TableCell>
                 <TableCell className="hidden text-right md:table-cell">{ms(r.idle_latency_ms)}</TableCell>
                 <TableCell className="hidden text-right md:table-cell">{ms(r.loaded_latency_ms)}</TableCell>
                 <TableCell className="text-center">

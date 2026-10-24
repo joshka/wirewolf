@@ -193,6 +193,11 @@ pub struct Speed {
     pub streams: usize,
     /// How long each direction runs.
     pub duration: Dur,
+    /// The download speed you pay for, in Mbps, so results can be shown as a share of it.
+    /// `0` means not set.
+    pub plan_down_mbps: f64,
+    /// The upload speed you pay for, in Mbps. `0` means not set.
+    pub plan_up_mbps: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -387,7 +392,7 @@ impl Default for Thresholds {
 
 impl Default for Speed {
     fn default() -> Self {
-        Self { backend: "cloudflare".into(), interval: Dur::secs(60 * 60), server: String::new(), streams: 8, duration: Dur::secs(10) }
+        Self { backend: "cloudflare".into(), interval: Dur::secs(60 * 60), server: String::new(), streams: 8, duration: Dur::secs(10), plan_down_mbps: 0.0, plan_up_mbps: 0.0 }
     }
 }
 

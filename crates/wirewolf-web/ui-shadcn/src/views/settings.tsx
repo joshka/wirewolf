@@ -21,6 +21,7 @@ import {
   type Limits,
   type UserTargetConfig,
 } from "@/lib/api"
+import { reloadPlan } from "@/lib/live"
 import { blockNavigation, navigate } from "@/lib/router"
 import { signIn, useSession, writeBlocked } from "@/lib/session"
 
@@ -116,6 +117,7 @@ export function SettingsView() {
       setView(res.view)
       setDraft(structuredClone(res.view.config))
       setErrors([])
+      void reloadPlan()
       toast.success("Settings saved", { description: "Probes use them from the next cycle." })
       return true
     }
@@ -231,6 +233,12 @@ export function SettingsView() {
           </Field>
           <Field ctx={ctx} k="speed.duration" label="Duration" hint="How long each direction runs">
             <Text ctx={ctx} k="speed.duration" width="short" placeholder="10s" />
+          </Field>
+          <Field ctx={ctx} k="speed.plan_down_mbps" label="Plan download" hint="What you pay for; results under 80% are flagged. 0 is not set">
+            <Num ctx={ctx} k="speed.plan_down_mbps" unit="Mbps" />
+          </Field>
+          <Field ctx={ctx} k="speed.plan_up_mbps" label="Plan upload" hint="0 is not set">
+            <Num ctx={ctx} k="speed.plan_up_mbps" unit="Mbps" />
           </Field>
         </Rows>
       </Section>
@@ -837,7 +845,7 @@ const KEYS = {
   probe: ["probe.interval", "probe.ipv6", "probe.path_mtu"],
   incidents: ["incidents.open_after", "incidents.close_after"],
   thresholds: ["gateway", "isp", "internet", "dns", "targets"].map((h) => `thresholds.${h}`),
-  speed: ["speed.backend", "speed.interval", "speed.server", "speed.streams", "speed.duration"],
+  speed: ["speed.backend", "speed.interval", "speed.server", "speed.streams", "speed.duration", "speed.plan_down_mbps", "speed.plan_up_mbps"],
   log: ["log.filter"],
   dns: ["dns.system", "dns.record_types", "dns.resolvers", "dns.queries"],
   internet: ["internet.port", "internet.icmp", "internet.targets"],
