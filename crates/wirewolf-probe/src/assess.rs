@@ -406,7 +406,9 @@ pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt
         }
         return base(Status::Fail, "no response".into(), m, evidence, vec![check(&method_name(g.method), Status::Fail, format!("{} sent, all lost", g.rtts.len()), None)]);
     }
-    let deprioritized = matches!((m.rtt_ms, downstream_rtt), (Some(gw), Some(down)) if down < gw);
+    // A router that's slow to answer probes is excused only when traffic through it is fast. If
+    // the hops beyond are slow too, the gateway's latency is real and everything inherits it.
+    let deprioritized = matches!((m.rtt_ms, downstream_rtt), (Some(gw), Some(down)) if down < gw && down <= limits.rtt_warn_ms);
     if deprioritized {
         evidence.push(ev("note", format!("hops beyond answer faster ({:.1} ms), so the router deprioritizes probes; its RTT isn't the bottleneck", downstream_rtt.unwrap_or_default())));
     }
@@ -981,6 +983,25 @@ mod tests {
             t.outcome = TcpOutcome::Attempts { rtts: vec![Some(60.0); 5], error: None };
         }
         assert_eq!(hops(&m)[1].status, Status::Warn);
+    }
+
+    #[test]
+    fn slow_gateway_warns_when_everything_beyond_is_slow_too() {
+        // Live reading: gateway 156 ms, ISP edge 157 ms, internet 110 ms, against the gateway's
+        // 30 ms limit. The internet answering faster than the router doesn't excuse it here:
+        // 110 ms is still far over the limit, so the latency is local and inherited.
+        let mut m = healthy();
+        m.gateway.rtts = vec![Some(156.0); 20];
+        m.isp.rtts = vec![Some(157.0); 5];
+        for t in &mut m.internet {
+            t.outcome = TcpOutcome::Attempts { rtts: vec![Some(110.0); 5], error: None };
+        }
+        let path = hops(&m);
+        assert_eq!(path[1].status, Status::Warn, "{:#?}", path[1]);
+        let verdict = wirewolf_core::diagnose::diagnose(&path);
+        assert_eq!(verdict.blame.as_deref(), Some("gateway"));
+        assert_eq!(verdict.headline, "Slow on your local network (Wi-Fi or LAN)");
+        assert!(verdict.fix_hint.is_some());
     }
 
     #[test]
