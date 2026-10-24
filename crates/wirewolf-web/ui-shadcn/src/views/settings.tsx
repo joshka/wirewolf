@@ -18,9 +18,9 @@ import {
   type ConfigView,
   type FieldError,
   type Limits,
-  type Session,
   type UserTargetConfig,
 } from "@/lib/api"
+import { signIn, useSession, writeBlocked } from "@/lib/session"
 
 /** Everything one setting control needs: its value, whether it can change, and its error. */
 interface Ctx {
@@ -34,7 +34,7 @@ interface Ctx {
 /** The effective config, editable when the server and session allow it. */
 export function SettingsView() {
   const [view, setView] = useState<ConfigView | null | undefined>(undefined)
-  const [session, setSession] = useState<Session | null>(null)
+  const session = useSession()
   const [draft, setDraft] = useState<Config | null>(null)
   const [errors, setErrors] = useState<FieldError[]>([])
   const [saving, setSaving] = useState(false)
@@ -47,16 +47,14 @@ export function SettingsView() {
       },
       (e: Error) => setLoadError(e.message),
     )
-    // Servers without the auth layer have no /session; their writes aren't gated by login.
-    api.session().then(setSession, () => setSession(null))
   }, [])
   const dirty = useMemo(() => !!view && !!draft && JSON.stringify(view.config) !== JSON.stringify(draft), [view, draft])
   if (loadError) return <p className="text-sm text-fail">Couldn't load the config: {loadError}</p>
   if (view === undefined || (view && !draft)) return <Skeleton className="h-96 w-full rounded-xl" />
   if (view === null || !draft) return <p className="text-muted-foreground">This server doesn't report its configuration.</p>
 
-  const signedOut = session !== null && !session.can_write
-  const canEdit = !!view.editable && !signedOut
+  const blocked = writeBlocked(session, "change settings")
+  const canEdit = !!view.editable && !blocked
   const byKey = Object.fromEntries(errors.filter((e) => e.key).map((e) => [e.key, e.message]))
   const general = errors.filter((e) => !e.key || !hasControl(e.key))
   const ctx: Ctx = {
@@ -104,8 +102,15 @@ export function SettingsView() {
               <>
                 Saving writes <code className="font-mono">{view.save_path}</code>, keeping its comments, and applies from the next probe cycle.
               </>
-            ) : signedOut ? (
-              "Sign in to change them."
+            ) : blocked && view.editable ? (
+              <>
+                {blocked}.{" "}
+                {session?.login_url && (
+                  <Button variant="link" className="h-auto p-0" onClick={() => signIn(session.login_url!)}>
+                    Sign in
+                  </Button>
+                )}
+              </>
             ) : (
               <>
                 Read-only on this server. Edit the file and restart to change them.
