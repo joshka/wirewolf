@@ -112,6 +112,7 @@ function AppSidebar() {
 function Main() {
   const route = useRoute()
   const severity = useLive((s) => s.snapshot?.verdict.severity)
+  const error = useLive((s) => s.error)
   const title = route.name === "incident" ? "Incident" : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
     const sev = severity && severity !== "healthy" ? `⚠ ${severity} · ` : ""
@@ -129,6 +130,7 @@ function Main() {
         </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">
+        {error && <p className="mb-4 rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">{error}</p>}
         {route.name === "now" && <NowView />}
         {route.name === "history" && <HistoryView />}
         {route.name === "incidents" && <IncidentsView />}

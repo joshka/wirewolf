@@ -11,12 +11,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { api } from "@/lib/api"
 import { reloadMeta, useLive } from "@/lib/live"
 import { cn } from "@/lib/utils"
-import { relative } from "@/lib/format"
-import { useNow } from "./time"
 
 const THEMES = ["system", "light", "dark"] as const
 const themeIcon = { system: Monitor, light: Sun, dark: Moon }
@@ -28,51 +25,31 @@ export function ThemeToggle() {
   const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]
   const Icon = themeIcon[current]
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<Button variant="ghost" size="icon" aria-label={`Theme: ${current}. Switch to ${next}`} onClick={() => setTheme(next)} />}
-      >
-        <Icon aria-hidden strokeWidth={1.75} />
-      </TooltipTrigger>
-      <TooltipContent>Theme: {current}</TooltipContent>
-    </Tooltip>
+    <Button variant="ghost" size="icon" title={`Theme: ${current}`} aria-label={`Theme: ${current}. Switch to ${next}`} onClick={() => setTheme(next)}>
+      <Icon aria-hidden />
+    </Button>
   )
 }
 
-/** SSE connection state: green "Live", amber "Reconnecting…", muted "Probes paused". */
+/** SSE connection state: "Live", "Reconnecting…", or "Probes paused" during a speed test. */
 export function LiveIndicator() {
   const connection = useLive((s) => s.connection)
-  const lostAt = useLive((s) => s.lostAt)
-  const at = useLive((s) => s.snapshot?.at)
   const paused = useLive((s) => s.speedRuns.some((r) => r.state === "running"))
-  const now = useNow(1000)
-  const live = connection === "live"
-  const state = !live ? "reconnecting" : paused ? "paused" : "live"
-  const label = { live: "Live", paused: "Probes paused", reconnecting: connection === "connecting" ? "Connecting…" : "Reconnecting…" }[state]
+  const state = connection !== "live" ? "reconnecting" : paused ? "paused" : "live"
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<span tabIndex={0} role="status" />}
-        className={cn(
-          "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring",
-          state === "live" && "text-foreground",
-          state === "paused" && "text-muted-foreground",
-          state === "reconnecting" && "border-warn/40 bg-warn/10 text-warn",
-        )}
-      >
-        <span className="relative flex size-1.5">
-          {state === "live" && <span className="absolute inline-flex size-full animate-ping rounded-full bg-pass opacity-60 motion-reduce:hidden" />}
-          <span className={cn("relative inline-flex size-1.5 rounded-full", { live: "bg-pass", paused: "bg-muted-foreground", reconnecting: "bg-warn" }[state])} />
-        </span>
-        <span>{label}</span>
-        {state === "reconnecting" && lostAt && <span className="hidden font-normal sm:inline">· lost {relative(new Date(lostAt), now)}</span>}
-      </TooltipTrigger>
-      <TooltipContent>
-        {state === "reconnecting"
-          ? "Lost the connection to wirewolf. Retrying…"
-          : `${state === "paused" ? "Probes pause while a speed test runs. " : ""}Streaming updates${at ? ` · last snapshot ${relative(at, now)}` : ""}`}
-      </TooltipContent>
-    </Tooltip>
+    // Only the stable label is in the status region, so screen readers hear state changes, not ticks.
+    <span
+      role="status"
+      title={state === "paused" ? "Probes pause while a speed test runs" : state === "reconnecting" ? "Lost the connection to wirewolf; retrying" : "Streaming updates"}
+      className={cn(
+        "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium",
+        state === "paused" && "text-muted-foreground",
+        state === "reconnecting" && "border-warn/40 bg-warn/10 text-warn",
+      )}
+    >
+      <span className={cn("size-1.5 rounded-full", { live: "bg-pass", paused: "bg-muted-foreground", reconnecting: "bg-warn" }[state])} />
+      {{ live: "Live", paused: "Probes paused", reconnecting: connection === "connecting" ? "Connecting…" : "Reconnecting…" }[state]}
+    </span>
   )
 }
 

@@ -16,8 +16,8 @@ export interface LiveState {
   speedRuns: SpeedRun[]
   incidents: Incident[]
   connection: Connection
-  /** When the connection was lost, for the "disconnected since" message. */
-  lostAt: number | null
+  /** The last failure to load data outside the SSE stream. */
+  error: string | null
 }
 
 let state: LiveState = {
@@ -27,7 +27,7 @@ let state: LiveState = {
   speedRuns: [],
   incidents: [],
   connection: "connecting",
-  lostAt: null,
+  error: null,
 }
 
 const listeners = new Set<() => void>()
@@ -68,7 +68,7 @@ async function refresh() {
   ])
   const samples: Record<string, Sample[]> = {}
   for (const s of history) (samples[s.hop] ??= []).push(s)
-  set({ meta, samples, speedRuns, incidents })
+  set({ meta, samples, speedRuns, incidents, error: null })
 }
 
 let source: EventSource | null = null
@@ -79,21 +79,38 @@ function connect() {
   source = new EventSource(api.eventsUrl)
   source.onopen = () => {
     retry = 0
-    set({ connection: "live", lostAt: null })
-    refresh().catch(() => {})
+    set({ connection: "live" })
+    refresh().catch((e: Error) => set({ error: `Couldn't load data: ${e.message}` }))
   }
   source.onerror = () => {
     // EventSource retries on its own, but gives up for good on some errors; own the retry loop.
     source?.close()
     source = null
-    set({ connection: "reconnecting", lostAt: state.lostAt ?? Date.now() })
+    set({ connection: "reconnecting" })
     const delay = Math.min(15000, 1000 * 2 ** retry++)
     setTimeout(connect, delay)
   }
-  source.addEventListener("snapshot", (e) => set({ snapshot: JSON.parse(e.data) }))
-  source.addEventListener("sample", (e) => addSample(JSON.parse(e.data)))
-  source.addEventListener("speed", (e) => set({ speedRuns: upsertById(state.speedRuns, JSON.parse(e.data)) }))
-  source.addEventListener("incident", (e) => set({ incidents: upsertById(state.incidents, JSON.parse(e.data)) }))
+  on("snapshot", (x): x is Snapshot => Array.isArray(x.hops) && typeof x.verdict?.severity === "string", (x) => set({ snapshot: x }))
+  on("sample", (x): x is Sample => typeof x.hop === "string" && typeof x.at === "string", addSample)
+  on("speed", (x): x is SpeedRun => typeof x.id === "string" && typeof x.state === "string", (x) =>
+    set({ speedRuns: upsertById(state.speedRuns, x) }),
+  )
+  on("incident", (x): x is Incident => typeof x.id === "string" && Array.isArray(x.evidence?.hops), (x) =>
+    set({ incidents: upsertById(state.incidents, x) }),
+  )
+}
+
+/** Subscribes to one SSE event type, dropping payloads that don't have the expected shape. */
+function on<T>(name: string, valid: (x: any) => x is T, handle: (x: T) => void) {
+  source?.addEventListener(name, (e) => {
+    try {
+      const x = JSON.parse((e as MessageEvent).data)
+      if (x && typeof x === "object" && valid(x)) return handle(x)
+    } catch {
+      // fall through
+    }
+    console.warn(`wirewolf: ignored malformed "${name}" event`)
+  })
 }
 
 let started = false

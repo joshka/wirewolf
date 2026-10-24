@@ -32,7 +32,10 @@ fn main() {
         );
         return;
     }
-    if !ui.join("node_modules").exists() {
+    // pnpm writes node_modules/.modules.yaml on install; reinstall when the lockfile is newer.
+    let installed = std::fs::metadata(ui.join("node_modules/.modules.yaml")).and_then(|m| m.modified()).ok();
+    let locked = std::fs::metadata(ui.join("pnpm-lock.yaml")).and_then(|m| m.modified()).ok();
+    if installed.is_none() || locked > installed {
         pnpm(&ui, &["install", "--frozen-lockfile"]);
     }
     pnpm(&ui, &["run", "build"]);

@@ -16,7 +16,6 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
   const healthy = v.severity === "healthy"
   return (
     <section
-      aria-live="polite"
       aria-label="Verdict"
       className={cn(
         "relative overflow-hidden rounded-xl border",
@@ -57,6 +56,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
             <span>· {v.confidence[0].toUpperCase() + v.confidence.slice(1)} confidence</span>
           </div>
           <h1
+            aria-live="polite"
             className={cn(
               "mt-2 font-semibold tracking-tight text-balance",
               healthy ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
@@ -75,7 +75,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
             </div>
           )}
           <p className="mt-3 text-xs text-muted-foreground">
-            {v.method} · checked <RelTime at={snapshot.at} plain />
+            {v.method} · checked <RelTime at={snapshot.at} />
           </p>
         </div>
       </div>

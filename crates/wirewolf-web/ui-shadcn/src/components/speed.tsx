@@ -68,14 +68,10 @@ export function RunSpeedButton({
 
 export function SpeedProgress({ run }: { run: SpeedRun }) {
   const p = Math.round((run.progress ?? 0) * 100)
-  const phase = p < 10 ? "Measuring idle latency" : p < 55 ? "Testing download" : p < 95 ? "Testing upload" : "Finishing"
   return (
-    <div className="space-y-2" aria-live="polite">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{phase}…</span>
-        <span className="tabular-nums font-medium">{p}%</span>
-      </div>
-      <Progress value={p} aria-label="Speed test progress" />
+    <div className="flex items-center gap-3 text-sm">
+      <Progress value={p} aria-label="Speed test progress" className="flex-1" />
+      <span className="w-10 text-right tabular-nums">{p}%</span>
     </div>
   )
 }

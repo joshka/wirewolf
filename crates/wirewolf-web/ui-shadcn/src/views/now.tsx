@@ -82,7 +82,7 @@ function RecentIncidents() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{i.headline}</div>
                     <div className="text-xs text-muted-foreground">
-                      <RelTime at={i.started} plain /> ·{" "}
+                      <RelTime at={i.started} /> ·{" "}
                       {i.ended ? duration(i.started, i.ended) : <span className="text-fail">ongoing {duration(i.started, null, now)}</span>}
                       {i.blame && ` · ${hops?.find((h) => h.id === i.blame)?.label ?? i.blame}`}
                     </div>

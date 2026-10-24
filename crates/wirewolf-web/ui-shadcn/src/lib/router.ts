@@ -38,20 +38,24 @@ export function href(route: Route): string {
 }
 
 const listeners = new Set<() => void>()
-window.addEventListener("popstate", () => listeners.forEach((l) => l()))
+const notify = () => listeners.forEach((l) => l())
 
 export function navigate(to: string) {
   if (to === location.pathname) return
   history.pushState(null, "", to)
   window.scrollTo({ top: 0 })
-  listeners.forEach((l) => l())
+  notify()
 }
 
 export function useRoute(): Route {
   const path = useSyncExternalStore(
     (l) => {
       listeners.add(l)
-      return () => listeners.delete(l)
+      window.addEventListener("popstate", l)
+      return () => {
+        listeners.delete(l)
+        window.removeEventListener("popstate", l)
+      }
     },
     () => location.pathname,
   )
