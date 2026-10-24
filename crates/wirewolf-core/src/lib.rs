@@ -2,6 +2,7 @@
 
 #[cfg(feature = "demo")]
 pub mod demo;
+pub mod brief;
 pub mod config;
 pub mod diagnose;
 pub mod editor;

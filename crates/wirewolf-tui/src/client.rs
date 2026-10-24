@@ -75,6 +75,17 @@ impl Client {
         Ok(Some(response.error_for_status()?.json().await?))
     }
 
+    /// The brief (`GET /brief?format=json`): `None` before the first measurement, or from a
+    /// server too old to have it.
+    pub async fn brief(&self, redact: bool) -> anyhow::Result<Option<wirewolf_core::brief::Brief>> {
+        let url = self.url(&format!("/brief?format=json&redact={redact}"));
+        let response = self.http.get(&url).send().await.with_context(|| format!("GET {url}"))?;
+        if matches!(response.status(), StatusCode::NO_CONTENT | StatusCode::NOT_FOUND) {
+            return Ok(None);
+        }
+        Ok(Some(response.error_for_status()?.json().await?))
+    }
+
     /// Samples for every hop since `since`, in time order.
     pub async fn history(&self, since: Timestamp) -> anyhow::Result<Vec<Sample>> {
         self.get(&format!("/history?since={since}")).await

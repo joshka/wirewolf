@@ -32,6 +32,8 @@ publishes a live snapshot every 2s.
 | POST | `/api/v1/speed/run` | `202` when started, `409` if one is already running. Progress arrives as `speed` events |
 | GET | `/api/v1/incidents` | `[Incident]`, newest first |
 | GET | `/api/v1/incidents/{id}` | `Incident` or `404` |
+| GET | `/api/v1/brief?format=&redact=&window=&incident=` | The brief: a compact summary for an AI assistant (1.5). See below |
+| GET | `/api/v1/brief/prompt?redact=&window=&incident=` | `text/plain`: a request to explain the problem, then the brief in `<brief>` tags (1.5) |
 | GET | `/api/v1/events` | SSE stream (see below) |
 | POST | `/api/v1/demo/scenario` | Body `{"id":"dns_down"}`. Returns `202`, `422` for an unknown id, or `404` in live mode |
 | GET | `/api/v1/session` | `Session`: who is signed in and what they may do (1.3). Always readable |
@@ -122,3 +124,30 @@ Hops always come in path order: `host`, `gateway`, `isp`, `internet`, `dns`, `we
 `healthy`, `wifi_loss`, `isp_outage`, `dns_down`, `captive_portal`, `bufferbloat`, and
 `flapping` (healthy and ISP outage alternate every 40s, which exercises the live incident
 open/close).
+
+## The brief (1.5)
+
+`GET /api/v1/brief` summarizes the network in a few dozen lines for an AI assistant. It covers:
+
+- the verdict
+- each hop in path order, with only its non-passing checks
+- user targets
+- the latest 5 incidents
+- per-hop history statistics (p50/p95/max RTT, max loss, non-pass count) over `window`
+- the latest 3 speed runs
+
+It's about 25 times smaller than the raw `/now`, `/incidents`, and `/history` JSON for a day.
+The dashboard's "Ask an AI" button and `wirewolf check --brief` use it. The builder is
+`wirewolf_core::brief`.
+
+- `format`: `text` (the default, `text/plain`, first line `# wirewolf brief v1 · …`) or `json`
+  (`Brief`, same fields).
+- `redact`: defaults to `true`. Public IP addresses become `<public-ip-N>`, the same
+  placeholder for the same address within one brief. Private, CGNAT, link-local,
+  documentation, and configured probe addresses stay, because they explain the network.
+  MAC addresses and the DNS query list are left out.
+- `window`: how far back the history summary looks, for example `6h`. Defaults to `24h`.
+- `incident`: describe that incident's evidence instead of now, with only the incidents up to
+  it. `404` if unknown.
+
+Returns `204` before the first measurement and `422` for a bad `window`.

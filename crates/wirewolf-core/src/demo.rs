@@ -111,6 +111,14 @@ fn publish(hub: &Hub, at: Timestamp, kind: Kind) {
     hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None, targets });
 }
 
+/// The snapshot a scenario shows at its start, without publishing it. For tests and examples.
+pub fn snapshot(scenario: &str, at: Timestamp) -> Snapshot {
+    let kind = kind_at(scenario, Duration::ZERO);
+    let (hops, targets) = (hops(kind), targets(kind));
+    let verdict = with_targets(diagnose(&hops), &targets);
+    Snapshot { at, verdict, hops, open_incident: None, targets }
+}
+
 /// The demo's config: the defaults plus a few user targets, as if from a file.
 pub fn config() -> crate::config::Loaded {
     use crate::config::{Config, Loaded, Source, UserTarget};

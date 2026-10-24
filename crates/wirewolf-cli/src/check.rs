@@ -8,6 +8,7 @@ use std::io::IsTerminal;
 use jiff::Timestamp;
 use std::sync::Arc;
 
+use wirewolf_core::brief;
 use wirewolf_core::config::Config;
 use wirewolf_core::diagnose::{diagnose, with_targets};
 use wirewolf_core::model::{Severity, Snapshot};
@@ -16,21 +17,46 @@ use wirewolf_tui::{Client, format, report};
 
 const UNREACHABLE: i32 = 3;
 
+/// How to print the result.
+#[derive(Debug, Clone, Copy)]
+pub enum Output {
+    Human,
+    Json,
+    /// The compact AI brief (`wirewolf_core::brief`), redacted or not.
+    Brief { redact: bool },
+}
+
 /// Prints the verdict and returns the process exit code.
-pub async fn run(url: Option<&str>, json: bool, config: Option<Config>) -> i32 {
+pub async fn run(url: Option<&str>, output: Output, config: Option<Config>) -> i32 {
     let Some(url) = url else {
-        return match probe(config.unwrap_or_default()).await {
-            Ok(snapshot) => print(&snapshot, json),
+        let config = config.unwrap_or_default();
+        return match probe(config.clone()).await {
+            Ok(snapshot) => print(&snapshot, output, &config),
             Err(error) => {
                 eprintln!("wirewolf check: can't run probes: {error:#}");
                 exit_code(Severity::Unknown)
             }
         };
     };
+    if let Output::Brief { redact } = output {
+        // The server's brief includes history and incidents; fall back to the snapshot alone.
+        let brief = async { Client::new(url)?.brief(redact).await };
+        match brief.await {
+            Ok(Some(brief)) => {
+                print!("{}", brief.text());
+                return exit_code(brief.severity);
+            }
+            Ok(None) => {}
+            Err(error) => {
+                eprintln!("wirewolf check: can't reach {url}: {error:#}");
+                return UNREACHABLE;
+            }
+        }
+    }
     match fetch(url).await {
-        Ok(Some(snapshot)) => print(&snapshot, json),
+        Ok(Some(snapshot)) => print(&snapshot, output, &Config::default()),
         Ok(None) => {
-            if json {
+            if matches!(output, Output::Json) {
                 println!("null");
             } else {
                 println!("UNKNOWN: wirewolf at {url} has not measured anything yet");
@@ -44,14 +70,19 @@ pub async fn run(url: Option<&str>, json: bool, config: Option<Config>) -> i32 {
     }
 }
 
-fn print(snapshot: &Snapshot, json: bool) -> i32 {
-    if json {
-        println!(
+fn print(snapshot: &Snapshot, output: Output, config: &Config) -> i32 {
+    match output {
+        Output::Json => println!(
             "{}",
             serde_json::to_string_pretty(snapshot).unwrap_or_default()
-        );
-    } else {
-        print_human(snapshot);
+        ),
+        Output::Human => print_human(snapshot),
+        Output::Brief { redact } => {
+            let meta = wirewolf_probe::meta();
+            let options = brief::Options { redact, ..brief::Options::for_config(config) };
+            let input = brief::Input { meta: &meta, snapshot, incident: None, incidents: &[], samples: &[], speed: &[] };
+            print!("{}", brief::build(input, &options).text());
+        }
     }
     exit_code(snapshot.verdict.severity)
 }

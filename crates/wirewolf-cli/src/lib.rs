@@ -54,8 +54,15 @@ enum Command {
         #[arg(long, env = "WIREWOLF_URL")]
         url: Option<String>,
         /// Print the snapshot as JSON instead of text.
-        #[arg(long)]
+        #[arg(long, conflicts_with = "brief")]
         json: bool,
+        /// Print a compact summary to paste into an AI assistant. Public IP addresses are
+        /// replaced with placeholders unless `--no-redact`.
+        #[arg(long)]
+        brief: bool,
+        /// With `--brief`, keep public IP addresses.
+        #[arg(long, requires = "brief")]
+        no_redact: bool,
         #[command(flatten)]
         config: ConfigArg,
     },
@@ -154,9 +161,14 @@ pub fn run() -> anyhow::Result<()> {
             // No log subscriber: log lines would corrupt the screen.
             return tokio::runtime::Runtime::new()?.block_on(wirewolf_tui::run(url));
         }
-        Command::Check { url, json, config } => {
+        Command::Check { url, json, brief, no_redact, config } => {
             let loaded = if url.is_none() { Some(load_config(config, sub, &[])?) } else { None };
-            let code = tokio::runtime::Runtime::new()?.block_on(check::run(url.as_deref(), *json, loaded.map(|l| l.config)));
+            let output = match (json, brief) {
+                (true, _) => check::Output::Json,
+                (_, true) => check::Output::Brief { redact: !no_redact },
+                _ => check::Output::Human,
+            };
+            let code = tokio::runtime::Runtime::new()?.block_on(check::run(url.as_deref(), output, loaded.map(|l| l.config)));
             std::process::exit(code);
         }
         Command::Config(ConfigCommand::Default) => {

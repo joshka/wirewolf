@@ -20,6 +20,7 @@ use serde::Deserialize;
 use tokio_stream::wrappers::BroadcastStream;
 use wirewolf_core::config::Config;
 use wirewolf_core::editor::FieldError;
+use wirewolf_core::brief;
 use wirewolf_core::model::Event;
 use wirewolf_core::{Command, Hub};
 
@@ -55,6 +56,8 @@ pub fn api_router() -> Router<Hub> {
         .route("/incidents", get(incidents))
         .route("/incidents/{id}", get(incident))
         .route("/events", get(events))
+        .route("/brief", get(brief))
+        .route("/brief/prompt", get(brief_prompt))
         .route("/demo/scenario", post(set_scenario))
 }
 
@@ -146,6 +149,64 @@ async fn incident(State(hub): State<Hub>, Path(id): Path<String>) -> Response {
 }
 
 #[derive(Debug, Deserialize)]
+struct BriefQuery {
+    /// `text` (the default) or `json`.
+    format: Option<String>,
+    /// Defaults to true.
+    redact: Option<bool>,
+    /// How far back the history summary looks, for example `6h`. Defaults to 24h.
+    window: Option<String>,
+    /// Describe this incident's evidence instead of the current state.
+    incident: Option<String>,
+}
+
+/// Builds the brief for a query, or the error response.
+fn build_brief(hub: &Hub, q: &BriefQuery) -> Result<brief::Brief, (StatusCode, String)> {
+    let bad = |m: String| (StatusCode::UNPROCESSABLE_ENTITY, m);
+    let window = match &q.window {
+        Some(w) => w.parse::<wirewolf_core::config::Dur>().map_err(bad)?.0,
+        None => brief::Options::default().window,
+    };
+    let base = hub.config().map_or_else(brief::Options::default, |v| brief::Options::for_config(&v.config));
+    let options = brief::Options { redact: q.redact.unwrap_or(true), window, ..base };
+    let meta = hub.meta();
+    let (incidents, samples, speed) = (hub.incidents(), hub.samples(None, None, None), hub.speed_runs());
+    let incident = match &q.incident {
+        Some(id) => Some(hub.incident(id).ok_or((StatusCode::NOT_FOUND, String::new()))?),
+        None => None,
+    };
+    let snapshot = match &incident {
+        Some(i) => i.evidence.clone(),
+        None => hub.snapshot().ok_or((StatusCode::NO_CONTENT, String::new()))?,
+    };
+    // An incident's brief lists the incidents before it, not the ones that came later.
+    let start = incident.as_ref().map_or(0, |i| incidents.iter().position(|x| x.id == i.id).unwrap_or(0));
+    let input = brief::Input { meta: &meta, snapshot: &snapshot, incident: incident.as_ref(), incidents: &incidents[start..], samples: &samples, speed: &speed };
+    Ok(brief::build(input, &options))
+}
+
+fn plain_text(text: String) -> Response {
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")], text).into_response()
+}
+
+/// `GET /brief`: a compact, redacted summary for an AI assistant (see `wirewolf_core::brief`).
+async fn brief(State(hub): State<Hub>, Query(q): Query<BriefQuery>) -> Response {
+    match build_brief(&hub, &q) {
+        Ok(b) if q.format.as_deref() == Some("json") => Json(b).into_response(),
+        Ok(b) => plain_text(b.text()),
+        Err(e) => e.into_response(),
+    }
+}
+
+/// `GET /brief/prompt`: the brief wrapped in a request to explain it, ready to paste.
+async fn brief_prompt(State(hub): State<Hub>, Query(q): Query<BriefQuery>) -> Response {
+    match build_brief(&hub, &q) {
+        Ok(b) => plain_text(brief::prompt(&b)),
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct ScenarioBody {
     id: String,
 }
@@ -232,6 +293,30 @@ mod tests {
         assert_eq!(body["errors"][0]["key"], "probe.interval");
         assert!(commands.try_recv().is_err());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn brief_is_text_json_or_prompt() {
+        let hub = Hub::new(wirewolf_core::demo::meta("dns_down"));
+        let get = |uri: &'static str| {
+            let hub = hub.clone();
+            async move {
+                let res = router(hub).oneshot(Request::get(uri).body(Body::empty()).unwrap()).await.unwrap();
+                let status = res.status();
+                (status, String::from_utf8(to_bytes(res.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap())
+            }
+        };
+        assert_eq!(get("/api/v1/brief").await.0, StatusCode::NO_CONTENT);
+        hub.publish_snapshot(wirewolf_core::demo::snapshot("dns_down", jiff::Timestamp::now()));
+        let (status, text) = get("/api/v1/brief").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(text.starts_with("# wirewolf brief v1 · demo") && text.contains("- dns [fail]"), "{text}");
+        let (_, json) = get("/api/v1/brief?format=json&window=1h").await;
+        assert_eq!(serde_json::from_str::<brief::Brief>(&json).unwrap().blame.as_deref(), Some("dns"));
+        let (_, prompt) = get("/api/v1/brief/prompt").await;
+        assert!(prompt.starts_with(brief::PROMPT) && prompt.contains("<brief>\n# wirewolf brief"), "{prompt}");
+        assert_eq!(get("/api/v1/brief?incident=nope").await.0, StatusCode::NOT_FOUND);
+        assert_eq!(get("/api/v1/brief?window=soon").await.0, StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]
