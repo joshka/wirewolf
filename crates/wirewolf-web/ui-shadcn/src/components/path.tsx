@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Crosshair, Router, Rows3, type LucideIcon } from "lucide-react"
-import { Area, AreaChart, ReferenceArea, XAxis, YAxis } from "recharts"
+import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ChartContainer } from "@/components/ui/chart"
 import { href, onLinkClick } from "@/lib/router"
@@ -50,7 +50,7 @@ const MIN_SPARK_POINTS = 3
  * (skipped) draws its old line grey and dashed, so stale data can't pass for healthy.
  */
 function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample[]; now: number; className?: string }) {
-  const { data, gaps } = sparkSeries(samples)
+  const { data } = sparkSeries(samples)
   if (samples.filter((s) => s.rtt_ms != null).length < MIN_SPARK_POINTS) {
     return <span className={cn("self-center text-xs text-muted-foreground", className)}>collecting…</span>
   }
@@ -64,9 +64,6 @@ function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample
       <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }} accessibilityLayer={false}>
         <XAxis dataKey="t" type="number" domain={[now - SPARK_WINDOW_MS, now]} hide />
         <YAxis domain={[0, "auto"]} hide />
-        {gaps.map(([x1, x2]) => (
-          <ReferenceArea key={x1} x1={x1} x2={x2} fill="var(--muted-foreground)" fillOpacity={0.12} stroke="none" ifOverflow="hidden" />
-        ))}
         <Area
           dataKey="rtt"
           stroke="var(--color-rtt)"
