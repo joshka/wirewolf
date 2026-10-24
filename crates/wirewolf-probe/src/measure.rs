@@ -46,7 +46,7 @@ impl Prober {
     pub fn new(config: Arc<Config>) -> anyhow::Result<Self> {
         let targets = targets::parse_all(&config.targets).map_err(anyhow::Error::msg)?;
         let icmp = Icmp::detect();
-        let builder = || reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(WEB_TIMEOUT).user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION")));
+        let builder = || reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(WEB_TIMEOUT).user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION"))).dns_resolver(targets::NoLinkLocal);
         let http = builder().build()?;
         let http_insecure = builder().danger_accept_invalid_certs(true).build()?;
         let cfg = config;

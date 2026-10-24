@@ -76,6 +76,9 @@ pub fn parse(check: &str, verify_tls: bool) -> Result<Probe, String> {
     let url = reqwest::Url::parse(check).map_err(|e| format!("{check:?}: {e}"))?;
     let host = url.host_str().filter(|h| !h.is_empty()).ok_or_else(|| format!("{check:?} has no host"))?;
     let host = host.trim_start_matches('[').trim_end_matches(']').to_string();
+    if host.parse::<IpAddr>().is_ok_and(link_local) {
+        return Err(format!("{check:?}: {LINK_LOCAL}"));
+    }
     match scheme {
         "tcp" => Ok(Probe::Tcp { host, port: url.port().ok_or_else(|| format!("{check:?} needs a port, like tcp://nas.local:445"))? }),
         "http" | "https" => Ok(Probe::Http { url: check.to_string(), verify_tls }),
@@ -164,14 +167,46 @@ pub async fn probe(spec: &Spec, c: &Clients<'_>) -> Outcome {
 
 async fn resolve(host: &str, port: u16) -> Result<SocketAddr, String> {
     if let Ok(ip) = host.parse::<IpAddr>() {
-        return Ok(SocketAddr::new(ip, port));
+        return if link_local(ip) { Err(LINK_LOCAL.into()) } else { Ok(SocketAddr::new(ip, port)) };
     }
-    let mut addrs = tokio::time::timeout(TIMEOUT, tokio::net::lookup_host((host, port)))
+    let addrs = tokio::time::timeout(TIMEOUT, tokio::net::lookup_host((host, port)))
         .await
         .map_err(|_| format!("resolving {host} timed out"))?
         .map_err(|e| format!("can't resolve {host}: {e}"))?;
-    let all: Vec<SocketAddr> = addrs.by_ref().collect();
+    let all: Vec<SocketAddr> = addrs.filter(|a| !link_local(a.ip())).collect();
+    if all.is_empty() {
+        return Err(format!("{host}: {LINK_LOCAL}"));
+    }
     all.iter().find(|a| a.is_ipv4()).or(all.first()).copied().ok_or_else(|| format!("{host} has no addresses"))
+}
+
+const LINK_LOCAL: &str = "cloud metadata addresses (169.254.0.0/16) aren't probed";
+
+/// Cloud metadata addresses: IPv4 link-local (169.254.0.0/16) and AWS's IPv6 endpoint. Probes
+/// never go there, so a settings writer can't use targets to reach them. IPv6 link-local stays
+/// allowed: routers are often only reachable at `fe80::1`.
+pub fn link_local(ip: IpAddr) -> bool {
+    match ip.to_canonical() {
+        IpAddr::V4(a) => a.is_link_local(),
+        IpAddr::V6(a) => a == std::net::Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254),
+    }
+}
+
+/// A DNS resolver for the probe HTTP clients that drops metadata addresses, so an
+/// `http://` target or captive portal URL whose name resolves there isn't fetched.
+pub struct NoLinkLocal;
+
+impl reqwest::dns::Resolve for NoLinkLocal {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0)).await?.filter(|a| !link_local(a.ip())).collect();
+            if addrs.is_empty() {
+                return Err(format!("{host}: {LINK_LOCAL}").into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
+    }
 }
 
 async fn tcp_attempts(addr: SocketAddr, method: &str) -> Outcome {
@@ -241,6 +276,17 @@ mod tests {
 
     fn t(name: &str, check: &str) -> UserTarget {
         UserTarget { name: name.into(), check: check.into(), critical: false, verify_tls: true }
+    }
+
+    #[test]
+    fn link_local_hosts_are_refused() {
+        for check in ["http://169.254.169.254/latest/meta-data/", "tcp://[fd00:ec2::254]:80", "ping://169.254.1.1"] {
+            assert!(parse(check, true).unwrap_err().contains("metadata"), "{check}");
+        }
+        assert!(link_local("::ffff:169.254.169.254".parse().unwrap()));
+        assert!(!link_local("192.0.2.1".parse().unwrap()));
+        assert!(parse("http://192.0.2.1/", true).is_ok());
+        assert!(parse("ping://[fe80::1]", true).is_ok(), "IPv6 routers are often link-local");
     }
 
     #[test]

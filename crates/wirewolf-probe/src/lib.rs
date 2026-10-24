@@ -89,6 +89,14 @@ pub fn field_errors(config: &Config) -> Vec<wirewolf_core::editor::FieldError> {
         .enumerate()
         .filter_map(|(i, t)| targets::parse(&t.check, t.verify_tls).err().map(|e| FieldError::new(format!("targets.{i}.check"), e)))
         .collect();
+    // The resolver filter doesn't see IP literals, so check those URLs here.
+    let urls = std::iter::once(("web.captive_portal".to_owned(), &config.web.captive_portal)).chain(config.web.sites.iter().enumerate().map(|(i, s)| (format!("web.sites.{i}"), s)));
+    for (key, url) in urls {
+        let host = reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches('[').trim_end_matches(']').to_owned()));
+        if host.and_then(|h| h.parse().ok()).is_some_and(targets::link_local) {
+            errors.push(FieldError::new(key, "cloud metadata addresses (169.254.0.0/16) aren't probed"));
+        }
+    }
     if let Err(e) = config.speed.backend.parse::<Backend>() {
         errors.push(FieldError::new("speed.backend", e));
     }
