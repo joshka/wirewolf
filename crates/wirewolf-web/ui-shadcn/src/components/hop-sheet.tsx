@@ -7,8 +7,8 @@ import { useLive } from "@/lib/live"
 import { ms, pct } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { bucket, HopChart } from "./charts"
-import { BlameTag, hopIcon } from "./path"
-import { StatusPill } from "./status"
+import { hopIcon, IconTile } from "./path"
+import { CauseBadge, StatusPill } from "./status"
 import { useNow } from "./time"
 
 const HOUR = 3600e3
@@ -85,15 +85,13 @@ function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: bool
   const m = hop.metrics
   return (
     <>
-      <SheetHeader className="border-b p-5 pr-12">
+      <SheetHeader className="p-5 pr-12 pb-0">
         <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-lg bg-muted text-muted-foreground">
-            <Icon aria-hidden className="size-5" />
-          </span>
+          <IconTile icon={Icon} />
           <div className="min-w-0">
             <SheetTitle className="flex flex-wrap items-center gap-2 text-lg">
               {hop.label} <StatusPill status={hop.status} />
-              {blamed && <BlameTag severity={severity} />}
+              {blamed && <CauseBadge severity={severity} />}
             </SheetTitle>
             <SheetDescription className="truncate font-mono text-xs">{hop.target ?? hop.kind}</SheetDescription>
           </div>
@@ -108,15 +106,15 @@ function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: bool
             ["Jitter", ms(m.jitter_ms)],
             ["Loss", pct(m.loss_pct)],
           ].map(([k, v]) => (
-            <div key={k} className="rounded-lg border bg-muted/30 p-3">
+            <div key={k} className="rounded-lg border p-3">
               <dt className="text-xs text-muted-foreground">{k}</dt>
-              <dd className="tnum mt-0.5 text-lg font-semibold">{v}</dd>
+              <dd className="tnum mt-1 text-lg font-semibold">{v}</dd>
             </div>
           ))}
         </dl>
 
         <section>
-          <h3 className="mb-2 text-sm font-medium">Last hour</h3>
+          <h3 className="mb-3 text-[15px] font-semibold">Last hour</h3>
           {!fetched ? (
             <Skeleton className="h-48 w-full" />
           ) : hasRtt ? (
@@ -129,8 +127,8 @@ function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: bool
         </section>
 
         <section>
-          <h3 className="mb-2 text-sm font-medium">Checks</h3>
-          <div className="rounded-lg border">
+          <h3 className="mb-3 text-[15px] font-semibold">Checks</h3>
+          <div className="-mx-3">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -159,11 +157,11 @@ function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: bool
 
         {hop.evidence.length > 0 && (
           <section>
-            <h3 className="mb-2 text-sm font-medium">Evidence</h3>
-            <dl className="divide-y rounded-lg border text-sm">
+            <h3 className="mb-3 text-[15px] font-semibold">Evidence</h3>
+            <dl className="divide-y text-sm">
               {hop.evidence.map((e, i) => (
-                <div key={`${i}-${e.key}`} className="flex gap-4 px-3 py-2">
-                  <dt className="w-32 shrink-0 text-muted-foreground">{e.key}</dt>
+                <div key={`${i}-${e.key}`} className="flex min-h-11 items-center gap-4 py-2">
+                  <dt className="w-32 shrink-0 text-xs text-muted-foreground">{e.key}</dt>
                   <dd className={cn("min-w-0 break-words font-mono text-xs leading-5")}>{e.value}</dd>
                 </div>
               ))}

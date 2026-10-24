@@ -45,8 +45,8 @@ export function Sparkline({
     >
       <defs>
         <linearGradient id={id} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stopColor="currentColor" stopOpacity="0.25" />
-          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.15" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.15" />
         </linearGradient>
       </defs>
       {area && <path d={area} fill={`url(#${id})`} />}

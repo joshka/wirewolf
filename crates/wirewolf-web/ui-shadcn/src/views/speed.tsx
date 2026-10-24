@@ -24,7 +24,7 @@ export function SpeedView() {
         <CardContent>
           {running || latest ? (
             <div className="max-w-3xl">
-              <SpeedSummary run={running ?? latest} running={!!running} large />
+              <SpeedSummary run={running ?? latest} running={!!running} />
             </div>
           ) : (
             <p className="py-6 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>

@@ -1,4 +1,4 @@
-import { Check, FlaskConical, Monitor, Moon, Sun } from "lucide-react"
+import { Check, ChevronDown, Monitor, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -8,8 +8,6 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -20,33 +18,29 @@ import { cn } from "@/lib/utils"
 import { relative } from "@/lib/format"
 import { useNow } from "./time"
 
+const THEMES = ["system", "light", "dark"] as const
+const themeIcon = { system: Monitor, light: Sun, dark: Moon }
+
+/** Shows the current mode; each click cycles system → light → dark. */
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { theme = "system", setTheme } = useTheme()
+  const current = (THEMES as readonly string[]).includes(theme) ? (theme as (typeof THEMES)[number]) : "system"
+  const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]
+  const Icon = themeIcon[current]
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Theme" />}>
-        <Sun aria-hidden className="dark:hidden" />
-        <Moon aria-hidden className="hidden dark:block" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-36">
-        <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={(v) => setTheme(String(v))}>
-          <DropdownMenuRadioItem value="light">
-            <Sun aria-hidden /> Light
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="dark">
-            <Moon aria-hidden /> Dark
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="system">
-            <Monitor aria-hidden /> System
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Tooltip>
+      <TooltipTrigger
+        render={<Button variant="ghost" size="icon" aria-label={`Theme: ${current}. Switch to ${next}`} onClick={() => setTheme(next)} />}
+      >
+        <Icon aria-hidden strokeWidth={1.75} />
+      </TooltipTrigger>
+      <TooltipContent>Theme: {current}</TooltipContent>
+    </Tooltip>
   )
 }
 
 /** SSE connection state: green "Live", amber "Reconnecting…", muted "Probes paused". */
-export function LiveIndicator({ compact }: { compact?: boolean }) {
+export function LiveIndicator() {
   const connection = useLive((s) => s.connection)
   const lostAt = useLive((s) => s.lostAt)
   const at = useLive((s) => s.snapshot?.at)
@@ -60,17 +54,17 @@ export function LiveIndicator({ compact }: { compact?: boolean }) {
       <TooltipTrigger
         render={<span tabIndex={0} role="status" />}
         className={cn(
-          "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring",
-          state === "live" && "border-pass/30 bg-pass/10 text-pass",
+          "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring",
+          state === "live" && "text-foreground",
           state === "paused" && "text-muted-foreground",
           state === "reconnecting" && "border-warn/40 bg-warn/10 text-warn",
         )}
       >
-        <span className="relative flex size-2">
+        <span className="relative flex size-1.5">
           {state === "live" && <span className="absolute inline-flex size-full animate-ping rounded-full bg-pass opacity-60 motion-reduce:hidden" />}
-          <span className={cn("relative inline-flex size-2 rounded-full", { live: "bg-pass", paused: "bg-muted-foreground", reconnecting: "bg-warn" }[state])} />
+          <span className={cn("relative inline-flex size-1.5 rounded-full", { live: "bg-pass", paused: "bg-muted-foreground", reconnecting: "bg-warn" }[state])} />
         </span>
-        <span className={cn(compact && state === "live" && "sr-only sm:not-sr-only")}>{label}</span>
+        <span>{label}</span>
         {state === "reconnecting" && lostAt && <span className="hidden font-normal sm:inline">· lost {relative(new Date(lostAt), now)}</span>}
       </TooltipTrigger>
       <TooltipContent>
@@ -95,12 +89,12 @@ export function ScenarioSwitcher() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" aria-label={`Demo scenario: ${current?.name ?? "none"}`} />}
-        className="gap-1.5 border-dashed"
+        render={<Button variant="outline" aria-label={`Demo scenario: ${current?.name ?? "none"}`} />}
+        className="h-8 gap-1 px-2.5 text-[13px] font-medium"
       >
-        <FlaskConical aria-hidden className="text-brand" />
-        <span className="hidden sm:inline">Demo:</span>
-        <span className="max-w-28 truncate">{current?.name ?? "—"}</span>
+        <span className="text-muted-foreground">Demo:</span>
+        <span className="max-w-24 truncate sm:max-w-32">{current?.name ?? "—"}</span>
+        <ChevronDown aria-hidden className="size-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuGroup>

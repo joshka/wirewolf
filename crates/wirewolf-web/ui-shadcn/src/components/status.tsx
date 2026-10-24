@@ -40,44 +40,82 @@ export const severityStatus: Record<Severity, Status> = {
 
 export function StatusIcon({ status, className }: { status: Status; className?: string }) {
   const Icon = statusIcon[status]
-  return <Icon aria-hidden className={cn("size-4 shrink-0", statusText[status], className)} />
+  return <Icon aria-hidden strokeWidth={1.75} className={cn("size-4 shrink-0", statusText[status], className)} />
+}
+
+type Tone = "pass" | "warn" | "fail" | "muted"
+
+const toneClass: Record<Tone, string> = {
+  pass: "border-pass/30 bg-pass/12 text-pass",
+  warn: "border-warn/30 bg-warn/12 text-warn",
+  fail: "border-fail/30 bg-fail/12 text-fail",
+  muted: "border-border bg-muted/60 text-muted-foreground",
+}
+
+/**
+ * The one badge (docs/design-language.md): 20px tall, radius 6, 12/500 text, optional 12px
+ * icon. `cause` is the uppercase LIKELY CAUSE variant.
+ */
+export function Badge({
+  tone,
+  icon: Icon,
+  cause,
+  className,
+  children,
+}: {
+  tone: Tone
+  icon?: LucideIcon
+  cause?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 w-fit shrink-0 items-center gap-1 rounded-md border px-1.5 whitespace-nowrap",
+        cause ? "text-[11px] font-semibold tracking-[0.04em] uppercase" : "text-xs font-medium",
+        toneClass[tone],
+        className,
+      )}
+    >
+      {Icon && <Icon aria-hidden className="size-3" strokeWidth={2} />}
+      {children}
+    </span>
+  )
+}
+
+const statusTone: Record<Status, Tone> = {
+  pass: "pass",
+  warn: "warn",
+  fail: "fail",
+  skip: "muted",
+  not_applicable: "muted",
+  pending: "muted",
 }
 
 /** Icon plus label, so status never relies on color alone. */
 export function StatusPill({ status, className }: { status: Status; className?: string }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
-        status === "pass" && "border-pass/25 bg-pass/10",
-        status === "warn" && "border-warn/30 bg-warn/10",
-        status === "fail" && "border-fail/30 bg-fail/10",
-        (status === "skip" || status === "not_applicable" || status === "pending") && "bg-muted/50",
-        className,
-      )}
-    >
-      <StatusIcon status={status} className="size-3.5" />
+    <Badge tone={statusTone[status]} icon={statusIcon[status]} className={className}>
       {statusLabel[status]}
-    </span>
+    </Badge>
   )
 }
 
 export function SeverityPill({ severity, className }: { severity: Severity; className?: string }) {
   const status = severityStatus[severity]
-  const Icon = severity === "unknown" ? CircleHelp : statusIcon[status]
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium",
-        severity === "healthy" && "border-pass/25 bg-pass/10",
-        severity === "degraded" && "border-warn/30 bg-warn/10",
-        severity === "down" && "border-fail/30 bg-fail/10",
-        severity === "unknown" && "bg-muted/50",
-        className,
-      )}
-    >
-      <Icon aria-hidden className={cn("size-3.5", statusText[status])} />
+    <Badge tone={statusTone[status]} icon={severity === "unknown" ? CircleHelp : statusIcon[status]} className={className}>
       {severityLabel[severity]}
-    </span>
+    </Badge>
+  )
+}
+
+/** The LIKELY CAUSE badge, always on its own line under the hop label. */
+export function CauseBadge({ severity }: { severity: Severity }) {
+  return (
+    <Badge tone={severity === "down" ? "fail" : "warn"} cause>
+      Likely cause
+    </Badge>
   )
 }

@@ -32,17 +32,16 @@ export function bytes(v: number | null | undefined): string {
   return `${nf(i === 0 ? 0 : 1).format(v)} ${units[i]}`
 }
 
-const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" })
-
-/** "3 min ago", "in 2 hr", "now". */
+/** "just now", "38s ago", "3 min ago", "2 h ago", "20 h ago", or "Oct 21" beyond 48h. */
 export function relative(at: string | Date, now = Date.now()): string {
-  const secs = Math.round((new Date(at).getTime() - now) / 1000)
-  const a = Math.abs(secs)
-  if (a < 10) return "just now"
-  if (a < 60) return rtf.format(secs, "second")
-  if (a < 3600) return rtf.format(Math.round(secs / 60), "minute")
-  if (a < 86400) return rtf.format(Math.round(secs / 3600), "hour")
-  return rtf.format(Math.round(secs / 86400), "day")
+  const t = new Date(at).getTime()
+  const secs = Math.round((now - t) / 1000)
+  if (secs < 0) return "just now"
+  if (secs < 10) return "just now"
+  if (secs < 60) return `${secs}s ago`
+  if (secs < 3600) return `${Math.round(secs / 60)} min ago`
+  if (secs < 48 * 3600) return `${Math.round(secs / 3600)} h ago`
+  return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 
 export function absolute(at: string | Date): string {
@@ -72,7 +71,7 @@ export function duration(fromIso: string, toIso: string | null, now = Date.now()
 }
 
 export const statusLabel: Record<Status, string> = {
-  pass: "Pass",
+  pass: "OK",
   warn: "Warning",
   fail: "Failing",
   skip: "Skipped",

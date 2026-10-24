@@ -1,9 +1,10 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { Hop, Sample } from "@/lib/api"
-import { ms } from "@/lib/format"
+import { ms, pct } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { hopColor } from "./charts"
 import { Sparkline } from "./sparkline"
+import { statusText } from "./status"
 
 /** "Last 15 minutes": one sparkline row per measured hop, in the fixed hop colors. */
 export function RecentPanel({ hops, samples, now }: { hops: Hop[]; samples: Record<string, Sample[]>; now: number }) {
@@ -12,7 +13,7 @@ export function RecentPanel({ hops, samples, now }: { hops: Hop[]; samples: Reco
     <Card>
       <CardHeader>
         <CardTitle>Last 15 minutes</CardTitle>
-        <CardDescription>Round-trip time per hop; red ticks are packet loss</CardDescription>
+        <CardDescription>Round-trip time per hop · red ticks are packet loss</CardDescription>
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col divide-y">
@@ -21,11 +22,8 @@ export function RecentPanel({ hops, samples, now }: { hops: Hop[]; samples: Reco
             const last = list[list.length - 1]
             const noReply = hop.status === "fail" || (last && last.rtt_ms == null && (last.loss_pct ?? 0) >= 100)
             return (
-              <li key={hop.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
-                <span className="flex w-20 shrink-0 items-center gap-2 text-sm font-medium">
-                  <span aria-hidden className="size-2 rounded-full" style={{ background: hopColor[hop.id] }} />
-                  {hop.label}
-                </span>
+              <li key={hop.id} className="flex items-center gap-3 py-2 first:pt-0 last:pb-0">
+                <span className="w-20 shrink-0 text-sm">{hop.label}</span>
                 {list.filter((x) => x.rtt_ms != null).length < 3 ? (
                   <span className="flex h-8 min-w-0 flex-1 items-center border-b border-dashed text-xs text-muted-foreground/70">
                     collecting samples…
@@ -39,8 +37,14 @@ export function RecentPanel({ hops, samples, now }: { hops: Hop[]; samples: Reco
                   color={hopColor[hop.id]}
                 />
                 )}
-                <span className={cn("tnum w-20 shrink-0 text-right text-sm font-medium", noReply && "text-fail", hop.status === "skip" && "text-muted-foreground")}>
+                <span
+                  className={cn(
+                    "tnum w-32 shrink-0 truncate text-right text-[13px]",
+                    hop.status === "skip" ? "text-muted-foreground" : hop.status !== "pass" && statusText[hop.status],
+                  )}
+                >
                   {hop.status === "skip" ? "skipped" : noReply ? "no reply" : ms(hop.metrics.rtt_ms)}
+                  {!noReply && (hop.metrics.loss_pct ?? 0) > 0 && ` · ${pct(hop.metrics.loss_pct)} loss`}
                 </span>
               </li>
             )

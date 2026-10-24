@@ -40,7 +40,7 @@ function SpeedCard() {
       <CardHeader>
         <CardTitle>Speed test</CardTitle>
         <CardAction>
-          <RunSpeedButton running={!!running} />
+          <RunSpeedButton running={!!running} size="default" />
         </CardAction>
       </CardHeader>
       <CardContent>

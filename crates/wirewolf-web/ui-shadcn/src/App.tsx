@@ -1,10 +1,9 @@
 import { useEffect } from "react"
-import { Activity, Gauge, History, Siren, type LucideIcon } from "lucide-react"
+import { Activity, ChartLine, Flag, Gauge, type LucideIcon } from "lucide-react"
 import { ThemeProvider } from "next-themes"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/components/chrome"
-import { severityStatus, statusText } from "@/components/status"
 import { start, useLive } from "@/lib/live"
 import { href, onLinkClick, useRoute, type Route } from "@/lib/router"
 import { cn } from "@/lib/utils"
@@ -15,8 +14,8 @@ import { SpeedView } from "@/views/speed"
 
 const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
   { route: { name: "now" }, label: "Now", icon: Activity },
-  { route: { name: "history" }, label: "History", icon: History },
-  { route: { name: "incidents" }, label: "Incidents", icon: Siren },
+  { route: { name: "history" }, label: "History", icon: ChartLine },
+  { route: { name: "incidents" }, label: "Incidents", icon: Flag },
   { route: { name: "speed" }, label: "Speed", icon: Gauge },
 ]
 
@@ -38,7 +37,9 @@ export default function App() {
 function Logo() {
   return (
     <a href={href({ name: "now" })} onClick={onLinkClick} className="flex items-center gap-2 rounded-md font-semibold tracking-tight outline-none focus-visible:ring-3 focus-visible:ring-ring">
-      <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="size-7" />
+      <span className="grid size-7 place-items-center rounded-lg bg-brand text-white">
+        <Activity aria-hidden className="size-4" strokeWidth={2.25} />
+      </span>
       wirewolf
     </a>
   )
@@ -77,17 +78,17 @@ function Shell() {
                 onClick={onLinkClick}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring",
-                  active && "bg-accent text-foreground",
+                  "flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors outline-none hover:bg-accent hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring",
+                  active && "bg-brand/10 text-foreground hover:bg-brand/10",
                 )}
               >
-                <n.icon aria-hidden className={cn("size-4", active && "text-brand")} />
+                <n.icon aria-hidden strokeWidth={1.75} className={cn("size-4", active && "text-brand")} />
                 {n.label}
-                {n.label === "Now" && severity && severity !== "healthy" && (
-                  <span className={cn("ml-auto size-2 rounded-full", severity === "down" ? "bg-fail" : "bg-warn")} aria-label={severity} />
-                )}
                 {n.label === "Incidents" && openIncidents > 0 && (
-                  <span className="ml-auto rounded-full bg-fail/15 px-1.5 text-xs text-fail" aria-label={`${openIncidents} open`}>
+                  <span
+                    className="ml-auto grid size-[18px] place-items-center rounded-full bg-fail text-[11px] font-semibold text-white"
+                    aria-label={`${openIncidents} open`}
+                  >
                     {openIncidents}
                   </span>
                 )}
@@ -96,7 +97,7 @@ function Shell() {
           })}
         </nav>
         {meta && (
-          <p className="mt-auto px-2 text-xs text-muted-foreground">
+          <p className="mt-auto px-3 text-xs text-muted-foreground">
             <span className="font-mono">{meta.host}</span>
             <br />
             wirewolf v{meta.version} · {meta.mode}
@@ -109,9 +110,9 @@ function Shell() {
           <div className="lg:hidden">
             <Logo />
           </div>
-          <h1 className="hidden text-lg font-semibold tracking-tight lg:block">{title}</h1>
+          <h1 className="hidden text-base font-semibold lg:block">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
-            <LiveIndicator compact />
+            <LiveIndicator />
             <ScenarioSwitcher />
             <ThemeToggle />
           </div>
@@ -133,8 +134,7 @@ function Shell() {
       >
         {NAV.map((n) => {
           const active = isActive(n.route, route)
-          const alert =
-            (n.label === "Now" && severity && severity !== "healthy") || (n.label === "Incidents" && openIncidents > 0)
+          const alert = n.label === "Incidents" && openIncidents > 0
           return (
             <a
               key={n.label}
@@ -147,14 +147,14 @@ function Shell() {
               )}
             >
               <span className="relative">
-                <n.icon aria-hidden className={cn("size-5", active && "text-brand")} />
+                <n.icon aria-hidden strokeWidth={1.75} className={cn("size-5", active && "text-brand")} />
                 {alert && (
                   <span
-                    className={cn(
-                      "absolute -top-0.5 -right-1 size-2 rounded-full ring-2 ring-background",
-                      severity ? statusText[severityStatus[severity]].replace("text-", "bg-") : "bg-fail",
-                    )}
-                  />
+                    aria-label={`${openIncidents} open`}
+                    className="absolute -top-1.5 -right-2.5 grid size-[18px] place-items-center rounded-full bg-fail text-[11px] font-semibold text-white ring-2 ring-background"
+                  >
+                    {openIncidents}
+                  </span>
                 )}
               </span>
               {n.label}

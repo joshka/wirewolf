@@ -8,6 +8,7 @@ import { useLive } from "@/lib/live"
 import { cn } from "@/lib/utils"
 import { bytes } from "@/lib/format"
 import { RelTime } from "./time"
+import { Badge } from "./status"
 
 export function useSpeed() {
   const runs = useLive((s) => s.speedRuns)
@@ -16,22 +17,15 @@ export function useSpeed() {
   return { runs, running, latest }
 }
 
-export const gradeClass = (g: BloatGrade | null) =>
-  g == null
-    ? "bg-muted text-muted-foreground"
-    : g === "A+" || g === "A"
-      ? "bg-pass/15 text-pass"
-      : g === "B" || g === "C"
-        ? "bg-warn/15 text-warn"
-        : "bg-fail/15 text-fail"
+const gradeTone = (g: BloatGrade | null) =>
+  g == null ? "muted" : g === "A+" || g === "A" ? "pass" : g === "B" || g === "C" ? "warn" : "fail"
 
 export function BloatBadge({ grade, className }: { grade: BloatGrade | null; className?: string }) {
   return (
-    <span
-      className={cn("inline-grid min-w-8 place-items-center rounded-md px-1.5 py-0.5 text-sm font-bold", gradeClass(grade), className)}
-      aria-label={`Bufferbloat grade ${grade ?? "unknown"}`}
-    >
-      {grade ?? "—"}
+    <span aria-label={`Bufferbloat grade ${grade ?? "unknown"}`}>
+      <Badge tone={gradeTone(grade)} className={cn("min-w-7 justify-center", className)}>
+        {grade ?? "—"}
+      </Badge>
     </span>
   )
 }
@@ -91,9 +85,9 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
  * The speed result body (spec: big down/up, then Idle / Loaded / Bufferbloat tiles, then a meta
  * line). Shows whatever a running test has measured so far.
  */
-export function SpeedSummary({ run, running, large }: { run: SpeedRun | null; running: boolean; large?: boolean }) {
+export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: boolean }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
-  const big = large ? "text-4xl sm:text-5xl" : "text-3xl sm:text-4xl"
+  const big = "text-[32px] sm:text-[40px] leading-none"
   return (
     <div className="flex flex-col gap-4">
       <dl className="grid grid-cols-2 gap-4">
@@ -106,9 +100,9 @@ export function SpeedSummary({ run, running, large }: { run: SpeedRun | null; ru
               <Icon aria-hidden className="size-3.5" />
               {label}
             </dt>
-            <dd className="tnum mt-0.5 flex items-baseline gap-1.5">
+            <dd className="tnum mt-2 flex items-baseline gap-1">
               <span className={cn("font-semibold tracking-tight", big)}>{value}</span>
-              <span className="text-sm text-muted-foreground">Mbps</span>
+              <span className="text-[24px] text-muted-foreground">Mbps</span>
             </dd>
           </div>
         ))}
@@ -118,17 +112,17 @@ export function SpeedSummary({ run, running, large }: { run: SpeedRun | null; ru
           ["Idle", num(run?.idle_latency_ms, 1), "ms"],
           ["Loaded", num(run?.loaded_latency_ms, 1), "ms"],
         ].map(([k, v, u]) => (
-          <div key={k} className="rounded-lg border bg-muted/30 px-3 py-2">
+          <div key={k} className="rounded-lg border p-3">
             <dt className="text-xs text-muted-foreground">{k}</dt>
-            <dd className="tnum mt-0.5 flex items-baseline gap-1">
+            <dd className="tnum mt-1 flex items-baseline gap-1">
               <span className="text-lg font-semibold">{v}</span>
-              <span className="text-xs text-muted-foreground">{u}</span>
+              <span className="text-[11px] text-muted-foreground">{u}</span>
             </dd>
           </div>
         ))}
-        <div className="rounded-lg border bg-muted/30 px-3 py-2">
+        <div className="rounded-lg border p-3">
           <dt className="text-xs text-muted-foreground">Bufferbloat</dt>
-          <dd className="mt-1">
+          <dd className="mt-1.5">
             <BloatBadge grade={running ? null : (run?.bloat ?? null)} />
           </dd>
         </div>

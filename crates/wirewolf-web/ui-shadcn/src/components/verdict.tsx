@@ -20,9 +20,9 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
       aria-label="Verdict"
       className={cn(
         "relative overflow-hidden rounded-xl border",
-        healthy ? "bg-card p-4 sm:p-5" : "p-5 sm:p-6",
-        v.severity === "degraded" && "border-warn/40 bg-warn/[0.07]",
-        v.severity === "down" && "border-fail/40 bg-fail/[0.08]",
+        "bg-card p-4 sm:p-5",
+        v.severity === "degraded" && "border-warn/40 bg-warn/10",
+        v.severity === "down" && "border-fail/40 bg-fail/10",
         v.severity === "unknown" && "bg-muted/40",
       )}
     >
@@ -36,19 +36,19 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
       <div className="flex items-start gap-4">
         <div
           className={cn(
-            "grid shrink-0 place-items-center rounded-full",
-            healthy ? "size-10 bg-pass/10" : "size-12 sm:size-14",
+            "grid size-11 shrink-0 place-items-center rounded-lg",
+            healthy && "bg-pass/12",
             v.severity === "degraded" && "bg-warn/15",
             v.severity === "down" && "bg-fail/15",
             v.severity === "unknown" && "bg-muted",
           )}
         >
-          <Icon aria-hidden className={cn(healthy ? "size-5" : "size-6 sm:size-7", statusText[status])} />
+          <Icon aria-hidden strokeWidth={1.75} className={cn("size-6", statusText[status])} />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
             <SeverityPill severity={v.severity} />
-            {blamed && <span>· at {blamed.label}</span>}
+            {blamed && <span> · at {blamed.label}</span>}
             {since && (
               <span>
                 · since <RelTime at={since} className="text-foreground" />
@@ -59,22 +59,22 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
           <h1
             className={cn(
               "mt-2 font-semibold tracking-tight text-balance",
-              healthy ? "text-xl sm:text-2xl" : "text-2xl sm:text-[2rem] sm:leading-tight",
+              healthy ? "text-xl tracking-[-0.02em] sm:text-2xl" : "text-2xl tracking-[-0.02em] sm:text-[30px] sm:leading-tight",
             )}
           >
             {v.headline}
           </h1>
-          <p className="mt-1.5 max-w-3xl text-sm text-muted-foreground text-pretty sm:text-base">{v.detail}</p>
+          <p className="mt-2 max-w-[720px] text-sm text-muted-foreground text-pretty">{v.detail}</p>
           {v.fix_hint && !healthy && (
-            <div className="mt-4 flex max-w-3xl items-start gap-2.5 rounded-lg border bg-background/60 p-3 text-sm">
-              <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-brand" />
+            <div className="mt-4 flex max-w-[720px] items-start gap-2 rounded-lg border bg-background p-3 text-sm">
+              <Lightbulb aria-hidden strokeWidth={1.75} className="mt-0.5 size-4 shrink-0 text-brand" />
               <p>
                 <span className="font-medium">Try next: </span>
                 {v.fix_hint}
               </p>
             </div>
           )}
-          <p className="mt-3 text-xs text-muted-foreground/80">
+          <p className="mt-3 text-xs text-muted-foreground">
             {v.method} · checked <RelTime at={snapshot.at} plain />
           </p>
         </div>

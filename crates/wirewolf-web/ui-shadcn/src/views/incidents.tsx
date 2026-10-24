@@ -228,7 +228,7 @@ function CopyReport({ incident, meta }: { incident: Incident; meta: Meta | null 
   }
   return (
     <Button variant="outline" onClick={copy}>
-      {copied ? <Check aria-hidden className="text-pass" /> : <ClipboardCopy aria-hidden />}
+      {copied ? <Check aria-hidden /> : <ClipboardCopy aria-hidden />}
       {copied ? "Copied" : "Copy report"}
     </Button>
   )
