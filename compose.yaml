@@ -6,6 +6,12 @@ services:
     restart: unless-stopped
     # Host networking so the probes see the real LAN, router, and ISP path.
     network_mode: host
+    # Root in the container only for raw ICMP (the ISP TTL probes). Drop every other capability
+    # and keep the filesystem read-only except the /data volume.
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    read_only: true
+    security_opt: [no-new-privileges:true]
     volumes:
       - wirewolf:/data
     # Settings live in /data/wirewolf.toml (in the volume). Start one with:

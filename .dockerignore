@@ -3,3 +3,9 @@ work
 **/node_modules
 *.db
 *.db-*
+# Not needed to build, and may hold secrets or local state.
+.git
+.jj
+artifacts
+*.key
+wirewolf.toml

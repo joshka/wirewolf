@@ -32,6 +32,9 @@ COPY --from=build /wirewolf /usr/local/bin/wirewolf
 ENV WIREWOLF_DB=/data/wirewolf.db \
     WIREWOLF_CONFIG=/data/wirewolf.toml
 VOLUME /data
+# Relative paths in the config (such as auth.session_key_file) resolve here, inside the volume,
+# so the session key survives a container being recreated.
+WORKDIR /data
 EXPOSE 7465
 # Root inside the container so ICMP can use a raw socket (Docker grants CAP_NET_RAW by default),
 # which enables the ISP TTL probes. As a non-root user the gateway still uses unprivileged ICMP.
