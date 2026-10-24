@@ -14,6 +14,11 @@
     --color-fail: var(--fail);
     --color-skip: var(--skip);
     --color-brand: var(--brand);
+    --color-hop-gateway: var(--hop-gateway);
+    --color-hop-isp: var(--hop-isp);
+    --color-hop-internet: var(--hop-internet);
+    --color-hop-dns: var(--hop-dns);
+    --color-hop-web: var(--hop-web);
     --font-sans: 'Geist Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -135,39 +140,38 @@
     @apply font-sans;
     }
 }
-/* wirewolf: one accent (brand), status colors, per-hop chart colors. */
+/* wirewolf tokens: docs/ui-spec.md. One accent, fixed status and hop colors in both themes. */
 :root {
-    --brand: oklch(0.55 0.2 275);
-    --pass: oklch(0.6 0.15 155);
-    --warn: oklch(0.7 0.16 70);
-    --fail: oklch(0.58 0.22 25);
-    --skip: oklch(0.6 0 0);
-    --chart-1: oklch(0.55 0.2 275);
-    --chart-2: oklch(0.62 0.14 200);
-    --chart-3: oklch(0.65 0.16 330);
-    --chart-4: oklch(0.68 0.14 120);
-    --chart-5: oklch(0.7 0.14 50);
-    --ring: oklch(0.55 0.2 275 / 60%);
+    --radius: 0.5rem;
+    --brand: #8b5cf6;
+    --pass: #16a34a;
+    --warn: #d97706;
+    --fail: #dc2626;
+    --skip: var(--muted-foreground);
+    --hop-gateway: #3b82f6;
+    --hop-isp: #f97316;
+    --hop-internet: #10b981;
+    --hop-dns: #a855f7;
+    --hop-web: #ec4899;
+    /* Speed chart: download in the accent, upload in cyan. */
+    --chart-1: #8b5cf6;
+    --chart-2: #06b6d4;
+    --ring: #8b5cf6;
 }
 
 .dark {
-    --background: oklch(0.13 0.004 275);
-    --card: oklch(0.17 0.005 275);
-    --popover: oklch(0.19 0.005 275);
-    --muted: oklch(0.24 0.006 275);
-    --secondary: oklch(0.24 0.006 275);
-    --accent: oklch(0.25 0.008 275);
-    --brand: oklch(0.7 0.16 275);
-    --pass: oklch(0.74 0.15 155);
-    --warn: oklch(0.8 0.15 75);
-    --fail: oklch(0.68 0.2 25);
-    --skip: oklch(0.55 0 0);
-    --chart-1: oklch(0.72 0.16 275);
-    --chart-2: oklch(0.75 0.12 200);
-    --chart-3: oklch(0.72 0.16 330);
-    --chart-4: oklch(0.78 0.14 125);
-    --chart-5: oklch(0.78 0.13 55);
-    --ring: oklch(0.7 0.16 275 / 60%);
+    --background: #0a0a0a;
+    --card: #141414;
+    --popover: #141414;
+    --border: #262626;
+    --input: #262626;
+    --muted: #1f1f1f;
+    --secondary: #1f1f1f;
+    --accent: #1f1f1f;
+    --sidebar: #0a0a0a;
+    --pass: #22c55e;
+    --warn: #f59e0b;
+    --fail: #ef4444;
 }
 
 @layer base {

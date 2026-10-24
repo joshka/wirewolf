@@ -1,8 +1,9 @@
 import { ArrowRight, Siren } from "lucide-react"
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { RecentPanel } from "@/components/recent"
 import { SnapshotView } from "@/components/snapshot"
-import { BloatBadge, RunSpeedButton, SpeedMeta, SpeedNumbers, SpeedProgress, useSpeed } from "@/components/speed"
+import { RunSpeedButton, SpeedSummary, useSpeed } from "@/components/speed"
 import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { useLive } from "@/lib/live"
@@ -17,11 +18,16 @@ export function NowView() {
   if (!snapshot) return <NowSkeleton />
   const open = incidents.find((i) => i.id === snapshot.open_incident)
   return (
-    <div className="flex flex-col gap-6">
-      <SnapshotView snapshot={snapshot} since={open?.started} samples={samples} now={now} live />
-      <div className="grid gap-4 md:grid-cols-2">
-        <SpeedCard />
-        <RecentIncidents />
+    <div className="flex flex-col gap-4">
+      <SnapshotView snapshot={snapshot} since={open?.started} live />
+      <div className="grid gap-4 lg:grid-cols-5">
+        <div className="min-w-0 lg:col-span-3">
+          <RecentPanel hops={snapshot.hops} samples={samples} now={now} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+          <SpeedCard />
+          <RecentIncidents />
+        </div>
       </div>
     </div>
   )
@@ -32,27 +38,17 @@ function SpeedCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Speed</CardTitle>
-        <CardDescription>{running ? "Test in progress" : latest ? <SpeedMeta run={latest} /> : "No tests yet"}</CardDescription>
+        <CardTitle>Speed test</CardTitle>
         <CardAction>
           <RunSpeedButton running={!!running} />
         </CardAction>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <SpeedNumbers run={running ?? latest} />
-        {running ? (
-          <SpeedProgress run={running} />
+      <CardContent>
+        {running || latest ? (
+          <SpeedSummary run={running ?? latest} running={!!running} />
         ) : (
-          latest && (
-            <div className="flex items-center justify-between border-t pt-3 text-sm">
-              <span className="text-muted-foreground">Bufferbloat</span>
-              <BloatBadge grade={latest.bloat} />
-            </div>
-          )
+          <p className="py-4 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>
         )}
-        <a href={href({ name: "speed" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-brand hover:underline">
-          Speed history <ArrowRight aria-hidden className="size-3.5" />
-        </a>
       </CardContent>
     </Card>
   )
@@ -67,12 +63,11 @@ function RecentIncidents() {
     <Card>
       <CardHeader>
         <CardTitle>Recent incidents</CardTitle>
-        <CardDescription>{incidents.length ? `${incidents.length} in history` : "Nothing recorded"}</CardDescription>
       </CardHeader>
       <CardContent>
         {recent.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-sm text-muted-foreground">
-            <Siren aria-hidden className="size-5" /> No incidents. Nice.
+          <div className="flex flex-col items-center gap-2 py-4 text-sm text-muted-foreground">
+            <Siren aria-hidden className="size-5" /> No incidents recorded.
           </div>
         ) : (
           <ul className="-mx-2 flex flex-col">
@@ -81,13 +76,14 @@ function RecentIncidents() {
                 <a
                   href={href({ name: "incident", id: i.id })}
                   onClick={onLinkClick}
-                  className="flex items-center gap-3 rounded-lg px-2 py-2 outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring"
+                  className="flex items-start gap-3 rounded-lg px-2 py-2 outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring"
                 >
-                  <SeverityPill severity={i.severity} className="shrink-0" />
+                  <SeverityPill severity={i.severity} className="mt-0.5 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{i.headline}</div>
                     <div className="text-xs text-muted-foreground">
-                      <RelTime at={i.started} plain /> · {i.ended ? duration(i.started, i.ended) : <span className="text-fail">ongoing {duration(i.started, null, now)}</span>}
+                      <RelTime at={i.started} plain /> ·{" "}
+                      {i.ended ? duration(i.started, i.ended) : <span className="text-fail">ongoing {duration(i.started, null, now)}</span>}
                       {i.blame && ` · ${hops?.find((h) => h.id === i.blame)?.label ?? i.blame}`}
                     </div>
                   </div>
@@ -97,6 +93,11 @@ function RecentIncidents() {
           </ul>
         )}
       </CardContent>
+      <CardFooter>
+        <a href={href({ name: "incidents" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-brand hover:underline">
+          All incidents <ArrowRight aria-hidden className="size-3.5" />
+        </a>
+      </CardFooter>
     </Card>
   )
 }
@@ -105,9 +106,9 @@ function NowSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading">
       <Skeleton className="h-36 w-full rounded-xl" />
-      <div className="grid gap-2 xl:grid-cols-6">
+      <div className="grid gap-2 lg:grid-cols-6">
         {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-16 rounded-xl xl:h-40" />
+          <Skeleton key={i} className="h-16 rounded-xl lg:h-32" />
         ))}
       </div>
     </div>

@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from "react"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
-import { api, type Hop, type Sample } from "@/lib/api"
+import { api, type Hop, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { ms, pct } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { bucket, TimeChart } from "./charts"
-import { hopIcon } from "./path"
-import { StatusIcon, StatusPill } from "./status"
+import { bucket, HopChart } from "./charts"
+import { BlameTag, hopIcon } from "./path"
+import { StatusPill } from "./status"
 import { useNow } from "./time"
 
 const HOUR = 3600e3
@@ -19,11 +19,17 @@ const HOUR = 3600e3
  */
 export function HopSheet({
   hop,
+  blamed,
+  severity,
+  returnFocus,
   onClose,
   at,
   live = true,
 }: {
   hop: Hop | null
+  blamed: boolean
+  severity: Severity
+  returnFocus: React.RefObject<HTMLElement | null>
   onClose: () => void
   at?: string
   live?: boolean
@@ -39,14 +45,18 @@ export function HopSheet({
   const h = hop ?? shown
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-xl data-[side=right]:sm:max-w-xl">
-        {h && <HopDetail hop={h} at={at} live={live} />}
+      <SheetContent
+        side="right"
+        finalFocus={returnFocus}
+        className="w-full gap-0 overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-[520px]"
+      >
+        {h && <HopDetail hop={h} blamed={blamed} severity={severity} at={at} live={live} />}
       </SheetContent>
     </Sheet>
   )
 }
 
-function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) {
+function HopDetail({ hop, blamed, severity, at, live }: { hop: Hop; blamed: boolean; severity: Severity; at?: string; live: boolean }) {
   const Icon = hopIcon[hop.kind]
   const now = useNow(5000)
   const anchor = at ? new Date(at).getTime() + HOUR / 4 : null
@@ -63,13 +73,14 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
     }
   }, [hop.id, anchor])
   const recent = useLive((s) => s.samples[hop.id])
+  const incidents = useLive((s) => s.incidents)
   const samples = useMemo(() => {
     if (!fetched) return []
     if (!live || !recent) return fetched
     const last = fetched.length ? new Date(fetched[fetched.length - 1].at).getTime() : 0
     return [...fetched, ...recent.filter((s) => new Date(s.at).getTime() > last)]
   }, [fetched, recent, live])
-  const data = useMemo(() => bucket(samples, from, to, 120), [samples, from, to])
+  const data = useMemo(() => bucket(samples, from, to, 180), [samples, from, to])
   const hasRtt = samples.some((s) => s.rtt_ms != null)
   const m = hop.metrics
   return (
@@ -80,8 +91,9 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
             <Icon aria-hidden className="size-5" />
           </span>
           <div className="min-w-0">
-            <SheetTitle className="flex items-center gap-2 text-lg">
+            <SheetTitle className="flex flex-wrap items-center gap-2 text-lg">
               {hop.label} <StatusPill status={hop.status} />
+              {blamed && <BlameTag severity={severity} />}
             </SheetTitle>
             <SheetDescription className="truncate font-mono text-xs">{hop.target ?? hop.kind}</SheetDescription>
           </div>
@@ -92,7 +104,7 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
       <div className="flex flex-col gap-6 p-5">
         <dl className="grid grid-cols-3 gap-2">
           {[
-            ["Latency", ms(m.rtt_ms)],
+            ["RTT", ms(m.rtt_ms)],
             ["Jitter", ms(m.jitter_ms)],
             ["Loss", pct(m.loss_pct)],
           ].map(([k, v]) => (
@@ -108,10 +120,7 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
           {!fetched ? (
             <Skeleton className="h-48 w-full" />
           ) : hasRtt ? (
-            <div className="space-y-1">
-              <TimeChart data={data} hops={[{ id: hop.id, label: "Latency" }]} metric="rtt" from={from} to={to} className="aspect-auto h-40 w-full" />
-              <TimeChart data={data} hops={[{ id: hop.id, label: "Loss" }]} metric="loss" from={from} to={to} className="aspect-auto h-24 w-full" />
-            </div>
+            <HopChart hop={{ id: hop.id, label: hop.label }} data={data} from={from} to={to} incidents={incidents} />
           ) : (
             <p className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
               This hop has no latency series.
@@ -126,7 +135,7 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
               <TableHeader>
                 <TableRow>
                   <TableHead>Check</TableHead>
-                  <TableHead className="hidden sm:table-cell">Detail</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">RTT</TableHead>
                 </TableRow>
               </TableHeader>
@@ -134,14 +143,12 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
                 {hop.checks.map((c, i) => (
                   <TableRow key={`${i}-${c.name}`}>
                     <TableCell className="whitespace-normal">
-                      <div className="flex items-center gap-2 font-medium">
-                        <StatusIcon status={c.status} className="size-3.5" />
-                        <span>{c.name}</span>
-                        <span className="sr-only">({c.status})</span>
-                      </div>
-                      <div className="mt-0.5 text-xs text-muted-foreground sm:hidden">{c.detail}</div>
+                      <div className="font-medium">{c.name}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{c.detail}</div>
                     </TableCell>
-                    <TableCell className="hidden whitespace-normal text-muted-foreground sm:table-cell">{c.detail}</TableCell>
+                    <TableCell>
+                      <StatusPill status={c.status} />
+                    </TableCell>
                     <TableCell className="tnum text-right">{ms(c.rtt_ms)}</TableCell>
                   </TableRow>
                 ))}

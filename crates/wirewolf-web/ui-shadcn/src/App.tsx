@@ -49,6 +49,7 @@ function Shell() {
   const meta = useLive((s) => s.meta)
   const severity = useLive((s) => s.snapshot?.verdict.severity)
   const openIncidents = useLive((s) => s.incidents.filter((i) => !i.ended).length)
+  const title = route.name === "incident" ? "Incident" : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
     const nav = NAV.find((n) => isActive(n.route, route))
     const sev = severity && severity !== "healthy" ? `⚠ ${severity} · ` : ""
@@ -86,20 +87,21 @@ function Shell() {
                   <span className={cn("ml-auto size-2 rounded-full", severity === "down" ? "bg-fail" : "bg-warn")} aria-label={severity} />
                 )}
                 {n.label === "Incidents" && openIncidents > 0 && (
-                  <span className="ml-auto rounded-full bg-fail/15 px-1.5 text-xs text-fail">{openIncidents} open</span>
+                  <span className="ml-auto rounded-full bg-fail/15 px-1.5 text-xs text-fail" aria-label={`${openIncidents} open`}>
+                    {openIncidents}
+                  </span>
                 )}
               </a>
             )
           })}
         </nav>
-        <div className="mt-auto space-y-3 px-2 text-xs text-muted-foreground">
-          <LiveIndicator />
-          {meta && (
-            <p>
-              <span className="font-mono">{meta.host}</span> · v{meta.version} · {meta.mode}
-            </p>
-          )}
-        </div>
+        {meta && (
+          <p className="mt-auto px-2 text-xs text-muted-foreground">
+            <span className="font-mono">{meta.host}</span>
+            <br />
+            wirewolf v{meta.version} · {meta.mode}
+          </p>
+        )}
       </aside>
 
       <div className="flex min-w-0 flex-col">
@@ -107,16 +109,15 @@ function Shell() {
           <div className="lg:hidden">
             <Logo />
           </div>
+          <h1 className="hidden text-lg font-semibold tracking-tight lg:block">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
-            <div className="lg:hidden">
-              <LiveIndicator compact />
-            </div>
+            <LiveIndicator compact />
             <ScenarioSwitcher />
             <ThemeToggle />
           </div>
         </header>
 
-        <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:pb-10">
+        <main id="main" className="mx-auto w-full max-w-[1400px] flex-1 px-4 pt-4 pb-28 sm:px-6 sm:pt-6 lg:pb-10">
           {route.name === "now" && <NowView />}
           {route.name === "history" && <HistoryView />}
           {route.name === "incidents" && <IncidentsView />}

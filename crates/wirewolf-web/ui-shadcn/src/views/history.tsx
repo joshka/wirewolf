@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { bucket, hopColor, TimeChart } from "@/components/charts"
+import { bucket, hopColor, SpeedChart, TimeChart } from "@/components/charts"
 import { api, type Sample } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { cn } from "@/lib/utils"
@@ -51,15 +51,14 @@ export function HistoryView() {
     }
   }, [range])
   const from = to - RANGES[range]
-  const data = useMemo(() => (samples ? bucket(samples, from, to, range === "1h" ? 180 : 288) : []), [samples, from, to, range])
+  const data = useMemo(() => (samples ? bucket(samples, from, to, 300) : []), [samples, from, to, range])
   const inRange = incidents.filter((i) => (i.ended ? new Date(i.ended).getTime() : to) >= from)
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">History</h1>
-          <p className="text-sm text-muted-foreground">Latency and loss per hop. Shaded bands are incidents; dotted lines are speed tests.</p>
+          <p className="text-sm text-muted-foreground">Round-trip time, loss, and speed over time. Shaded bands are incidents.</p>
         </div>
         <ToggleGroup
           value={[range]}
@@ -98,7 +97,7 @@ export function HistoryView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Latency</CardTitle>
+          <CardTitle>Round-trip time</CardTitle>
           <CardDescription>Mean round-trip time per interval</CardDescription>
           <CardAction className="text-xs text-muted-foreground">
             {inRange.length} incident{inRange.length === 1 ? "" : "s"} in range
@@ -106,7 +105,7 @@ export function HistoryView() {
         </CardHeader>
         <CardContent className="px-2 sm:px-4">
           {samples ? (
-            <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} speedRuns={speedRuns} className="aspect-auto h-64 w-full sm:h-80" />
+            <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-64 w-full sm:h-80" />
           ) : (
             <Skeleton className="h-64 w-full sm:h-80" />
           )}
@@ -120,10 +119,20 @@ export function HistoryView() {
         </CardHeader>
         <CardContent className="px-2 sm:px-4">
           {samples ? (
-            <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-44 w-full" />
+            <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} step className="aspect-auto h-44 w-full" />
           ) : (
             <Skeleton className="h-44 w-full" />
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Speed tests</CardTitle>
+          <CardDescription>Download and upload per test</CardDescription>
+        </CardHeader>
+        <CardContent className="px-2 sm:px-4">
+          <SpeedChart runs={speedRuns} from={from} to={to} incidents={incidents} />
         </CardContent>
       </Card>
     </div>

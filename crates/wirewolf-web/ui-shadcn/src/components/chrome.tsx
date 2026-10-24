@@ -45,36 +45,38 @@ export function ThemeToggle() {
   )
 }
 
-/** SSE connection state: a calm pulsing dot when live, a loud pill when not. */
+/** SSE connection state: green "Live", amber "Reconnecting…", muted "Probes paused". */
 export function LiveIndicator({ compact }: { compact?: boolean }) {
   const connection = useLive((s) => s.connection)
   const lostAt = useLive((s) => s.lostAt)
   const at = useLive((s) => s.snapshot?.at)
-  const speedRunning = useLive((s) => s.speedRuns.some((r) => r.state === "running"))
+  const paused = useLive((s) => s.speedRuns.some((r) => r.state === "running"))
   const now = useNow(1000)
   const live = connection === "live"
-  const label = live ? "Live" : connection === "connecting" ? "Connecting" : "Reconnecting"
+  const state = !live ? "reconnecting" : paused ? "paused" : "live"
+  const label = { live: "Live", paused: "Probes paused", reconnecting: connection === "connecting" ? "Connecting…" : "Reconnecting…" }[state]
   return (
     <Tooltip>
       <TooltipTrigger
         render={<span tabIndex={0} role="status" />}
         className={cn(
           "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring",
-          !live && "border-warn/40 bg-warn/10 text-warn",
+          state === "live" && "border-pass/30 bg-pass/10 text-pass",
+          state === "paused" && "text-muted-foreground",
+          state === "reconnecting" && "border-warn/40 bg-warn/10 text-warn",
         )}
       >
         <span className="relative flex size-2">
-          {live && <span className="absolute inline-flex size-full animate-ping rounded-full bg-pass opacity-60 motion-reduce:hidden" />}
-          <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-pass" : "bg-warn")} />
+          {state === "live" && <span className="absolute inline-flex size-full animate-ping rounded-full bg-pass opacity-60 motion-reduce:hidden" />}
+          <span className={cn("relative inline-flex size-2 rounded-full", { live: "bg-pass", paused: "bg-muted-foreground", reconnecting: "bg-warn" }[state])} />
         </span>
-        {(!compact || !live) && label}
-        {live && speedRunning && !compact && <span className="font-normal text-muted-foreground">· probes paused</span>}
-        {!live && lostAt && <span className="hidden font-normal sm:inline">· lost {relative(new Date(lostAt), now)}</span>}
+        <span className={cn(compact && state === "live" && "sr-only sm:not-sr-only")}>{label}</span>
+        {state === "reconnecting" && lostAt && <span className="hidden font-normal sm:inline">· lost {relative(new Date(lostAt), now)}</span>}
       </TooltipTrigger>
       <TooltipContent>
-        {live
-          ? `${speedRunning ? "Probes pause during the speed test. " : ""}Streaming updates${at ? ` · last ${relative(at, now)}` : ""}`
-          : "Lost the connection to wirewolf. Retrying…"}
+        {state === "reconnecting"
+          ? "Lost the connection to wirewolf. Retrying…"
+          : `${state === "paused" ? "Probes pause while a speed test runs. " : ""}Streaming updates${at ? ` · last snapshot ${relative(at, now)}` : ""}`}
       </TooltipContent>
     </Tooltip>
   )

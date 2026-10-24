@@ -11,11 +11,13 @@ export function Sparkline({
   now,
   className,
   label,
+  color,
 }: {
   samples: Sample[]
   now: number
   className?: string
   label: string
+  color?: string
 }) {
   const id = useId()
   const W = 120
@@ -37,6 +39,7 @@ export function Sparkline({
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="none"
       className={className}
+      style={color ? { color } : undefined}
       role="img"
       aria-label={label}
     >

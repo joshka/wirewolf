@@ -71,11 +71,12 @@ await m.waitForSelector(".recharts-line")
 await shot(m, "history-390-dark")
 
 await p.goto(`${UI}/incidents`)
-await p.getByRole("link", { name: /Lasted|For/ }).first().waitFor()
+await p.getByRole("table").waitFor()
 await shot(p, "incidents-1440-dark")
 await m.goto(`${UI}/incidents`)
 await shot(m, "incidents-390-dark")
 await p.getByRole("link", { name: /DNS is failing/ }).first().click()
+await p.waitForTimeout(300)
 await p.getByRole("button", { name: "Copy report" }).waitFor()
 await shot(p, "incident-detail-1440-dark")
 

@@ -4,25 +4,30 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { SnapshotView } from "@/components/snapshot"
-import { SeverityPill, statusText, severityStatus } from "@/components/status"
+import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { api, type Incident, type Meta } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { absolute, duration, ms, pct } from "@/lib/format"
-import { href, onLinkClick } from "@/lib/router"
+import { href, navigate, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
 
 export function IncidentsView() {
-  const incidents = useLive((s) => s.incidents)
+  const all = useLive((s) => s.incidents)
   const meta = useLive((s) => s.meta)
   const now = useNow()
+  // Open incidents first, then newest first.
+  const incidents = [...all].sort((a, b) => Number(!!a.ended) - Number(!!b.ended) || b.started.localeCompare(a.started))
+  const hopLabel = (i: Incident) => i.evidence.hops.find((h) => h.id === i.blame)?.label ?? "—"
+  const when = (i: Incident) =>
+    i.ended ? duration(i.started, i.ended) : <span className="font-medium text-fail">ongoing · {duration(i.started, null, now)}</span>
+  const tint = (i: Incident) => !i.ended && (i.severity === "down" ? "bg-fail/[0.07]" : "bg-warn/[0.07]")
+  const go = (i: Incident) => navigate(href({ name: "incident", id: i.id }))
   return (
     <div className="flex flex-col gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Incidents</h1>
-        <p className="text-sm text-muted-foreground">Periods when the verdict wasn't healthy, newest first.</p>
-      </div>
+      <p className="text-sm text-muted-foreground">Periods when the verdict wasn't healthy. Open incidents are pinned to the top.</p>
       {!meta ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : incidents.length === 0 ? (
@@ -33,50 +38,72 @@ export function IncidentsView() {
           </CardContent>
         </Card>
       ) : (
-        <ol className="relative flex flex-col gap-3 before:absolute before:top-4 before:bottom-4 before:left-[19px] before:w-px before:bg-border sm:before:left-[23px]">
-          {incidents.map((i) => {
-            const blamed = i.evidence.hops.find((h) => h.id === i.blame)
-            const st = severityStatus[i.severity]
-            return (
-              <li key={i.id} className="relative flex gap-3 sm:gap-4">
-                <span
-                  aria-hidden
-                  className={cn(
-                    "z-10 mt-4 grid size-10 shrink-0 place-items-center rounded-full border bg-background sm:size-12",
-                    !i.ended && "border-fail/50",
-                  )}
-                >
-                  <span className={cn("size-2.5 rounded-full", statusText[st].replace("text-", "bg-"), !i.ended && "animate-pulse")} />
-                </span>
+        <>
+          {/* Desktop: table. The headline is the row's link; the whole row is clickable too. */}
+          <div className="hidden overflow-hidden rounded-xl border bg-card md:block">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="pl-4">Severity</TableHead>
+                  <TableHead>Headline</TableHead>
+                  <TableHead>Hop</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead className="pr-4 text-right">Duration</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {incidents.map((i) => (
+                  <TableRow key={i.id} onClick={() => go(i)} className={cn("cursor-pointer", tint(i))}>
+                    <TableCell className="pl-4">
+                      <SeverityPill severity={i.severity} />
+                    </TableCell>
+                    <TableCell className="max-w-md whitespace-normal">
+                      <a
+                        href={href({ name: "incident", id: i.id })}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onLinkClick(e)
+                        }}
+                        className="font-medium outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring rounded-sm"
+                      >
+                        {i.headline}
+                      </a>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{hopLabel(i)}</TableCell>
+                    <TableCell>
+                      <RelTime at={i.started} />
+                    </TableCell>
+                    <TableCell className="tnum pr-4 text-right">{when(i)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          {/* Mobile: cards. */}
+          <ol className="flex flex-col gap-2 md:hidden">
+            {incidents.map((i) => (
+              <li key={i.id}>
                 <a
                   href={href({ name: "incident", id: i.id })}
                   onClick={onLinkClick}
-                  className="group flex min-w-0 flex-1 items-center gap-4 rounded-xl border bg-card p-4 outline-none transition-colors hover:border-foreground/20 focus-visible:ring-3 focus-visible:ring-ring"
+                  className={cn(
+                    "flex items-center gap-3 rounded-xl border bg-card p-3.5 outline-none focus-visible:ring-3 focus-visible:ring-ring",
+                    tint(i),
+                  )}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <SeverityPill severity={i.severity} />
-                      {!i.ended && (
-                        <span className="rounded-full bg-fail/15 px-2 py-0.5 text-xs font-semibold text-fail">Ongoing</span>
-                      )}
-                    </div>
-                    <div className="mt-2 font-medium text-pretty">{i.headline}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                      <span>
-                        Started <RelTime at={i.started} plain className="text-foreground" />
-                      </span>
-                      <span className="tnum">
-                        {i.ended ? `Lasted ${duration(i.started, i.ended)}` : `For ${duration(i.started, null, now)}`}
-                      </span>
-                      {blamed && <span>Blamed: {blamed.label}</span>}
+                    <SeverityPill severity={i.severity} />
+                    <div className="mt-1.5 font-medium text-pretty">{i.headline}</div>
+                    <div className="tnum mt-1 text-xs text-muted-foreground">
+                      <RelTime at={i.started} plain /> · {when(i)} · {hopLabel(i)}
                     </div>
                   </div>
-                  <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
                 </a>
               </li>
-            )
-          })}
-        </ol>
+            ))}
+          </ol>
+        </>
       )}
     </div>
   )
@@ -118,6 +145,9 @@ export function IncidentView({ id }: { id: string }) {
             {!incident.ended && <span className="rounded-full bg-fail/15 px-2 py-0.5 text-xs font-semibold text-fail">Ongoing</span>}
           </div>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight text-balance">{incident.headline}</h1>
+          <p className="tnum mt-1 text-sm text-muted-foreground">
+            {absolute(incident.started)} → {incident.ended ? absolute(incident.ended) : "ongoing"} ({duration(incident.started, incident.ended, now)})
+          </p>
         </div>
         <CopyReport incident={incident} meta={meta} />
       </div>
