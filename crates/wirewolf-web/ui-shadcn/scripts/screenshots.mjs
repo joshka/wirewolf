@@ -1,9 +1,9 @@
 // Captures the comparison screenshots into docs/compare/ui-shadcn/.
-// Usage: start `wirewolf serve --demo --listen 127.0.0.1:7471`, then `pnpm screenshots`.
+// Usage: start `wirewolf serve --demo --listen 127.0.0.1:7497`, then `pnpm screenshots`.
 import { mkdirSync } from "node:fs"
 import { chromium } from "playwright"
 
-const BASE = process.env.WIREWOLF_URL ?? "http://127.0.0.1:7471"
+const BASE = process.env.WIREWOLF_URL ?? "http://127.0.0.1:7497"
 const UI = `${BASE}/ui/shadcn`
 const OUT = new URL("../../../../docs/compare/ui-shadcn/", import.meta.url).pathname
 mkdirSync(OUT, { recursive: true })

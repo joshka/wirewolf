@@ -18,7 +18,7 @@ export function SpeedView() {
         <CardHeader>
           <CardTitle>{running ? "Running a speed test" : "Latest result"}</CardTitle>
           <CardAction>
-            <RunSpeedButton running={!!running} size="default" primary />
+            <RunSpeedButton running={!!running} primary />
           </CardAction>
         </CardHeader>
         <CardContent>

@@ -44,36 +44,21 @@ export function StatusIcon({ status, className }: { status: Status; className?: 
   return <Icon aria-hidden strokeWidth={1.75} className={cn("size-4 shrink-0", statusText[status], className)} />
 }
 
-const statusTone: Record<Status, "pass" | "warn" | "fail" | "muted"> = {
-  pass: "pass",
-  warn: "warn",
-  fail: "fail",
-  skip: "muted",
-  not_applicable: "muted",
-  pending: "muted",
-}
-
 /** Icon plus label, so status never relies on color alone. */
-export function StatusPill({ status, className }: { status: Status; className?: string }) {
-  const Icon = statusIcon[status]
+export function StatusPill({ status, label, className }: { status: Status; label?: string; className?: string }) {
+  const Icon = label && status === "pending" ? CircleHelp : statusIcon[status]
+  const variant = status === "pass" || status === "warn" || status === "fail" ? status : "muted"
   return (
-    <Badge variant={statusTone[status]} className={className}>
+    <Badge variant={variant} className={className}>
       <Icon aria-hidden />
-      {statusLabel[status]}
+      {label ?? statusLabel[status]}
     </Badge>
   )
 }
 
-export function SeverityPill({ severity, className }: { severity: Severity; className?: string }) {
-  const status = severityStatus[severity]
-  const Icon = severity === "unknown" ? CircleHelp : statusIcon[status]
-  return (
-    <Badge variant={statusTone[status]} className={className}>
-      <Icon aria-hidden />
-      {severityLabel[severity]}
-    </Badge>
-  )
-}
+export const SeverityPill = ({ severity, className }: { severity: Severity; className?: string }) => (
+  <StatusPill status={severityStatus[severity]} label={severityLabel[severity]} className={className} />
+)
 
 /** The LIKELY CAUSE badge, always on its own line under the hop label. */
 export function CauseBadge({ severity }: { severity: Severity }) {

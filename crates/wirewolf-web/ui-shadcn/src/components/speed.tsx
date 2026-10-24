@@ -30,15 +30,7 @@ export function BloatBadge({ grade, className }: { grade: BloatGrade | null; cla
   )
 }
 
-export function RunSpeedButton({
-  running,
-  size = "sm",
-  primary,
-}: {
-  running: boolean
-  size?: "sm" | "default" | "lg"
-  primary?: boolean
-}) {
+export function RunSpeedButton({ running, primary }: { running: boolean; primary?: boolean }) {
   const [busy, setBusy] = useState(false)
   const start = async () => {
     setBusy(true)
@@ -54,12 +46,7 @@ export function RunSpeedButton({
   }
   const active = running || busy
   return (
-    <Button
-      size={size}
-      variant={primary ? "default" : "outline"}
-      onClick={start}
-      disabled={active}
-    >
+    <Button variant={primary ? "default" : "outline"} onClick={start} disabled={active}>
       {active ? <Loader2 className="animate-spin" aria-hidden /> : <Play aria-hidden />}
       {running ? "Running…" : "Run now"}
     </Button>
