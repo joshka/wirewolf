@@ -83,6 +83,9 @@ impl Client {
         if matches!(response.status(), StatusCode::NO_CONTENT | StatusCode::NOT_FOUND) {
             return Ok(None);
         }
+        if response.status() == StatusCode::FORBIDDEN {
+            bail!("the server refused: {}", response.text().await.unwrap_or_default());
+        }
         Ok(Some(response.error_for_status()?.json().await?))
     }
 

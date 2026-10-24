@@ -60,7 +60,8 @@ enum Command {
         /// replaced with placeholders unless `--no-redact`.
         #[arg(long)]
         brief: bool,
-        /// With `--brief`, keep public IP addresses.
+        /// With `--brief`, keep public IP addresses. With `--url`, the server allows this only for
+        /// clients that may change settings.
         #[arg(long, requires = "brief")]
         no_redact: bool,
         #[command(flatten)]

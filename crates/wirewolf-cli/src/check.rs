@@ -48,7 +48,7 @@ pub async fn run(url: Option<&str>, output: Output, config: Option<Config>) -> i
             }
             Ok(None) => {}
             Err(error) => {
-                eprintln!("wirewolf check: can't reach {url}: {error:#}");
+                eprintln!("wirewolf check: {url}: {error:#}");
                 return UNREACHABLE;
             }
         }
