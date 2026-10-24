@@ -208,7 +208,13 @@ impl Hub {
         for r in speed {
             push_bounded(&mut state.speed, r, SPEED_CAPACITY);
         }
-        state.next_incident += incidents.len() as u64;
+        // Continue numbering after the highest loaded `inc-N`, so ids never repeat even when
+        // older incidents were pruned.
+        let loaded_max = incidents.iter().filter_map(|i| i.id.strip_prefix("inc-")?.parse::<u64>().ok()).max();
+        state.next_incident = match loaded_max {
+            Some(max) => state.next_incident.max(max + 1),
+            None => state.next_incident + incidents.len() as u64,
+        };
         for i in incidents {
             push_bounded(&mut state.incidents, i, INCIDENT_CAPACITY);
         }
