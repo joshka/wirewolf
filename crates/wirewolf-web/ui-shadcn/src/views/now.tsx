@@ -5,15 +5,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { AskAi } from "@/components/ask-ai"
 import { SnapshotView } from "@/components/snapshot"
 import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
-import { SeverityPill } from "@/components/status"
+import { SeverityPill, statusText } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { useLive } from "@/lib/live"
 import { findHop } from "@/lib/targets"
 import type { Target } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
 import { StatusIcon } from "@/components/status"
-import { ms } from "@/lib/format"
 import { duration } from "@/lib/format"
+import { cn } from "@/lib/utils"
 import { href, onLinkClick } from "@/lib/router"
 
 // Loaded after first paint: the chart library is the biggest part of the bundle.
@@ -73,10 +73,10 @@ function TargetsCard({ targets }: { targets: Target[] }) {
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <span className="truncate">{t.name}</span>
                       {t.critical && <Badge variant="outline">critical</Badge>}
-                      <span className="ml-auto text-xs text-muted-foreground tabular-nums">{ms(t.rtt_ms)}</span>
                     </div>
                     <div className="truncate font-mono text-xs text-muted-foreground">{t.check}</div>
-                    <div className="truncate text-xs text-muted-foreground">{t.detail}</div>
+                    {/* The detail already carries the timing ("200 OK in 6 ms"), so there's no separate RTT column. */}
+                    <div className={cn("truncate text-xs", t.status === "pass" ? "text-muted-foreground" : statusText[t.status])}>{t.detail}</div>
                   </div>
                 </a>
               </li>
