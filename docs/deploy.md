@@ -37,10 +37,13 @@ List who may sign in with `auth.allowed_emails` or `auth.allowed_groups`. With b
 wirewolf refuses to start, because with a public issuer (Google, Microsoft) anyone with an account
 could change settings. Set `auth.allow_any_user = true` if your issuer only has your own users.
 
+Emails count only when the issuer marks them verified (`email_verified: true`); some issuers
+leave the claim out and let users set any address.
+
 Sessions live in an encrypted cookie and can't be revoked one at a time: signing out deletes the
-cookie, and removing someone from the allowlist doesn't end a session they already have. It
-lasts until `auth.session_ttl` runs out. To sign everyone out, stop wirewolf, delete
-`auth.session_key_file`, and start it again.
+cookie from that browser, but a copied cookie works until `auth.session_ttl` runs out. Removing
+someone from `allowed_emails` or `allowed_groups` ends their session once wirewolf restarts. To
+sign everyone out, stop wirewolf, delete `auth.session_key_file`, and start it again.
 
 ## Trusted headers from a reverse proxy
 

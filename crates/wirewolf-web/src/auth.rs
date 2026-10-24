@@ -177,6 +177,8 @@ impl AuthState {
             let jar = PrivateCookieJar::from_headers(headers, self.key.clone());
             if let Some(stored) = jar.get(SESSION_COOKIE).and_then(|c| serde_json::from_str::<Stored>(c.value()).ok())
                 && stored.exp > jiff::Timestamp::now().as_second()
+                // Someone taken off the allowlist is signed out at the next restart.
+                && self.allowed(stored.email.as_deref(), &stored.groups)
             {
                 let user = SessionUser { id: stored.id, name: stored.name, email: stored.email, via: "oidc".into() };
                 return Viewer { user: Some(user), csrf: Some(stored.csrf) };
@@ -225,6 +227,9 @@ struct Stored {
     id: String,
     name: Option<String>,
     email: Option<String>,
+    /// Kept so the allowlist is checked on every request, not just at sign-in.
+    #[serde(default)]
+    groups: Vec<String>,
     csrf: String,
     exp: i64,
 }
@@ -421,7 +426,9 @@ async fn callback(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap
         Ok(c) => c,
         Err(e) => return fail(StatusCode::UNAUTHORIZED, format!("ID token: {e}")),
     };
-    let email = claims.email().filter(|_| claims.email_verified() != Some(false)).map(|e| e.as_str().to_owned());
+    // Only an email the issuer says it verified. Some issuers leave the claim out and let users
+    // set any address, which would let them claim one in auth.allowed_emails.
+    let email = claims.email().filter(|_| claims.email_verified() == Some(true)).map(|e| e.as_str().to_owned());
     let groups = groups_claim(&id_token.to_string());
     if !auth.allowed(email.as_deref(), &groups) {
         return fail(StatusCode::FORBIDDEN, format!("{} is not in auth.allowed_emails or auth.allowed_groups", email.as_deref().unwrap_or(claims.subject().as_str())));
@@ -436,6 +443,8 @@ async fn callback(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap
         id: claims.subject().as_str().to_owned(),
         name,
         email,
+        // Only the groups that matter here, so a user in hundreds doesn't overflow the cookie.
+        groups: groups.into_iter().filter(|g| auth.config.allowed_groups.contains(g)).collect(),
         csrf: CsrfToken::new_random().secret().clone(),
         exp: jiff::Timestamp::now().as_second() + ttl.as_secs() as i64,
     };

@@ -90,7 +90,11 @@ async fn token(State(i): State<Issuer>, Form(form): Form<HashMap<String, String>
         vec![Audience::new("wirewolf".into())],
         now + chrono::Duration::minutes(5),
         now,
-        StandardClaims::new(SubjectIdentifier::new("alice-sub".into())).set_email(Some(EndUserEmail::new(i.email.clone()))).set_email_verified(Some(true)),
+        {
+            // `unverified:alice@example.com` leaves out `email_verified`, as some issuers do.
+            let (email, verified) = i.email.strip_prefix("unverified:").map_or((i.email.as_str(), Some(true)), |e| (e, None));
+            StandardClaims::new(SubjectIdentifier::new("alice-sub".into())).set_email(Some(EndUserEmail::new(email.into()))).set_email_verified(verified)
+        },
         EmptyAdditionalClaims {},
     )
     .set_nonce(Some(Nonce::new(nonce)));

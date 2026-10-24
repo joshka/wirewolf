@@ -183,6 +183,11 @@ async fn oidc_sign_in_then_write_with_csrf() {
     let restarted = self::app(AuthState::from_config(&config).unwrap(), ELSEWHERE);
     let req = write().header(header::COOKIE, &session_cookie).header("x-wirewolf-csrf", &csrf).body(Body::empty()).unwrap();
     assert_eq!(send(&restarted, req).await.0, StatusCode::ACCEPTED);
+    // Taken off the allowlist: the same cookie no longer signs in after a restart.
+    let removed = config::Auth { allowed_emails: vec!["bob@example.com".into()], ..config.clone() };
+    let removed = self::app(AuthState::from_config(&removed).unwrap(), ELSEWHERE);
+    let req = write().header(header::COOKIE, &session_cookie).header("x-wirewolf-csrf", &csrf).body(Body::empty()).unwrap();
+    assert_eq!(send(&removed, req).await.0, StatusCode::UNAUTHORIZED);
 
     let logout = Request::post("/auth/logout").header(header::COOKIE, &session_cookie).header("x-wirewolf-csrf", &csrf).body(Body::empty()).unwrap();
     let (status, headers, _) = send(&app, logout).await;
@@ -197,6 +202,9 @@ async fn oidc_refuses_bad_code_wrong_user_and_forged_state() {
     let dir = temp_dir("refuse");
     let app = app(AuthState::from_config(&oidc_config(&issuer, &dir)).unwrap(), ELSEWHERE);
     assert_eq!(sign_in(&app, &issuer, "good-code").await.0, StatusCode::FORBIDDEN, "not in allowed_emails");
+    let unverified = start_issuer("127.0.0.1:0", "unverified:alice@example.com").await;
+    let app2 = self::app(AuthState::from_config(&oidc_config(&unverified, &dir)).unwrap(), ELSEWHERE);
+    assert_eq!(sign_in(&app2, &unverified, "good-code").await.0, StatusCode::FORBIDDEN, "an email without email_verified doesn't count");
     assert_eq!(sign_in(&app, &issuer, "bad-code").await.0, StatusCode::BAD_GATEWAY);
     let forged = Request::get("/auth/callback?code=good-code&state=x").body(Body::empty()).unwrap();
     assert_eq!(send(&app, forged).await.0, StatusCode::BAD_REQUEST);
