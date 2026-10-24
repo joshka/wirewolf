@@ -131,8 +131,8 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {hop.checks.map((c) => (
-                  <TableRow key={c.name}>
+                {hop.checks.map((c, i) => (
+                  <TableRow key={`${i}-${c.name}`}>
                     <TableCell className="whitespace-normal">
                       <div className="flex items-center gap-2 font-medium">
                         <StatusIcon status={c.status} className="size-3.5" />
@@ -154,8 +154,8 @@ function HopDetail({ hop, at, live }: { hop: Hop; at?: string; live: boolean }) 
           <section>
             <h3 className="mb-2 text-sm font-medium">Evidence</h3>
             <dl className="divide-y rounded-lg border text-sm">
-              {hop.evidence.map((e) => (
-                <div key={e.key} className="flex gap-4 px-3 py-2">
+              {hop.evidence.map((e, i) => (
+                <div key={`${i}-${e.key}`} className="flex gap-4 px-3 py-2">
                   <dt className="w-32 shrink-0 text-muted-foreground">{e.key}</dt>
                   <dd className={cn("min-w-0 break-words font-mono text-xs leading-5")}>{e.value}</dd>
                 </div>

@@ -50,6 +50,7 @@ export function LiveIndicator({ compact }: { compact?: boolean }) {
   const connection = useLive((s) => s.connection)
   const lostAt = useLive((s) => s.lostAt)
   const at = useLive((s) => s.snapshot?.at)
+  const speedRunning = useLive((s) => s.speedRuns.some((r) => r.state === "running"))
   const now = useNow(1000)
   const live = connection === "live"
   const label = live ? "Live" : connection === "connecting" ? "Connecting" : "Reconnecting"
@@ -67,11 +68,12 @@ export function LiveIndicator({ compact }: { compact?: boolean }) {
           <span className={cn("relative inline-flex size-2 rounded-full", live ? "bg-pass" : "bg-warn")} />
         </span>
         {(!compact || !live) && label}
+        {live && speedRunning && !compact && <span className="font-normal text-muted-foreground">· probes paused</span>}
         {!live && lostAt && <span className="hidden font-normal sm:inline">· lost {relative(new Date(lostAt), now)}</span>}
       </TooltipTrigger>
       <TooltipContent>
         {live
-          ? `Streaming updates${at ? ` · last ${relative(at, now)}` : ""}`
+          ? `${speedRunning ? "Probes pause during the speed test. " : ""}Streaming updates${at ? ` · last ${relative(at, now)}` : ""}`
           : "Lost the connection to wirewolf. Retrying…"}
       </TooltipContent>
     </Tooltip>
