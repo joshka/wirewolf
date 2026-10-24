@@ -76,21 +76,46 @@ pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig, server: Optio
         error: None,
     };
     hub.upsert_speed(run.clone());
-    let result = match backend {
-        Backend::Cloudflare => http_test(&hub, run.clone(), cf, Target::cloudflare).await,
-        Backend::Ookla => match server {
-            Some(host) => http_test(&hub, run.clone(), cf, |_| async move { Ok(Target::ookla_server(host)) }).await,
-            None => http_test(&hub, run.clone(), cf, Target::ookla).await,
-        },
+    // Probing pauses while a test runs, so a test must always end: cap the whole run, and turn
+    // a panic in the test into a failure instead of a run that stays "running" forever.
+    let limit = cf.duration * 2 + Duration::from_secs(90);
+    let test = {
+        let (hub, run) = (hub.clone(), run.clone());
+        tokio::spawn(async move {
+            match backend {
+                Backend::Cloudflare => http_test(&hub, run, cf, Target::cloudflare).await,
+                Backend::Ookla => match server {
+                    Some(host) => http_test(&hub, run, cf, |_| async move { Ok(Target::ookla_server(host)) }).await,
+                    None => http_test(&hub, run, cf, Target::ookla).await,
+                },
+            }
+        })
+    };
+    let abort = test.abort_handle();
+    let result = match tokio::time::timeout(limit, test).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(Box::new((hub.speed_runs().into_iter().find(|r| r.id == run.id).unwrap_or(run.clone()), format!("speed test crashed: {e}")))),
+        Err(_) => {
+            abort.abort();
+            Err(Box::new((hub.speed_runs().into_iter().find(|r| r.id == run.id).unwrap_or(run.clone()), format!("timed out after {}s", limit.as_secs()))))
+        }
     };
     let finished = match result {
         Ok(done) => done,
         Err(failure) => {
             let (partial, error) = *failure;
-            tracing::warn!("speed test failed: {error}");
+            tracing::warn!(backend = backend.name(), "speed test failed: {error}");
             SpeedRun { state: SpeedState::Failed, progress: None, bloat: None, error: Some(error), ..partial }
         }
     };
+    if finished.state == SpeedState::Complete {
+        tracing::info!(
+            backend = backend.name(),
+            down_mbps = finished.down_mbps,
+            up_mbps = finished.up_mbps,
+            "speed test finished"
+        );
+    }
     hub.upsert_speed(finished);
 }
 
