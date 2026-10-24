@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/joshka/wirewolf"
+rust-version = "1.88"
+
+[workspace.dependencies]
+wirewolf-core = { path = "crates/wirewolf-core", version = "0.0.0" }
+wirewolf-probe = { path = "crates/wirewolf-probe", version = "0.0.0" }
+wirewolf-web = { path = "crates/wirewolf-web", version = "0.0.0" }
+wirewolf-tui = { path = "crates/wirewolf-tui", version = "0.0.0" }
+wirewolf-cli = { path = "crates/wirewolf-cli", version = "0.0.0" }

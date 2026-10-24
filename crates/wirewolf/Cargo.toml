@@ -1,0 +1,12 @@
+[package]
+name = "wirewolf"
+description = "Network diagnostics you can point a browser at: where the path breaks, how bad, since when."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+wirewolf-cli = { version = "0.0.0", path = "../wirewolf-cli" }

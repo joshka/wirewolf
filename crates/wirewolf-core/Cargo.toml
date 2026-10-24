@@ -1,0 +1,19 @@
+[package]
+name = "wirewolf-core"
+description = "Core types, diagnosis engine, and state hub for wirewolf."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fastrand = "2.5.0"
+jiff = { version = "0.2.38", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["sync", "time", "rt", "macros"] }
+tracing = "0.1.44"
+
+[features]
+demo = []
