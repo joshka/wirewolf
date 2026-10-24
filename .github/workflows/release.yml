@@ -108,6 +108,7 @@ jobs:
                 "https://crates.io/api/v1/crates/$crate/$version" >/dev/null 2>&1; then
               echo "$crate $version is already published"
             else
-              cargo publish --locked -p "$crate"
+              # wirewolf-web includes the dashboard build, which git ignores, so it reads as dirty.
+              cargo publish --locked --allow-dirty -p "$crate"
             fi
           done
