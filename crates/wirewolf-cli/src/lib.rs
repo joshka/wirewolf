@@ -36,12 +36,13 @@ enum Command {
         #[arg(long, env = "WIREWOLF_URL", default_value = DEFAULT_URL)]
         url: String,
     },
-    /// Print the current verdict and exit 0 healthy, 1 degraded, 2 down, 3 unreachable,
-    /// 4 unknown.
+    /// Diagnose the network and exit 0 healthy, 1 degraded, 2 down, 3 unreachable, 4 unknown.
+    ///
+    /// Runs one probe cycle on this machine, or asks a wirewolf server with `--url`.
     Check {
-        /// The wirewolf server to ask.
-        #[arg(long, env = "WIREWOLF_URL", default_value = DEFAULT_URL)]
-        url: String,
+        /// Ask this wirewolf server instead of probing from here.
+        #[arg(long, env = "WIREWOLF_URL")]
+        url: Option<String>,
         /// Print the snapshot as JSON instead of text.
         #[arg(long)]
         json: bool,
@@ -86,7 +87,7 @@ pub fn run() -> anyhow::Result<()> {
         return tokio::runtime::Runtime::new()?.block_on(wirewolf_tui::run(url));
     }
     if let Command::Check { url, json } = &cli.command {
-        let code = tokio::runtime::Runtime::new()?.block_on(check::run(url, *json));
+        let code = tokio::runtime::Runtime::new()?.block_on(check::run(url.as_deref(), *json));
         std::process::exit(code);
     }
     tracing_subscriber::fmt()

@@ -1,26 +1,31 @@
 //! `wirewolf check`: the current verdict for scripts and humans.
+//!
+//! Without `--url` it runs one probe cycle in-process (no server, no history), which is the
+//! "is it me or the internet?" laptop case. With `--url` it asks a running server.
 
 use std::io::IsTerminal;
 
+use jiff::Timestamp;
+use wirewolf_core::diagnose::diagnose;
 use wirewolf_core::model::{Severity, Snapshot};
+use wirewolf_probe::{assess, measure::Prober};
 use wirewolf_tui::{Client, format, report};
 
 const UNREACHABLE: i32 = 3;
 
 /// Prints the verdict and returns the process exit code.
-pub async fn run(url: &str, json: bool) -> i32 {
-    match fetch(url).await {
-        Ok(Some(snapshot)) => {
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&snapshot).unwrap_or_default()
-                );
-            } else {
-                print_human(&snapshot);
+pub async fn run(url: Option<&str>, json: bool) -> i32 {
+    let Some(url) = url else {
+        return match probe().await {
+            Ok(snapshot) => print(&snapshot, json),
+            Err(error) => {
+                eprintln!("wirewolf check: can't run probes: {error:#}");
+                exit_code(Severity::Unknown)
             }
-            exit_code(snapshot.verdict.severity)
-        }
+        };
+    };
+    match fetch(url).await {
+        Ok(Some(snapshot)) => print(&snapshot, json),
         Ok(None) => {
             if json {
                 println!("null");
@@ -34,6 +39,35 @@ pub async fn run(url: &str, json: bool) -> i32 {
             UNREACHABLE
         }
     }
+}
+
+fn print(snapshot: &Snapshot, json: bool) -> i32 {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(snapshot).unwrap_or_default()
+        );
+    } else {
+        print_human(snapshot);
+    }
+    exit_code(snapshot.verdict.severity)
+}
+
+/// One probe cycle, assessed and diagnosed the way the live driver does it.
+///
+/// This skips the TTL sweep that the live driver runs after an upstream fault. A sweep is slow,
+/// and the verdict doesn't depend on it.
+async fn probe() -> anyhow::Result<Snapshot> {
+    let measurements = Prober::new()?.cycle(false).await;
+    let at = Timestamp::now();
+    let hops = assess::hops(&measurements);
+    let verdict = diagnose(&hops);
+    Ok(Snapshot {
+        at,
+        verdict,
+        hops,
+        open_incident: None,
+    })
 }
 
 async fn fetch(url: &str) -> anyhow::Result<Option<Snapshot>> {
