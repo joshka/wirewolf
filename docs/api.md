@@ -151,7 +151,8 @@ The dashboard's "Ask an AI" button and `wirewolf check --brief` use it. The buil
 - `redact`: defaults to `true`. Public IP addresses become `<public-ip-N>`, the same
   placeholder for the same address within one brief. Private, CGNAT, link-local,
   documentation, and configured probe addresses stay, because they explain the network.
-  MAC addresses and the DNS query list are left out.
+  MAC addresses and the DNS query list are left out. `redact=false` returns `403` unless the
+  viewer may write (`Session.can_write`), because reads are open by default.
 - `window`: how far back the history summary looks, for example `6h`. Defaults to `24h`.
 - `incident`: describe that incident's evidence instead of now, with only the incidents up to
   it. `404` if unknown.
