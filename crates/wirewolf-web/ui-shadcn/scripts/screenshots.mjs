@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs"
 import { chromium } from "playwright"
 
 const BASE = process.env.WIREWOLF_URL ?? "http://127.0.0.1:7497"
-const UI = `${BASE}/ui/shadcn`
+const UI = BASE
 const OUT = new URL("../../../../docs/compare/ui-shadcn/", import.meta.url).pathname
 mkdirSync(OUT, { recursive: true })
 

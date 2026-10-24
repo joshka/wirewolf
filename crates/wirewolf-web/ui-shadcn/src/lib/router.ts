@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react"
 
-export const BASE = import.meta.env.BASE_URL.replace(/\/$/, "") // "/ui/shadcn"
+export const BASE = import.meta.env.BASE_URL.replace(/\/$/, "") // "" when served from the root
 
 export type Route =
   | { name: "now" }

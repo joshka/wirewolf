@@ -25,7 +25,7 @@ mod ui_shadcn;
 
 /// The full app: the API under `/api/v1` plus the UI.
 pub fn router(hub: Hub) -> Router {
-    let router = Router::new().nest("/api/v1", api_router()).route("/", get(index));
+    let router = Router::new().nest("/api/v1", api_router());
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
     router.with_state(hub)
@@ -49,11 +49,6 @@ pub async fn serve(hub: Hub, addr: SocketAddr) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
     axum::serve(listener, router(hub)).await
-}
-
-/// The dashboard lives at `/ui/shadcn/` until it moves to the root.
-async fn index() -> axum::response::Redirect {
-    axum::response::Redirect::temporary("/ui/shadcn/")
 }
 
 async fn meta(State(hub): State<Hub>) -> impl IntoResponse {
