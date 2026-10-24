@@ -151,6 +151,7 @@ export function SpeedChart({
   incidents?: Incident[]
   className?: string
 }) {
+  const plan = useLive((s) => s.plan)
   const data = runs
     .filter((r) => r.state === "complete")
     .map((r) => ({ t: new Date(r.started).getTime(), down: r.down_mbps, up: r.up_mbps }))
@@ -160,7 +161,6 @@ export function SpeedChart({
   const lo = from ?? data[0].t
   const hi = to ?? data[data.length - 1].t
   // Three round ticks, the same on every speed chart, so small and large charts read alike.
-  const plan = useLive((s) => s.plan)
   const peak = Math.max(...data.flatMap((p) => [p.down ?? 0, p.up ?? 0]), plan.down ?? 0, plan.up ?? 0)
   const step = peak > 2000 ? 1000 : peak > 400 ? 250 : peak > 80 ? 50 : 10
   const top = Math.max(step, Math.ceil(peak / step / 2) * step * 2)
