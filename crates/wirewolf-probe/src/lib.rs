@@ -140,6 +140,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
         None => "ICMP unavailable; the gateway uses TCP connects and the ISP hop is inferred".into(),
     };
     tracing::info!("{capability}");
+    log_settings(&config);
     // Only when it differs from the last run, so restarts don't fill the timeline.
     if !hub.activity().iter().find(|a| a.kind == ActivityKind::Probe).is_some_and(|a| a.message == capability) {
         hub.record(ActivityKind::Probe, capability, None, None);
@@ -147,6 +148,9 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
     let mut ticker = probe_ticker(&config);
     let mut speed_ticker = speed_ticker_for(&hub, &config);
     let mut upstream_fault = false;
+    // Logged when they change, not every cycle: a fault that lasts an hour is two lines.
+    let mut last_verdict: Option<(Severity, String)> = None;
+    let mut last_status: std::collections::HashMap<String, Status> = std::collections::HashMap::new();
     loop {
         tokio::select! {
             _ = ticker.tick() => {
@@ -174,9 +178,23 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                     let path: Vec<String> = hops.iter().map(|h| format!("{} {:?}{}", h.id, h.status, ms(h.metrics.rtt_ms)).to_lowercase()).chain(targets.iter().map(|t| format!("{} {:?}{}", t.id, t.status, ms(t.rtt_ms)).to_lowercase())).collect();
                     tracing::debug!(took_ms = started.elapsed().as_millis() as u64, sweep_next = upstream_fault, "cycle: {}", path.join(", "));
                 }
+                for (id, status, detail) in hops.iter().map(|h| (&h.id, h.status, &h.summary)).chain(targets.iter().map(|t| (&t.id, t.status, &t.detail))) {
+                    if status != Status::Pass {
+                        tracing::trace!(check = %id, ?status, "{detail}");
+                    }
+                    if last_status.insert(id.clone(), status).is_some_and(|was| was != status) {
+                        tracing::debug!(check = %id, "{id} {status:?}: {detail}");
+                    }
+                }
                 let verdict = with_targets(diagnose(&hops), &targets);
-                if verdict.severity != Severity::Healthy {
-                    tracing::info!("{:?}: {}", verdict.severity, verdict.headline);
+                let key = (verdict.severity, verdict.headline.clone());
+                if last_verdict.as_ref() != Some(&key) {
+                    match verdict.severity {
+                        Severity::Healthy if last_verdict.is_none() => tracing::info!("first check: {}", verdict.headline),
+                        Severity::Healthy => tracing::info!("recovered: {}", verdict.headline),
+                        severity => tracing::warn!(?severity, "{}", verdict.headline),
+                    }
+                    last_verdict = Some(key);
                 }
                 hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None, targets });
             }
@@ -189,6 +207,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                 Command::ApplyConfig(new) => match measure::Prober::new(new.clone()) {
                     Ok(p) => {
                         tracing::info!("applying saved settings from the next cycle");
+                        log_settings(&new);
                         if new.probe.interval != config.probe.interval {
                             ticker = probe_ticker(&new);
                         }
@@ -203,6 +222,19 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
             }
         }
     }
+}
+
+/// One line with the settings that shape the probes and how much they log, never secrets.
+fn log_settings(config: &Config) {
+    tracing::info!(
+        "probing every {:#}, {} targets, {} sites; speed test {}; history {} for {:#}",
+        jiff::SignedDuration::try_from(config.probe.interval.0).unwrap_or_default(),
+        config.targets.len(),
+        config.web.sites.len(),
+        if config.speed.interval.0.is_zero() { "off".to_owned() } else { format!("{} every {:#}", config.speed.backend, jiff::SignedDuration::try_from(config.speed.interval.0).unwrap_or_default()) },
+        if config.storage.db.as_os_str().is_empty() { "in memory".to_owned() } else { config.storage.db.display().to_string() },
+        jiff::SignedDuration::try_from(config.storage.retention.0).unwrap_or_default(),
+    );
 }
 
 fn start_speed(hub: &Hub, config: &Config) {

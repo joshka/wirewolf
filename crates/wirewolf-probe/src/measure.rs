@@ -180,7 +180,7 @@ async fn gateway_probe(icmp: Option<Icmp>, gateway: Option<IpAddr>) -> GatewayPr
         let res = tokio::task::spawn_blocking(move || icmp.burst(v4, 64, GATEWAY_PINGS, Duration::from_millis(50), Duration::from_secs(1))).await;
         match res {
             Ok(Ok(replies)) => return GatewayProbe { method: PingMethod::Icmp, rtts: replies.iter().map(|r| r.map(|r| ms(r.rtt))).collect() },
-            Ok(Err(e)) => tracing::debug!("icmp to gateway failed, falling back to tcp: {e}"),
+            Ok(Err(e)) => tracing::trace!("icmp to gateway failed, falling back to tcp: {e}"),
             Err(e) => tracing::warn!("icmp task: {e}"),
         }
     }
@@ -215,7 +215,7 @@ async fn isp_probe(icmp: Option<Icmp>, trace: bool) -> IspProbe {
             trace: sweep.map(|s| s.into_iter().map(|(ttl, r)| (ttl, r.map(|r| (r.from, round1(ms(r.rtt)))))).collect()),
         },
         Ok(Err(e)) => {
-            tracing::debug!("isp probe failed: {e}");
+            tracing::trace!("isp probe failed: {e}");
             IspProbe::default()
         }
         Err(_) => IspProbe::default(),

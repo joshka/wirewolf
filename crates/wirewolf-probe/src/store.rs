@@ -160,6 +160,8 @@ pub async fn follow(hub: Hub, store: Store, retention: SignedDuration) {
     // SQLite is blocking; keep it on its own thread.
     let writer = tokio::task::spawn_blocking(move || {
         let mut last_prune: Option<std::time::Instant> = None;
+        // A broken database fails every write; say so once, and again when it recovers.
+        let mut failing = false;
         while let Some(event) = rx.blocking_recv() {
             let result = match &event {
                 Event::Sample(s) => store.insert_sample(s).map_err(Into::into),
@@ -168,8 +170,17 @@ pub async fn follow(hub: Hub, store: Store, retention: SignedDuration) {
                 Event::Activity(a) => store.insert_activity(a),
                 _ => Ok(()),
             };
-            if let Err(e) = result {
-                tracing::warn!("writing history: {e}");
+            match result {
+                Err(e) if !failing => {
+                    failing = true;
+                    tracing::error!("can't write history: {e}");
+                }
+                Err(e) => tracing::trace!("writing history: {e}"),
+                Ok(()) if failing => {
+                    failing = false;
+                    tracing::info!("writing history again");
+                }
+                Ok(()) => {}
             }
             if last_prune.is_none_or(|t| t.elapsed() > Duration::from_secs(3600)) {
                 last_prune = Some(std::time::Instant::now());

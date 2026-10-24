@@ -101,7 +101,18 @@ pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig, server: Optio
         }
     };
     let finished = match result {
-        Ok(done) => done,
+        Ok(done) => {
+            let mbps = |v: Option<f64>| v.map_or("?".into(), |v| format!("{v:.0}"));
+            tracing::info!(
+                server = done.server.as_deref().unwrap_or(""),
+                "speed test: {} down, {} up Mbps; latency {} ms idle, {} ms loaded",
+                mbps(done.down_mbps),
+                mbps(done.up_mbps),
+                mbps(done.idle_latency_ms),
+                mbps(done.loaded_latency_ms)
+            );
+            done
+        }
         Err(failure) => {
             let (partial, error) = *failure;
             tracing::warn!(backend = backend.name(), "speed test failed: {error}");
@@ -289,6 +300,7 @@ where
         return Err(Box::new((run, format!("could not reach {}", target.label))));
     };
     run.idle_latency_ms = Some(round1(idle_ms));
+    tracing::debug!(server = %target.label, "speed test idle latency {idle_ms:.1} ms");
     run.progress = Some(0.05);
     hub.upsert_speed(run.clone());
 
@@ -378,6 +390,8 @@ where
             let why = errors.first().cloned().unwrap_or_else(|| "no data transferred".into());
             return Err(Box::new((run, format!("{what} failed: {why}"))));
         }
+        let what = if upload { "upload" } else { "download" };
+        tracing::debug!(bytes = counter.load(Ordering::Relaxed), errors = errors.len(), "speed test {what} done in {:.1}s", start.elapsed().as_secs_f64());
     }
 
     let loaded_ms = median(&loaded.lock().unwrap());

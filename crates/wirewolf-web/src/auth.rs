@@ -51,7 +51,11 @@ pub struct AuthState {
     secure_cookies: bool,
     /// `server.allowed_hosts` plus the host in `auth.redirect_url`.
     hosts: Vec<String>,
+    /// Refused host names already logged at warn, up to [`REFUSED_HOSTS_LOGGED`].
+    refused_hosts: std::sync::Mutex<std::collections::HashSet<String>>,
 }
+
+const REFUSED_HOSTS_LOGGED: usize = 16;
 
 struct Oidc {
     client_id: String,
@@ -67,7 +71,7 @@ impl AuthState {
     /// No sign-in, and anyone may write. For the demo and tests.
     pub fn open() -> Self {
         let config = config::Auth { allow_unauthenticated_writes: true, ..config::Auth::default() };
-        Self { config, oidc: None, proxies: vec![], key: Key::generate(), secure_cookies: false, hosts: vec![] }
+        Self { config, oidc: None, proxies: vec![], key: Key::generate(), secure_cookies: false, hosts: vec![], refused_hosts: Default::default() }
     }
 
     /// Builds the state from `[auth]`: reads the client secret and the session key (creating the
@@ -120,7 +124,14 @@ impl AuthState {
         }
         let secure_cookies = config.redirect_url.starts_with("https://");
         let hosts = openidconnect::url::Url::parse(&config.redirect_url).ok().and_then(|u| u.host_str().map(str::to_owned)).into_iter().collect();
-        Ok(Self { config, oidc, proxies, key, secure_cookies, hosts })
+        let methods: Vec<&str> = [(oidc.is_some(), "OIDC"), (config.header_enabled(), "trusted header")].into_iter().filter_map(|(on, m)| on.then_some(m)).collect();
+        tracing::info!(
+            require_for_reads = config.require_for_reads,
+            allow_unauthenticated_writes = config.allow_unauthenticated_writes,
+            "sign-in: {}",
+            if methods.is_empty() { "none configured".to_owned() } else { methods.join(", ") }
+        );
+        Ok(Self { config, oidc, proxies, key, secure_cookies, hosts, refused_hosts: Default::default() })
     }
 
     /// Also answer to these host names (`server.allowed_hosts`). See [`host_guard`].
@@ -301,7 +312,13 @@ pub async fn host_guard(State(auth): State<Arc<AuthState>>, req: Request, next: 
     let host = req.headers().get(axum::http::header::HOST).and_then(|v| v.to_str().ok()).or_else(|| req.uri().host());
     match host {
         Some(h) if !auth.host_allowed(h) => {
-            tracing::warn!("refused a request for host {h:?}; add it to server.allowed_hosts if it's yours");
+            // Once per name: a misconfigured proxy or a rebinding page retries constantly.
+            let mut logged = auth.refused_hosts.lock().unwrap();
+            if logged.len() < REFUSED_HOSTS_LOGGED && logged.insert(h.to_owned()) {
+                tracing::warn!("refused a request for host {h:?}; add it to server.allowed_hosts if it's yours");
+            } else {
+                tracing::debug!("refused a request for host {h:?}");
+            }
             (StatusCode::MISDIRECTED_REQUEST, format!("wirewolf doesn't answer to {h:?}. If that name is yours, add it to server.allowed_hosts.")).into_response()
         }
         _ => next.run(req).await,

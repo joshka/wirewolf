@@ -4,6 +4,19 @@
 //! The binary installs [`Logs::layer`] next to its usual formatter and hands the filter's reload
 //! handle to [`Logs::set_reloader`]. The API reads [`Logs::lines`], follows [`Logs::subscribe`],
 //! and changes the filter with [`Logs::set_filter`].
+//!
+//! Levels, sized for a probe cycle every 30 seconds and a [`CAPACITY`]-line buffer:
+//!
+//! - `error`: wirewolf can't do its job, such as an unwritable database. Once, not per attempt.
+//! - `warn`: something degraded or misconfigured that a person should look at. Log the change
+//!   (it started failing, it recovered), never every cycle.
+//! - `info`: rare lifecycle events: startup, settings applied, verdict changes, speed results.
+//!   A healthy server writes a few lines an hour.
+//! - `debug`: one summary line per cycle, plus status changes; about two hours fit the buffer.
+//! - `trace`: per-check and per-request detail.
+//!
+//! User-facing events belong in the activity timeline, not here. Never log per request or per
+//! live event above `debug`.
 
 use std::collections::VecDeque;
 use std::fmt::Write as _;

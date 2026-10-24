@@ -99,7 +99,27 @@ pub async fn serve_with_auth(hub: Hub, addr: SocketAddr, auth: AuthState) -> std
     tracing::info!("listening on http://{}", listener.local_addr()?);
     // The peer address decides whether trusted-header sign-in applies.
     let app = router_with_auth(hub, Arc::new(auth)).into_make_service_with_connect_info::<SocketAddr>();
+    tokio::spawn(log_shutdown());
     axum::serve(listener, app).await
+}
+
+/// Logs the signal that stops the server, then exits as the signal would have.
+async fn log_shutdown() {
+    #[cfg(unix)]
+    let term = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut s) => drop(s.recv().await),
+            Err(_) => std::future::pending().await,
+        }
+    };
+    #[cfg(not(unix))]
+    let term = std::future::pending::<()>();
+    let (name, code) = tokio::select! {
+        _ = tokio::signal::ctrl_c() => ("interrupt", 130),
+        () = term => ("terminate", 143),
+    };
+    tracing::info!("stopping on {name} signal");
+    std::process::exit(code);
 }
 
 async fn meta(State(hub): State<Hub>) -> impl IntoResponse {
@@ -150,7 +170,10 @@ async fn put_config(State(hub): State<Hub>, access: Option<Extension<auth::Acces
             hub.send(Command::ApplyConfig(Arc::new(config)));
             Json(view).into_response()
         }
-        Err(e) => errors(StatusCode::UNPROCESSABLE_ENTITY, e),
+        Err(e) => {
+            tracing::debug!("settings not saved: {}", e.iter().map(|e| format!("{}: {}", e.key, e.message)).collect::<Vec<_>>().join("; "));
+            errors(StatusCode::UNPROCESSABLE_ENTITY, e)
+        }
     }
 }
 
@@ -450,12 +473,31 @@ async fn put_log_filter(State(hub): State<Hub>, access: Option<Extension<auth::A
 const MAX_EVENT_STREAMS: usize = 64;
 static EVENT_STREAMS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(MAX_EVENT_STREAMS)));
 
+/// Holds a live-connection slot and logs when the connection opens and closes.
+struct StreamPermit(#[allow(dead_code)] tokio::sync::OwnedSemaphorePermit);
+
+impl StreamPermit {
+    fn new(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        tracing::debug!(open = MAX_EVENT_STREAMS - EVENT_STREAMS.available_permits(), "live connection opened");
+        Self(permit)
+    }
+}
+
+impl Drop for StreamPermit {
+    fn drop(&mut self) {
+        // The slot is freed after this runs.
+        tracing::debug!(open = MAX_EVENT_STREAMS - EVENT_STREAMS.available_permits() - 1, "live connection closed");
+    }
+}
+
 /// Server-sent events. The current snapshot is sent first so clients render immediately.
 async fn events(State(hub): State<Hub>, access: Option<Extension<auth::Access>>) -> Response {
     let can_write = access.is_some_and(|a| a.can_write);
     let Ok(permit) = EVENT_STREAMS.clone().try_acquire_owned() else {
+        tracing::warn!("refused a live connection: all {MAX_EVENT_STREAMS} are in use");
         return (StatusCode::SERVICE_UNAVAILABLE, [(axum::http::header::RETRY_AFTER, "30")], "too many live connections").into_response();
     };
+    let permit = StreamPermit::new(permit);
     let initial = hub.snapshot().map(Event::Snapshot);
     let live = BroadcastStream::new(hub.subscribe()).filter_map(|e| async move { e.ok() });
     let stream = futures_util::stream::iter(initial).chain(live).map(move |event| {
