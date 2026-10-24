@@ -22,6 +22,17 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Firefox paints the empty page while the bundle loads, which flashes on reload. Put back the
+      // markup saved on the way out (see main.tsx) so the first paint already shows the dashboard;
+      // React replaces it on its first render.
+      try {
+        const s = JSON.parse(sessionStorage.getItem("wirewolf.shell") || "null")
+        if (s && s.url === location.href && Date.now() - s.savedAt < 5 * 60 * 1000) {
+          document.getElementById("root").innerHTML = s.html
+        }
+      } catch {}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
