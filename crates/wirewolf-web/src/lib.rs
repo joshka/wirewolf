@@ -218,6 +218,7 @@ mod tests {
         assert_eq!(status, StatusCode::OK, "{body}");
         let view: ConfigView = serde_json::from_value(body).unwrap();
         assert_eq!(view.config.incidents.open_after, 4);
+        assert_eq!(view.defaults, Config::default());
         assert_eq!(hub.config().unwrap().config.incidents.open_after, 4);
         assert!(std::fs::read_to_string(&path).unwrap().contains("open_after = 4"));
         match commands.try_recv().unwrap() {

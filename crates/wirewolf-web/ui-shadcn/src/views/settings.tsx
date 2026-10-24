@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react"
-import { Lock, Pencil, Plus, Trash2 } from "lucide-react"
+import { Lock, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import {
@@ -26,6 +27,10 @@ import { signIn, useSession, writeBlocked } from "@/lib/session"
 interface Ctx {
   draft: Config
   view: ConfigView
+  /** Built-in values, to mark and reset what's changed. Null on servers before API 1.4. */
+  defaults: Config | null
+  /** Show only settings that differ from the default or have unsaved edits. */
+  changedOnly: boolean
   canEdit: boolean
   errors: Record<string, string>
   set: (key: string, value: unknown) => void
@@ -37,6 +42,9 @@ interface Ctx {
 // - Every field is the same 56px row: label and hint left, control right, hairlines between.
 //   A control's width says what goes in it: a switch, a short value with its unit, a choice, or
 //   a long URL.
+// - A setting that differs from its default gets a dot before its label, "Default …" in its hint,
+//   and a reset button. An unsaved edit says "Unsaved · was …" instead. Section titles count
+//   their changes, and "Changed" hides everything still at its default.
 // - Save lives in a bar that appears only with unsaved changes and stays in view while scrolling.
 
 /** The effective config, editable when the server and session allow it. */
@@ -47,6 +55,7 @@ export function SettingsView() {
   const [errors, setErrors] = useState<FieldError[]>([])
   const [saving, setSaving] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [changedOnly, setChangedOnly] = useState(false)
   useEffect(() => {
     api.config().then(
       (v) => {
@@ -68,6 +77,8 @@ export function SettingsView() {
   const ctx: Ctx = {
     draft,
     view,
+    defaults: view.defaults ?? null,
+    changedOnly,
     canEdit,
     errors: byKey,
     set: (key, value) => {
@@ -91,19 +102,34 @@ export function SettingsView() {
       toast.error(res.errors.length === 1 ? "One setting needs fixing" : `${res.errors.length} settings need fixing`)
     }
   }
-  const changed = Object.keys(view.sources).length
+  const changedKeys = ctx.defaults ? ALL_KEYS.filter((k) => differs(draft, ctx.defaults, k)) : []
+  const unsaved = ALL_KEYS.filter((k) => differs(draft, view.config, k)).length
 
   return (
     <div className="flex flex-col">
       <header className="flex flex-col gap-1 pb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+          {ctx.defaults && (
+            <ToggleGroup
+              variant="outline"
+              size="sm"
+              value={[changedOnly ? "changed" : "all"]}
+              onValueChange={(v: string[]) => v[0] && setChangedOnly(v[0] === "changed")}
+              aria-label="Which settings to show"
+            >
+              <ToggleGroupItem value="all">All</ToggleGroupItem>
+              <ToggleGroupItem value="changed">Changed ({changedKeys.length})</ToggleGroupItem>
+            </ToggleGroup>
+          )}
+        </div>
         <p className="text-sm text-muted-foreground">
-          {view.path ? (
+          {view.path ? <code className="font-mono">{view.path}</code> : "No config file yet"}
+          {ctx.defaults && (
             <>
-              <code className="font-mono">{view.path}</code> · {changed} {changed === 1 ? "setting differs" : "settings differ"} from the defaults
+              {" · "}
+              {changedKeys.length === 0 ? "everything is at its default" : `${changedKeys.length} ${changedKeys.length === 1 ? "setting differs" : "settings differ"} from the default`}
             </>
-          ) : (
-            "No config file yet: everything is a default"
           )}
         </p>
         <p className="text-sm text-muted-foreground">
@@ -134,10 +160,10 @@ export function SettingsView() {
         </div>
       )}
 
-      <Section title="Targets" description="Your own things to watch. A failing critical target degrades the verdict and can open an incident.">
+      <Section ctx={ctx} keys={["targets"]} title="Targets" description="Your own things to watch. A failing critical target degrades the verdict and can open an incident.">
         <TargetsTable ctx={ctx} />
       </Section>
-      <Section title="Probing" description="How often the path is probed, and which extras run.">
+      <Section ctx={ctx} keys={KEYS.probe} title="Probing" description="How often the path is probed, and which extras run.">
         <Rows>
           <Field ctx={ctx} k="probe.interval" label="Interval" hint="Time between cycles, at least 5s">
             <Text ctx={ctx} k="probe.interval" width="short" placeholder="30s" />
@@ -150,7 +176,7 @@ export function SettingsView() {
           </Field>
         </Rows>
       </Section>
-      <Section title="Incidents" description="How many cycles in a row it takes to open or close an incident. Higher values ignore short blips.">
+      <Section ctx={ctx} keys={KEYS.incidents} title="Incidents" description="How many cycles in a row it takes to open or close an incident. Higher values ignore short blips.">
         <Rows>
           <Field ctx={ctx} k="incidents.open_after" label="Open after" hint="Unhealthy cycles in a row">
             <Num ctx={ctx} k="incidents.open_after" unit="cycles" />
@@ -160,10 +186,10 @@ export function SettingsView() {
           </Field>
         </Rows>
       </Section>
-      <Section title="Thresholds" description="Above any of these limits a hop is degraded. Not every hop uses every limit.">
+      <Section ctx={ctx} keys={KEYS.thresholds} title="Thresholds" description="Above any of these limits a hop is degraded. Not every hop uses every limit.">
         <ThresholdsTable ctx={ctx} />
       </Section>
-      <Section title="Speed tests" description="Scheduled throughput tests. You can always start one from the Speed page.">
+      <Section ctx={ctx} keys={KEYS.speed} title="Speed tests" description="Scheduled throughput tests. You can always start one from the Speed page.">
         <Rows>
           <Field ctx={ctx} k="speed.backend" label="Backend">
             <Choice ctx={ctx} k="speed.backend" options={{ cloudflare: "Cloudflare", ookla: "Ookla" }} />
@@ -182,7 +208,7 @@ export function SettingsView() {
           </Field>
         </Rows>
       </Section>
-      <Section title="DNS" description="The resolvers compared against this host's own, and the names asked of each. The first name is the headline check.">
+      <Section ctx={ctx} keys={KEYS.dns} title="DNS" description="The resolvers compared against this host's own, and the names asked of each. The first name is the headline check.">
         <Rows>
           <Field ctx={ctx} k="dns.system" label="System resolvers" hint="Test the resolvers this host uses">
             <Toggle ctx={ctx} k="dns.system" />
@@ -212,7 +238,7 @@ export function SettingsView() {
           blank={{ name: "", expect: [] }}
         />
       </Section>
-      <Section title="Internet" description="TCP handshakes, and ICMP pings where allowed, to anycast addresses that answer from nearby.">
+      <Section ctx={ctx} keys={KEYS.internet} title="Internet" description="TCP handshakes, and ICMP pings where allowed, to anycast addresses that answer from nearby.">
         <Rows>
           <Field ctx={ctx} k="internet.port" label="TCP port">
             <Num ctx={ctx} k="internet.port" />
@@ -233,7 +259,7 @@ export function SettingsView() {
           blank={{ name: "", v4: null, v6: null }}
         />
       </Section>
-      <Section title="Web" description="Captive portal detection, the TLS handshake, and HTTPS sites that must answer.">
+      <Section ctx={ctx} keys={KEYS.web} title="Web" description="Captive portal detection, the TLS handshake, and HTTPS sites that must answer.">
         <Rows>
           <Field ctx={ctx} k="web.captive_portal" label="Captive portal" hint="Must answer 204 over plain HTTP">
             <Text ctx={ctx} k="web.captive_portal" width="long" />
@@ -244,13 +270,13 @@ export function SettingsView() {
         </Rows>
         <List ctx={ctx} k="web.sites" title="HTTPS sites" cols={[{ key: "", label: "URL", placeholder: "https://example.com", mono: true }]} blank="" />
       </Section>
-      <Section title="Server and storage" description="Read once at startup. Edit the file and restart wirewolf to change these.">
+      <Section ctx={ctx} keys={KEYS.server} title="Server and storage" description="Read once at startup. Edit the file and restart wirewolf to change these.">
         <Rows>
           <Field ctx={ctx} k="server.listen" label="Listen address">
             <Text ctx={ctx} k="server.listen" width="medium" />
           </Field>
           <Field ctx={ctx} k="storage.db" label="History file">
-            <Text ctx={ctx} k="storage.db" width="long" />
+            <Text ctx={ctx} k="storage.db" width="long" placeholder="memory only" />
           </Field>
           <Field ctx={ctx} k="storage.retention" label="Keep history">
             <Text ctx={ctx} k="storage.retention" width="short" />
@@ -260,7 +286,9 @@ export function SettingsView() {
 
       {canEdit && dirty && (
         <div className="sticky bottom-0 -mx-4 mt-6 flex items-center justify-end gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6">
-          <p className="mr-auto text-sm text-muted-foreground">Unsaved changes</p>
+          <p className="mr-auto text-sm text-muted-foreground">
+            {unsaved} unsaved {unsaved === 1 ? "change" : "changes"}
+          </p>
           <Button variant="outline" disabled={saving} onClick={() => (setDraft(structuredClone(view.config)), setErrors([]))}>
             Discard
           </Button>
@@ -274,11 +302,20 @@ export function SettingsView() {
 }
 
 /** One full-width row of the page: what the section controls on the left, its fields on the right. */
-function Section({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+function Section({ ctx, keys, title, description, children }: { ctx: Ctx; keys: string[]; title: string; description: string; children: ReactNode }) {
+  const changed = ctx.defaults ? keys.filter((k) => differs(ctx.draft, ctx.defaults, k)).length : 0
+  if (ctx.changedOnly && changed === 0 && !keys.some((k) => differs(ctx.draft, ctx.view.config, k))) return null
   return (
     <section className="grid gap-4 border-t py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-8">
       <div className="flex flex-col gap-1">
-        <h2 className="text-base font-semibold">{title}</h2>
+        <h2 className="flex items-baseline gap-2 text-base font-semibold">
+          {title}
+          {keys[0] === "targets" ? (
+            <span className="text-xs font-normal text-muted-foreground">{ctx.draft.targets.length} configured</span>
+          ) : (
+            changed > 0 && <span className="text-xs font-normal text-muted-foreground">{changed} changed</span>
+          )}
+        </h2>
         <p className="text-sm text-pretty text-muted-foreground">{description}</p>
       </div>
       <div className="flex min-w-0 flex-col gap-6">{children}</div>
@@ -316,17 +353,24 @@ function LockBadge({ lock }: { lock: { label: string; why: string } | null }) {
 function Field({ ctx, k, label, hint, children }: { ctx: Ctx; k: string; label: string; hint?: string; children: ReactNode }) {
   const lock = lockOf(ctx, k)
   const error = ctx.errors[k]
+  const state = changeOf(ctx, k)
+  if (ctx.changedOnly && !state.changed && !state.unsaved) return null
   return (
     <div className="flex min-h-14 flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <Label htmlFor={k} className="flex items-center gap-2">
+        <Label htmlFor={k} className="relative flex items-center gap-2">
+          <ChangedDot changed={state.changed} />
           {label}
           <LockBadge lock={lock} />
         </Label>
         {(lock || hint) && <p className="text-xs text-muted-foreground">{lock?.why ?? hint}</p>}
+        <ChangeNote ctx={ctx} k={k} />
         {error && <p className="text-xs text-destructive">{error}</p>}
       </div>
-      <div className="flex shrink-0 justify-start sm:justify-end">{children}</div>
+      <div className="flex shrink-0 items-center justify-start gap-1 sm:justify-end">
+        {children}
+        <ResetButton ctx={ctx} k={k} label={label} />
+      </div>
     </div>
   )
 }
@@ -430,6 +474,8 @@ interface Col {
 
 /** An editable list such as `[[dns.resolvers]]`: a titled block, column labels once, then rows. */
 function List({ ctx, k, title, cols, blank }: { ctx: Ctx; k: string; title: string; cols: Col[]; blank: unknown }) {
+  const state = changeOf(ctx, k)
+  if (ctx.changedOnly && !state.changed && !state.unsaved) return null
   const rows = (getPath(ctx.draft, k) as unknown[]) ?? []
   const can = editable(ctx, k)
   const cellKey = (i: number, c: Col) => (c.key ? `${k}.${i}.${c.key}` : `${k}.${i}`)
@@ -437,16 +483,21 @@ function List({ ctx, k, title, cols, blank }: { ctx: Ctx; k: string; title: stri
   return (
     <div className="flex flex-col gap-2">
       <div className="flex h-8 items-center justify-between">
-        <h3 className="flex items-center gap-2 text-sm font-medium">
+        <h3 className="relative flex items-center gap-2 text-sm font-medium">
+          <ChangedDot changed={changeOf(ctx, k).changed} />
           {title}
           <LockBadge lock={lockOf(ctx, k)} />
         </h3>
-        {can && (
-          <Button variant="ghost" size="sm" onClick={() => ctx.set(k, [...rows, structuredClone(blank)])}>
-            <Plus /> Add
-          </Button>
-        )}
+        <div className="flex items-center gap-1">
+          <ResetButton ctx={ctx} k={k} label={title} />
+          {can && (
+            <Button variant="ghost" size="sm" onClick={() => ctx.set(k, [...rows, structuredClone(blank)])}>
+              <Plus /> Add
+            </Button>
+          )}
+        </div>
       </div>
+      <ChangeNote ctx={ctx} k={k} list />
       {ctx.errors[k] && <p className="text-xs text-destructive">{ctx.errors[k]}</p>}
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">None.</p>
@@ -530,22 +581,33 @@ function ThresholdsTable({ ctx }: { ctx: Ctx }) {
   const bad = HOPS.flatMap((h) => LIMITS.map(([l]) => `thresholds.${h}.${l}`)).filter((k) => ctx.errors[k])
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-[auto_repeat(3,minmax(0,1fr))] items-center gap-x-2 gap-y-2 sm:gap-x-4">
+      <div className="grid grid-cols-[auto_repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 gap-y-2 sm:gap-x-4">
         <span className="text-xs text-muted-foreground">Hop</span>
         {LIMITS.map(([, label]) => (
           <span key={label} className="text-xs text-muted-foreground">
             {label}
           </span>
         ))}
+        <span />
         {HOPS.map((h) => (
           <Fragment key={h}>
-            <span className="font-mono text-xs">{h}</span>
+            <span className="relative flex items-center gap-2 font-mono text-xs">
+              <ChangedDot changed={changeOf(ctx, `thresholds.${h}`).changed} />
+              {h}
+            </span>
             {LIMITS.map(([l, label, unit]) => (
               <NumInput key={l} ctx={ctx} k={`thresholds.${h}.${l}`} label={`${h} ${label}`} unit={unit} />
             ))}
+            <ResetButton ctx={ctx} k={`thresholds.${h}`} label={`${h} thresholds`} />
           </Fragment>
         ))}
       </div>
+      {ctx.defaults &&
+        HOPS.filter((h) => changeOf(ctx, `thresholds.${h}`).changed).map((h) => (
+          <p key={h} className="text-xs text-muted-foreground">
+            <span className="font-mono">{h}</span> default: {LIMITS.map(([l, label, unit]) => `${label} ${getPath(ctx.defaults, `thresholds.${h}.${l}`)}${unit === "%" ? "%" : ` ${unit}`}`).join(" · ")}
+          </p>
+        ))}
       {bad.map((k) => (
         <p key={k} className="text-xs text-destructive">
           <code className="font-mono">{k.slice("thresholds.".length)}</code> {ctx.errors[k]}
@@ -696,6 +758,77 @@ function TargetDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** The settings in each section, as dotted keys. Lists and threshold rows count as one. */
+const KEYS = {
+  probe: ["probe.interval", "probe.ipv6", "probe.path_mtu"],
+  incidents: ["incidents.open_after", "incidents.close_after"],
+  thresholds: ["gateway", "isp", "internet", "dns", "targets"].map((h) => `thresholds.${h}`),
+  speed: ["speed.backend", "speed.interval", "speed.server", "speed.streams", "speed.duration"],
+  dns: ["dns.system", "dns.record_types", "dns.resolvers", "dns.queries"],
+  internet: ["internet.port", "internet.icmp", "internet.targets"],
+  web: ["web.captive_portal", "web.tls_host", "web.sites"],
+  server: ["server.listen", "storage.db", "storage.retention"],
+}
+const ALL_KEYS = ["targets", ...Object.values(KEYS).flat()]
+
+function differs(a: unknown, b: unknown, key: string) {
+  return JSON.stringify(getPath(a, key)) !== JSON.stringify(getPath(b, key))
+}
+
+/** Whether a setting differs from its default, and whether it has an unsaved edit. */
+function changeOf(ctx: Ctx, key: string) {
+  return { changed: !!ctx.defaults && differs(ctx.draft, ctx.defaults, key), unsaved: differs(ctx.draft, ctx.view.config, key) }
+}
+
+/** A value as a short phrase, for "Default …" and "was …". */
+function show(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "empty"
+  if (typeof v === "boolean") return v ? "on" : "off"
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "none"
+    return v.map((x) => (typeof x === "object" && x !== null ? String((x as { name?: unknown }).name ?? JSON.stringify(x)) : String(x))).join(", ")
+  }
+  return String(v)
+}
+
+/** Marks a setting that differs from its default. Hangs in the gutter so labels and hints share an edge. */
+function ChangedDot({ changed }: { changed: boolean }) {
+  if (!changed) return null
+  return (
+    <span
+      aria-label={changed ? "Changed from default" : undefined}
+      title={changed ? "Changed from the default" : undefined}
+      className="absolute top-1/2 -left-3.5 size-1.5 -translate-y-1/2 rounded-full bg-primary"
+    />
+  )
+}
+
+/** "Unsaved · was …" for an edit, or "Default …" for a saved change. */
+function ChangeNote({ ctx, k, list }: { ctx: Ctx; k: string; list?: boolean }) {
+  const { changed, unsaved } = changeOf(ctx, k)
+  if (unsaved) return <p className="text-xs text-primary">Unsaved · was {show(getPath(ctx.view.config, k))}</p>
+  if (changed && ctx.defaults) return <p className={cn("text-xs text-muted-foreground", list && "-mt-1")}>Default: {show(getPath(ctx.defaults, k))}</p>
+  return null
+}
+
+/** Puts one setting back to its default. Holds its space when hidden so controls line up. */
+function ResetButton({ ctx, k, label }: { ctx: Ctx; k: string; label: string }) {
+  if (!ctx.canEdit || !ctx.defaults) return null
+  const show = changeOf(ctx, k).changed && editable(ctx, k)
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={`Reset ${label} to default`}
+      title="Reset to default"
+      className={cn("text-muted-foreground", !show && "invisible")}
+      onClick={() => ctx.set(k, structuredClone(getPath(ctx.defaults, k)))}
+    >
+      <RotateCcw />
+    </Button>
   )
 }
 

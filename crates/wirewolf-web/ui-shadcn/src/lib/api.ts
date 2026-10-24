@@ -105,6 +105,8 @@ export interface ConfigView {
   save_path?: string | null
   /** Settings that only change on restart (1.2). */
   restart_keys?: string[]
+  /** The built-in defaults, same shape as `config` (1.4). */
+  defaults?: Config
 }
 
 /** One rejected setting from `PUT /config`. `key` is a dotted path; `""` is the whole config. */

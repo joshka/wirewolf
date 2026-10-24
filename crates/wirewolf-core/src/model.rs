@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.3";
+pub const API_VERSION: &str = "1.4";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +283,10 @@ pub struct ConfigView {
     /// Settings that only change on restart, so the API won't edit them (1.2).
     #[serde(default)]
     pub restart_keys: Vec<String>,
+    /// The built-in defaults, same shape as `config`, so clients can show what was changed
+    /// (1.4).
+    #[serde(default)]
+    pub defaults: crate::config::Config,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

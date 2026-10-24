@@ -476,6 +476,7 @@ impl Loaded {
             editable: false,
             save_path: None,
             restart_keys: Vec::new(),
+            defaults: Config::default().redacted(),
         }
     }
 }

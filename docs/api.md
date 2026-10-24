@@ -75,6 +75,7 @@ Target    { id: "target:<slug>", name, check, kind: tcp|http|https|ping|dns, cri
             status, detail, rtt_ms?, loss_pct? }                                  (1.1)
 ConfigView { path?, config: <wirewolf.toml as JSON>, sources: { "probe.interval": file|env|flag },
              editable, save_path?, restart_keys: [string] }                           (1.2)
+             defaults: <same shape as config, built-in values>                         (1.4)
 FieldError { key: "probe.interval" | "targets.0.check" | "" (whole config), message }  (1.2)
 Verdict   { severity: healthy|degraded|down|unknown, headline, detail, blame: hop_id?,
             confidence: low|medium|high, fix_hint?, method }
