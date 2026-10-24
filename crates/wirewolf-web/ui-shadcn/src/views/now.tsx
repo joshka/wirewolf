@@ -26,9 +26,13 @@ export function NowView() {
   const now = useNow(2000)
   if (!snapshot) return <NowSkeleton />
   const open = incidents.find((i) => i.id === snapshot.open_incident)
+  // Healthy since the last incident ended (incidents are newest first).
+  const lastEnd = incidents.find((i) => i.ended)?.ended
+  const since = open?.started ?? (snapshot.verdict.severity === "healthy" ? lastEnd : null)
+  const recent = incidents.filter((i) => now - new Date(i.ended ?? now).getTime() < 24 * 3600e3).length
   return (
     <div className="flex flex-col gap-4">
-      <SnapshotView snapshot={snapshot} since={open?.started} samples={samples} now={now} action={<AskAi size="sm" />} />
+      <SnapshotView snapshot={snapshot} since={since} recent={recent} samples={samples} now={now} action={<AskAi size="sm" />} />
       <TargetsCard targets={snapshot.targets ?? []} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SpeedCard />

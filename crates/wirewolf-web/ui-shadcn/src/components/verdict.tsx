@@ -2,14 +2,26 @@ import type { ReactNode } from "react"
 import { Lightbulb } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Snapshot } from "@/lib/api"
-import { RelTime } from "./time"
+import { Lasting, RelTime } from "./time"
 import { SeverityPill } from "./status"
 
 /**
  * The answer to "is it broken, where, and since when?". Loud when something is wrong, compact
  * when healthy.
  */
-export function VerdictBanner({ snapshot, since, action }: { snapshot: Snapshot; since?: string | null; action?: ReactNode }) {
+export function VerdictBanner({
+  snapshot,
+  since,
+  recent,
+  action,
+}: {
+  snapshot: Snapshot
+  /** When the current state began: the open incident's start, or the last one's end when healthy. */
+  since?: string | null
+  /** Incidents in the last 24 hours, shown when healthy so "good now" isn't mistaken for "stable". */
+  recent?: number
+  action?: ReactNode
+}) {
   const v = snapshot.verdict
   const blamed = snapshot.hops.find((h) => h.id === v.blame)
   const healthy = v.severity === "healthy"
@@ -38,10 +50,15 @@ export function VerdictBanner({ snapshot, since, action }: { snapshot: Snapshot;
           {blamed && <span> · at {blamed.label}</span>}
           {since && (
             <span>
-              · since <RelTime at={since} className="text-foreground" />
+              · <Lasting since={since} />
             </span>
           )}
           <span>· {v.confidence[0].toUpperCase() + v.confidence.slice(1)} confidence</span>
+          {healthy && recent != null && (
+            <span>
+              · {recent === 0 ? "no incidents" : recent === 1 ? "1 incident" : `${recent} incidents`} in the last 24 h
+            </span>
+          )}
         </div>
         <h1
           aria-live="polite"

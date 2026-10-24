@@ -7,6 +7,7 @@ import { VerdictBanner } from "./verdict"
 export function SnapshotView({
   snapshot,
   since,
+  recent,
   incident,
   samples,
   now,
@@ -14,6 +15,7 @@ export function SnapshotView({
 }: {
   snapshot: Snapshot
   since?: string | null
+  recent?: number
   incident?: string
   samples?: Record<string, Sample[]>
   now?: number
@@ -22,7 +24,7 @@ export function SnapshotView({
 }) {
   return (
     <div className="flex flex-col gap-4">
-      <VerdictBanner snapshot={snapshot} since={since} action={action} />
+      <VerdictBanner snapshot={snapshot} since={since} recent={recent} action={action} />
       <PathDiagram hops={snapshot.hops} blame={snapshot.verdict.blame} severity={snapshot.verdict.severity} samples={samples} now={now} incident={incident} />
     </div>
   )
