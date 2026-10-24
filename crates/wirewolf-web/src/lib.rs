@@ -33,6 +33,7 @@ use wirewolf_core::model::{Activity, ActivityKind, Event, LogLine};
 use wirewolf_core::{Command, Hub};
 
 pub mod auth;
+mod export;
 #[cfg(feature = "ui-shadcn")]
 mod ui_shadcn;
 
@@ -87,6 +88,36 @@ pub fn api_router() -> Router<Hub> {
         .route("/brief", get(brief))
         .route("/brief/prompt", get(brief_prompt))
         .route("/demo/scenario", post(set_scenario))
+        .route("/metrics", get(metrics))
+        .route("/export/history.csv", get(export_history))
+        .route("/export/incidents.csv", get(export_incidents))
+        .route("/export/speed.csv", get(export_speed))
+}
+
+/// The current state for Prometheus to scrape.
+async fn metrics(State(hub): State<Hub>) -> impl IntoResponse {
+    let body = export::metrics(hub.snapshot().as_ref(), &hub.speed_runs(), &hub.incidents());
+    ([(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")], body)
+}
+
+/// A CSV download named `wirewolf-<what>.csv`.
+fn csv_download(what: &str, body: String) -> Response {
+    use axum::http::header;
+    let disposition = format!("attachment; filename=\"wirewolf-{what}.csv\"");
+    ([(header::CONTENT_TYPE, "text/csv; charset=utf-8".to_string()), (header::CONTENT_DISPOSITION, disposition)], body).into_response()
+}
+
+/// Samples, with the same `hop`/`since`/`until` filters as `/history`.
+async fn export_history(State(hub): State<Hub>, Query(q): Query<HistoryQuery>) -> Response {
+    csv_download("history", export::history_csv(&hub.samples(q.hop.as_deref(), q.since, q.until)))
+}
+
+async fn export_incidents(State(hub): State<Hub>) -> Response {
+    csv_download("incidents", export::incidents_csv(&hub.incidents()))
+}
+
+async fn export_speed(State(hub): State<Hub>) -> Response {
+    csv_download("speed", export::speed_csv(&hub.speed_runs()))
 }
 
 /// Serves the demo: no sign-in, open writes.

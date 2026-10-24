@@ -16,12 +16,14 @@ import { copyText } from "@/lib/clipboard"
 import { reportText } from "@/lib/report"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
-import { PageHeader } from "@/components/page-header"
+import { CsvLink, PageHeader } from "@/components/page-header"
 
 export function IncidentsView() {
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Incidents" description="Every period the network was degraded or down, open ones first. Each keeps the evidence from its worst moment." />
+      <PageHeader title="Incidents" description="Every period the network was degraded or down, open ones first. Each keeps the evidence from its worst moment.">
+        <CsvLink what="incidents" />
+      </PageHeader>
       <IncidentList />
     </div>
   )

@@ -6,7 +6,7 @@ import { BloatBadge, RunSpeedButton, SpeedSummary, useSpeed } from "@/components
 import { RelTime } from "@/components/time"
 import { PLAN_SHORTFALL, useLive } from "@/lib/live"
 import { bytes, mbps, ms } from "@/lib/format"
-import { PageHeader } from "@/components/page-header"
+import { CsvLink, PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import type { SpeedRun } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -18,7 +18,9 @@ export function SpeedView() {
   const done = runs.filter((r) => r.state === "complete").length
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader title="Speed" description="Throughput, and latency under load (bufferbloat)." />
+      <PageHeader title="Speed" description="Throughput, and latency under load (bufferbloat).">
+        <CsvLink what="speed" />
+      </PageHeader>
 
       <Card>
         <CardHeader>

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react"
+import { Download } from "lucide-react"
+import { buttonVariants } from "@/components/ui/button"
 
 /**
  * A page's title and one-line description, in the same style as the Settings header. Now has
@@ -13,5 +15,15 @@ export function PageHeader({ title, description, children }: { title: string; de
       </div>
       <p className="text-sm text-muted-foreground">{description}</p>
     </header>
+  )
+}
+
+/** A link that downloads one of the `/api/v1/export/*.csv` files. */
+export function CsvLink({ what, query }: { what: "history" | "incidents" | "speed"; query?: string }) {
+  return (
+    <a href={`/api/v1/export/${what}.csv${query ? `?${query}` : ""}`} download className={buttonVariants({ variant: "outline", size: "sm" })}>
+      <Download aria-hidden />
+      Download CSV
+    </a>
   )
 }

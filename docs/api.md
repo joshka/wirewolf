@@ -39,7 +39,33 @@ publishes a live snapshot every 2s.
 | GET | `/api/v1/logs/events?level=&target=&q=` | SSE: each new `LogLine` as a `log` event, same filters (1.6). Needs a user who can write |
 | PUT | `/api/v1/logs/filter` | Body `{"filter":"info,wirewolf_probe=debug"}`. Changes the log filter now and saves it as `log.filter` when it can (1.6). `200` `{ filter, saved }`, `422` `{ errors: [FieldError] }` |
 | POST | `/api/v1/demo/scenario` | Body `{"id":"dns_down"}`. Returns `202`, `422` for an unknown id, or `404` in live mode |
+| GET | `/api/v1/metrics` | `text/plain`: the current state in the Prometheus text format (1.7). See below |
+| GET | `/api/v1/export/history.csv?hop=&since=&until=` | `text/csv` download of samples, same filters as `/history` (1.7). Columns: `at, hop, status, rtt_ms, jitter_ms, loss_pct` |
+| GET | `/api/v1/export/incidents.csv` | `text/csv` download of incidents, newest first (1.7). Columns: `id, started, ended, duration_s, severity, blame, headline` |
+| GET | `/api/v1/export/speed.csv` | `text/csv` download of speed runs, newest first (1.7). Columns: `id, started, state, backend, server, down_mbps, up_mbps, idle_latency_ms, loaded_latency_ms, bloat, bytes_used, error` |
 | GET | `/api/v1/session` | `Session`: who is signed in and what they may do (1.3). Always readable |
+
+## Prometheus metrics (1.7)
+
+`/api/v1/metrics` uses base units (seconds, ratios, bits per second), and states are one-hot
+gauges, so an alert is a comparison: `wirewolf_verdict{severity="down"} == 1`.
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `wirewolf_verdict` | `severity` | 1 for the current severity, 0 for the others |
+| `wirewolf_hop_status` | `hop`, `kind`, `status` | 1 for each hop's current status, 0 for the others |
+| `wirewolf_hop_rtt_seconds`, `wirewolf_hop_jitter_seconds` | `hop`, `kind` | Each hop's latest round-trip time and jitter |
+| `wirewolf_hop_loss_ratio` | `hop`, `kind` | Each hop's loss, 0 to 1 |
+| `wirewolf_target_up` | `target`, `name`, `critical` | 1 unless the user target fails |
+| `wirewolf_target_rtt_seconds` | `target`, `name`, `critical` | Each user target's round-trip time |
+| `wirewolf_last_check_timestamp_seconds` | | When the current verdict was measured |
+| `wirewolf_incident_open` | | 1 while an incident is open |
+| `wirewolf_speed_download_bits_per_second`, `wirewolf_speed_upload_bits_per_second` | | The latest completed speed test |
+| `wirewolf_speed_latency_seconds` | `load` (`idle`, `loaded`) | The latest completed speed test's latency |
+| `wirewolf_speed_last_run_timestamp_seconds` | | When that test started |
+
+Like the rest of the API it follows the read policy: with `auth.require_for_reads`, scraping
+needs a signed-in session too.
 
 ## Sign-in and writes (1.3)
 

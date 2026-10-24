@@ -334,6 +334,27 @@ A poor grade means your router's queues fill up when the line is busy, so calls 
 while anything big is downloading or uploading. Smart queue management (SQM, such as `cake` or
 `fq_codel`) on the router usually fixes it.
 
+## Export and Prometheus
+
+The History, Incidents, and Speed pages each have a **Download CSV** button (History exports the
+range on screen). The same files are at `/api/v1/export/history.csv`, `incidents.csv`, and
+`speed.csv`.
+
+For Grafana or alerting, point Prometheus at `/api/v1/metrics`:
+
+```yaml
+scrape_configs:
+  - job_name: wirewolf
+    metrics_path: /api/v1/metrics
+    static_configs:
+      - targets: ["wirewolf.lan:7465"]
+```
+
+`wirewolf_verdict{severity="down"} == 1` is "the network is down", and
+`wirewolf_incident_open == 1` is "an incident is open". `docs/api.md` lists every metric. With
+`auth.require_for_reads` on, Prometheus can't scrape it, because it can't sign in; leave reads
+open on your LAN, or scrape through a proxy that signs in.
+
 ## The AI brief and "Ask an AI"
 
 The brief is a compact text summary of what wirewolf measured, written for a chat assistant: the
