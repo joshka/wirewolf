@@ -66,15 +66,20 @@ export function IncidentsView() {
   )
 }
 
-export function IncidentView({ id }: { id: string }) {
+/** An incident from the live list, else fetched. `undefined` while loading, `null` if missing. */
+export function useIncident(id: string | undefined): Incident | null | undefined {
   const live = useLive((s) => s.incidents.find((i) => i.id === id))
-  const meta = useLive((s) => s.meta)
   const [fetched, setFetched] = useState<Incident | null | undefined>(undefined)
   useEffect(() => {
-    if (live) return
+    if (live || !id) return
     api.incident(id).then(setFetched).catch(() => setFetched(null))
   }, [id, live])
-  const incident = live ?? fetched
+  return live ?? fetched
+}
+
+export function IncidentView({ id }: { id: string }) {
+  const meta = useLive((s) => s.meta)
+  const incident = useIncident(id)
   const now = useNow()
 
   const back = (
@@ -110,7 +115,7 @@ export function IncidentView({ id }: { id: string }) {
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
           Evidence at the worst point · <RelTime at={incident.evidence.at} />
         </h2>
-        <SnapshotView snapshot={incident.evidence} live={false} />
+        <SnapshotView snapshot={incident.evidence} incident={incident.id} />
       </div>
     </div>
   )

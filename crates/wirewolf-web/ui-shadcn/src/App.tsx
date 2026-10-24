@@ -25,6 +25,7 @@ import { NowView } from "@/views/now"
 import { HistoryView } from "@/views/history"
 import { IncidentsView, IncidentView } from "@/views/incidents"
 import { SpeedView } from "@/views/speed"
+import { HopView } from "@/views/hop"
 
 const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
   { route: { name: "now" }, label: "Now", icon: Activity },
@@ -34,7 +35,8 @@ const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
 ]
 
 const isActive = (nav: Route, cur: Route) =>
-  nav.name === cur.name || (nav.name === "incidents" && cur.name === "incident")
+  nav.name === cur.name || (nav.name === "incidents" && (cur.name === "incident" || (cur.name === "hop" && !!cur.incident))) ||
+  (nav.name === "now" && cur.name === "hop" && !cur.incident)
 
 export default function App() {
   useEffect(start, [])
@@ -121,7 +123,8 @@ function Main() {
   const route = useRoute()
   const severity = useLive((s) => s.snapshot?.verdict.severity)
   const error = useLive((s) => s.error)
-  const title = route.name === "incident" ? "Incident" : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
+  const snapshotHop = useLive((s) => (route.name === "hop" ? s.snapshot?.hops.find((h) => h.id === route.id)?.label : undefined))
+  const title = route.name === "incident" ? "Incident" : route.name === "hop" ? (snapshotHop ?? route.id) : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
     const sev = severity && severity !== "healthy" ? `⚠ ${severity} · ` : ""
     document.title = `${sev}${title} · wirewolf`
@@ -143,6 +146,7 @@ function Main() {
         {route.name === "incidents" && <IncidentsView />}
         {route.name === "incident" && <IncidentView id={route.id} />}
         {route.name === "speed" && <SpeedView />}
+        {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
       </main>
     </SidebarInset>
   )

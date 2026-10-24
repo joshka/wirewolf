@@ -3,6 +3,7 @@ import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Ro
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ChartContainer } from "@/components/ui/chart"
+import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
 import type { Hop, HopKind, Sample, Severity, Status } from "@/lib/api"
 import { SPARK_WINDOW_MS } from "@/lib/live"
@@ -72,7 +73,7 @@ function useLayout(): [Layout, (l: Layout) => void] {
 /**
  * The path from this machine to the web, as rows (one per hop, with a wide sparkline) or as six
  * cards across (from `lg` up, with small sparklines). The choice is remembered per browser; phones
- * always get rows. Each hop opens the drawer.
+ * always get rows. Each hop links to its page.
  */
 export function PathDiagram({
   hops,
@@ -80,14 +81,14 @@ export function PathDiagram({
   severity,
   samples,
   now,
-  onSelect,
+  incident,
 }: {
   hops: Hop[]
   blame: string | null
   severity: Severity
   samples?: Record<string, Sample[]>
   now?: number
-  onSelect: (hop: Hop, opener: HTMLElement) => void
+  incident?: string
 }) {
   const [layout, setLayout] = useLayout()
   const cards = layout === "cards"
@@ -110,10 +111,10 @@ export function PathDiagram({
           const spark = samples && now != null && hop.kind !== "host"
           return (
             <li key={hop.id} className={cn("flex", i > 0 && "border-t", cards && "lg:border-t-0")}>
-              <button
-                type="button"
+              <a
+                href={href({ name: "hop", id: hop.id, incident })}
+                onClick={onLinkClick}
                 data-hop={hop.id}
-                onClick={(e) => onSelect(hop, e.currentTarget)}
                 aria-label={`${hop.label}: ${statusLabel[hop.status]}. ${hop.summary}. Open details`}
                 className={cn(
                   "flex w-full items-center gap-3 px-4 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
@@ -153,7 +154,7 @@ export function PathDiagram({
                 </span>
                 <StatusIcon status={hop.status} className={cn(cards && "lg:hidden")} />
                 <ChevronRight aria-hidden className={cn("size-4 shrink-0 text-muted-foreground", cards && "lg:hidden")} />
-              </button>
+              </a>
             </li>
           )
         })}

@@ -19,7 +19,7 @@ export function NowView() {
   const open = incidents.find((i) => i.id === snapshot.open_incident)
   return (
     <div className="flex flex-col gap-4">
-      <SnapshotView snapshot={snapshot} since={open?.started} live samples={samples} now={now} />
+      <SnapshotView snapshot={snapshot} since={open?.started} samples={samples} now={now} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SpeedCard />
         <RecentIncidents />

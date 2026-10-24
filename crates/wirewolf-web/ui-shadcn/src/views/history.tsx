@@ -6,8 +6,8 @@ import { bucket, hopColor, SpeedChart, TimeChart } from "@/components/charts"
 import { api, type Sample } from "@/lib/api"
 import { useLive } from "@/lib/live"
 
-const RANGES = { "1h": 3600e3, "6h": 6 * 3600e3, "24h": 24 * 3600e3 } as const
-type Range = keyof typeof RANGES
+export const RANGES = { "1h": 3600e3, "6h": 6 * 3600e3, "24h": 24 * 3600e3 } as const
+export type Range = keyof typeof RANGES
 
 export function HistoryView() {
   const [range, setRange] = useState<Range>("6h")
