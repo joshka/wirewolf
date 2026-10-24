@@ -63,8 +63,8 @@ struct State {
     activity: VecDeque<Activity>,
     next_activity: u64,
     policy: Incidents,
-    /// Unhealthy snapshots in a row while no incident is open: the first one's time, and the
-    /// worst one.
+    /// Unhealthy snapshots in a row toward a new incident (none open, or the open one blames a
+    /// different hop): the first one's time, and the worst one.
     pending: Option<(u32, Timestamp, Snapshot)>,
     /// Healthy snapshots in a row while an incident is open, and the first one's time.
     recovering: Option<(u32, Timestamp)>,
@@ -238,15 +238,34 @@ impl Hub {
                 state.note(&mut events, ActivityKind::Verdict, message, None);
             }
             let bad = matches!(severity, Severity::Degraded | Severity::Down);
-            let open = state.incidents.back_mut().filter(|i| i.ended.is_none());
+            let open = state.incidents.back().filter(|i| i.ended.is_none()).map(|i| (i.id.clone(), i.blame.clone()));
             match (open, bad) {
-                (Some(incident), true) => {
+                // The blame moved: a different problem, not a continuation. Once the new blame
+                // has held for `open_after` cycles, close this incident where the new one began
+                // and open the new one, so an incident never tells another problem's story.
+                (Some((id, blame)), true) if blame != snapshot.verdict.blame => {
                     state.recovering = None;
-                    let id = incident.id.clone();
+                    let (n, start, worst) = state.advance_pending(&snapshot);
+                    if n < state.policy.open_after.max(1) {
+                        state.pending = Some((n, start, worst));
+                        snapshot.open_incident = Some(id);
+                    } else {
+                        let incident = state.incidents.back_mut().expect("open incident");
+                        incident.ended = Some(start);
+                        events.push(Event::Incident(incident.clone()));
+                        let to = worst.verdict.blame.as_deref().unwrap_or("nothing");
+                        let message = format!("Incident {id} closed after {}: the problem moved to {to}", short_duration(start.duration_since(incident.started)));
+                        state.note(&mut events, ActivityKind::Incident, message, Some(id));
+                        snapshot.open_incident = Some(state.open_incident(&mut events, start, worst));
+                    }
+                }
+                (Some((id, _)), true) => {
+                    state.recovering = None;
+                    state.pending = None;
+                    let incident = state.incidents.back_mut().expect("open incident");
                     if severity > incident.severity {
                         incident.severity = severity;
                         incident.headline = snapshot.verdict.headline.clone();
-                        incident.blame = snapshot.verdict.blame.clone();
                         incident.evidence = Snapshot { open_incident: Some(id.clone()), ..snapshot.clone() };
                         events.push(Event::Incident(incident.clone()));
                         let message = format!("Incident {id} got worse ({}): {}", severity_word(severity), snapshot.verdict.headline);
@@ -254,48 +273,29 @@ impl Hub {
                     }
                     snapshot.open_incident = Some(id);
                 }
-                (Some(incident), false) => {
+                (Some((id, _)), false) => {
+                    state.pending = None;
                     let (n, since) = state.recovering.map_or((1, snapshot.at), |(n, t)| (n + 1, t));
                     if n < state.policy.close_after.max(1) {
                         state.recovering = Some((n, since));
-                        snapshot.open_incident = Some(incident.id.clone());
+                        snapshot.open_incident = Some(id);
                     } else {
                         state.recovering = None;
+                        let incident = state.incidents.back_mut().expect("open incident");
                         incident.ended = Some(since);
                         events.push(Event::Incident(incident.clone()));
-                        let id = incident.id.clone();
                         let message = format!("Incident {id} closed after {}", short_duration(since.duration_since(incident.started)));
                         snapshot.open_incident = None;
                         state.note(&mut events, ActivityKind::Incident, message, Some(id));
                     }
                 }
                 (None, true) => {
-                    let (n, start, worst) = match state.pending.take() {
-                        Some((n, start, worst)) if worst.verdict.severity >= severity => (n + 1, start, worst),
-                        Some((n, start, _)) => (n + 1, start, snapshot.clone()),
-                        None => (1, snapshot.at, snapshot.clone()),
-                    };
+                    let (n, start, worst) = state.advance_pending(&snapshot);
                     if n < state.policy.open_after.max(1) {
                         state.pending = Some((n, start, worst));
                         snapshot.open_incident = None;
                     } else {
-                        let id = format!("inc-{}", state.next_incident);
-                        state.next_incident += 1;
-                        snapshot.open_incident = Some(id.clone());
-                        let incident = Incident {
-                            id: id.clone(),
-                            started: start,
-                            ended: None,
-                            severity: worst.verdict.severity,
-                            headline: worst.verdict.headline.clone(),
-                            blame: worst.verdict.blame.clone(),
-                            evidence: Snapshot { open_incident: Some(id), ..worst },
-                        };
-                        let message = format!("Incident {} opened ({}): {}", incident.id, severity_word(incident.severity), incident.headline);
-                        let subject = Some(incident.id.clone());
-                        push_bounded(&mut state.incidents, incident.clone(), INCIDENT_CAPACITY);
-                        events.push(Event::Incident(incident));
-                        state.note(&mut events, ActivityKind::Incident, message, subject);
+                        snapshot.open_incident = Some(state.open_incident(&mut events, start, worst));
                     }
                 }
                 (None, false) => {
@@ -389,6 +389,36 @@ impl Hub {
 }
 
 impl State {
+    /// Counts one more unhealthy cycle toward opening an incident, keeping the first one's time
+    /// and the worst snapshot.
+    fn advance_pending(&mut self, snapshot: &Snapshot) -> (u32, Timestamp, Snapshot) {
+        match self.pending.take() {
+            Some((n, start, worst)) if worst.verdict.severity >= snapshot.verdict.severity => (n + 1, start, worst),
+            Some((n, start, _)) => (n + 1, start, snapshot.clone()),
+            None => (1, snapshot.at, snapshot.clone()),
+        }
+    }
+
+    /// Opens an incident that started at `start`, with `worst` as its evidence, and returns its id.
+    fn open_incident(&mut self, events: &mut Vec<Event>, start: Timestamp, worst: Snapshot) -> String {
+        let id = format!("inc-{}", self.next_incident);
+        self.next_incident += 1;
+        let incident = Incident {
+            id: id.clone(),
+            started: start,
+            ended: None,
+            severity: worst.verdict.severity,
+            headline: worst.verdict.headline.clone(),
+            blame: worst.verdict.blame.clone(),
+            evidence: Snapshot { open_incident: Some(id.clone()), ..worst },
+        };
+        let message = format!("Incident {id} opened ({}): {}", severity_word(incident.severity), incident.headline);
+        push_bounded(&mut self.incidents, incident.clone(), INCIDENT_CAPACITY);
+        events.push(Event::Incident(incident));
+        self.note(events, ActivityKind::Incident, message, Some(id.clone()));
+        id
+    }
+
     fn activity_entry(&mut self, kind: ActivityKind, message: String, subject: Option<String>, actor: Option<String>) -> Activity {
         let id = self.next_activity;
         self.next_activity += 1;
@@ -494,6 +524,45 @@ mod tests {
         assert_eq!(closed.len(), 1);
         assert_eq!(closed[0].ended.unwrap().as_second(), 120);
         assert_eq!(hub.snapshot().unwrap().open_incident, None);
+    }
+
+    fn blamed(at: i64, severity: Severity, hop: &str) -> Snapshot {
+        let mut s = snap(at, severity);
+        s.verdict.blame = Some(hop.into());
+        s.verdict.headline = format!("{hop} broke");
+        s
+    }
+
+    #[test]
+    fn moving_blame_closes_the_incident_and_opens_another() {
+        let hub = hub(2, 2);
+        hub.publish_snapshot(blamed(0, Severity::Down, "isp"));
+        hub.publish_snapshot(blamed(30, Severity::Down, "isp"));
+        // One cycle blaming DNS isn't enough to move.
+        hub.publish_snapshot(blamed(60, Severity::Down, "dns"));
+        assert_eq!(hub.incidents().len(), 1);
+        hub.publish_snapshot(blamed(90, Severity::Down, "dns"));
+        let all = hub.incidents(); // newest first
+        assert_eq!(all.len(), 2);
+        let (new, old) = (&all[0], &all[1]);
+        assert_eq!(old.blame.as_deref(), Some("isp"));
+        assert_eq!(old.ended.unwrap().as_second(), 60);
+        assert_eq!(new.blame.as_deref(), Some("dns"));
+        assert_eq!(new.headline, "dns broke");
+        assert_eq!(new.started.as_second(), 60);
+        assert_eq!(new.ended, None);
+        assert_eq!(hub.snapshot().unwrap().open_incident.as_deref(), Some(new.id.as_str()));
+    }
+
+    #[test]
+    fn a_blip_of_other_blame_keeps_the_incident() {
+        let hub = hub(2, 2);
+        hub.publish_snapshot(blamed(0, Severity::Down, "isp"));
+        hub.publish_snapshot(blamed(30, Severity::Down, "isp"));
+        hub.publish_snapshot(blamed(60, Severity::Down, "dns"));
+        hub.publish_snapshot(blamed(90, Severity::Down, "isp"));
+        hub.publish_snapshot(blamed(120, Severity::Down, "dns"));
+        assert_eq!(hub.incidents().len(), 1);
     }
 
     #[test]
