@@ -31,6 +31,8 @@ export function keyMetric(hop: Hop): string {
 
 const dimmed = (s: Status) => s === "skip" || s === "not_applicable"
 
+const metricTone = (s: Status) => (s === "pass" ? "text-foreground" : dimmed(s) ? "text-muted-foreground" : statusText[s])
+
 export function IconTile({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
@@ -111,14 +113,14 @@ export function PathDiagram({
           const blamed = hop.id === blame
           const spark = samples && now != null && hop.kind !== "host"
           return (
-            <li key={hop.id} className={cn("flex", i > 0 && "border-t", cards && "lg:border-t-0")}>
+            <li key={hop.id} className={cn("flex min-w-0", i > 0 && "border-t", cards && "lg:border-t-0")}>
               <a
                 href={href({ name: "hop", id: hop.id, incident })}
                 onClick={onLinkClick}
                 data-hop={hop.id}
                 aria-label={`${hop.label}: ${statusLabel[hop.status]}. ${hop.summary}. Open details`}
                 className={cn(
-                  "flex w-full items-center gap-3 px-0 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-0",
+                  "flex w-full min-w-0 items-center gap-3 px-0 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-0",
                   cards && "lg:flex-col lg:items-stretch lg:gap-2 lg:rounded-xl lg:border lg:bg-card lg:p-4",
                   blamed && (severity === "down" ? "bg-fail/5" : "bg-warn/5"),
                   blamed && cards && (severity === "down" ? "lg:border-fail" : "lg:border-warn"),
@@ -137,6 +139,8 @@ export function PathDiagram({
                   <span className="truncate font-mono text-xs text-muted-foreground" title={hop.target ?? undefined}>
                     {hop.target ?? "—"}
                   </span>
+                  {/* Phones put the metric under the target, so a long summary can't push the row wider. */}
+                  <span className={cn("truncate text-sm font-medium tabular-nums sm:hidden", metricTone(hop.status))}>{keyMetric(hop)}</span>
                 </div>
                 {spark ? (
                   <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
@@ -145,9 +149,9 @@ export function PathDiagram({
                 )}
                 <span
                   className={cn(
-                    "max-w-[45%] shrink-0 truncate text-right text-sm font-medium tabular-nums sm:w-40 sm:max-w-none",
+                    "hidden shrink-0 truncate text-right text-sm font-medium tabular-nums sm:block sm:w-40",
                     cards && "lg:w-auto lg:text-left",
-                    hop.status === "pass" ? "text-foreground" : dimmed(hop.status) ? "text-muted-foreground" : statusText[hop.status],
+                    metricTone(hop.status),
                   )}
                   title={hop.summary}
                 >
