@@ -104,18 +104,18 @@ impl Prober {
             targets::assess(spec, &outcome, &c.thresholds.targets)
         }));
         let (gateway, isp, internet, dns, web, public, mtu, user) = tokio::join!(
-            gateway_probe(self.icmp, gw),
-            isp_probe(self.icmp, trace),
-            internet_probe(&c, self.icmp, has_v6),
-            dns_probe(&c, gw, has_v6),
-            web_probe(&c, &self.http, &self.tls),
-            async {
+            bounded("gateway", gateway_probe(self.icmp, gw)),
+            bounded("isp", isp_probe(self.icmp, trace)),
+            bounded("internet", internet_probe(&c, self.icmp, has_v6)),
+            bounded("dns", dns_probe(&c, gw, has_v6)),
+            bounded("web", web_probe(&c, &self.http, &self.tls)),
+            bounded("public address", async {
                 if refresh { Some(public_ips(&self.http, has_v6).await) } else { None }
-            },
-            async {
+            }),
+            bounded("path MTU", async {
                 if mtu_due { Some(path_mtu(self.icmp, local_mtu).await) } else { None }
-            },
-            user,
+            }),
+            bounded("targets", user),
         );
         if let Some(public) = public {
             self.public_ip = public;
@@ -130,6 +130,21 @@ impl Prober {
         host.path_mtu = self.path_mtu.clone();
         host.previous_ports = std::mem::replace(&mut self.ports, host.ports.clone());
         (Measurements { host, gateway, isp, internet, dns, web, thresholds: c.thresholds.clone() }, user)
+    }
+}
+
+/// The longest any one probe may take. Each probe has its own timeouts, but a cycle must never
+/// hang: the loop waits for it, so one stuck probe would stop all measurement.
+const PROBE_LIMIT: Duration = Duration::from_secs(20);
+
+/// Runs one probe, giving up (with a warning and an empty result) after [`PROBE_LIMIT`].
+async fn bounded<T: Default>(name: &str, probe: impl Future<Output = T>) -> T {
+    match tokio::time::timeout(PROBE_LIMIT, probe).await {
+        Ok(result) => result,
+        Err(_) => {
+            tracing::warn!(probe = name, "{name} probe didn't finish within {}s; skipped this cycle", PROBE_LIMIT.as_secs());
+            T::default()
+        }
     }
 }
 

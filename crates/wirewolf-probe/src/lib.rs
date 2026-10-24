@@ -161,7 +161,11 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                     continue;
                 }
                 let started = std::time::Instant::now();
-                let (measurements, targets) = prober.cycle(upstream_fault).await;
+                // Each probe is bounded; this backstop keeps the loop alive even if a cycle isn't.
+                let Ok((measurements, targets)) = tokio::time::timeout(std::time::Duration::from_secs(60), prober.cycle(upstream_fault)).await else {
+                    tracing::warn!("probe cycle didn't finish within 60s; skipped");
+                    continue;
+                };
                 let at = Timestamp::now();
                 let hops = assess::hops(&measurements);
                 // Sweep the path next cycle when the break is past the gateway.
