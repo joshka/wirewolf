@@ -42,7 +42,7 @@ WORKDIR /src
 COPY . .
 COPY --from=ui /ui/dist crates/wirewolf-web/ui-shadcn/dist
 ENV WIREWOLF_UI_SHADCN_PREBUILT=1
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/src/target,id=wirewolf-target-$TARGETARCH \
     target="$(cat /rust-target)" \
     && cargo build --release --locked --bin wirewolf --target "$target" \
