@@ -196,14 +196,13 @@ impl Pinger {
         match via {
             PingVia::CloudflareHttp => Some(Self::Http(client?)),
             PingVia::OoklaTcp(host) => {
-                use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+                use tokio::io::AsyncWriteExt;
                 let stream = tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect(host.as_str())).await.ok()?.ok()?;
                 stream.set_nodelay(true).ok()?;
                 let mut stream = tokio::io::BufStream::new(stream);
                 stream.write_all(b"HI\n").await.ok()?;
                 stream.flush().await.ok()?;
-                let mut line = String::new();
-                tokio::time::timeout(Duration::from_secs(3), stream.read_line(&mut line)).await.ok()?.ok()?;
+                let line = tokio::time::timeout(Duration::from_secs(3), read_reply(&mut stream)).await.ok()??;
                 line.starts_with("HELLO").then_some(Self::Tcp(stream))
             }
         }
@@ -213,16 +212,24 @@ impl Pinger {
         match self {
             Self::Http(client) => latency(client).await,
             Self::Tcp(stream) => {
-                use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+                use tokio::io::AsyncWriteExt;
                 let start = Instant::now();
                 stream.write_all(format!("PING {}\n", Timestamp::now().as_millisecond()).as_bytes()).await.ok()?;
                 stream.flush().await.ok()?;
-                let mut line = String::new();
-                tokio::time::timeout(Duration::from_secs(5), stream.read_line(&mut line)).await.ok()?.ok()?;
+                let line = tokio::time::timeout(Duration::from_secs(5), read_reply(stream)).await.ok()??;
                 line.starts_with("PONG").then(|| start.elapsed().as_secs_f64() * 1000.0)
             }
         }
     }
+}
+
+/// One line from an Ookla server, at most 256 bytes. Servers are run by third parties, so a
+/// reply with no newline mustn't grow without bound until the timeout.
+async fn read_reply(stream: &mut tokio::io::BufStream<tokio::net::TcpStream>) -> Option<String> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+    let mut line = String::new();
+    stream.take(256).read_line(&mut line).await.ok()?;
+    Some(line)
 }
 
 async fn http_test<F, Fut>(hub: &Hub, mut run: SpeedRun, cfg: CloudflareConfig, target: F) -> Result<SpeedRun, Failure>
