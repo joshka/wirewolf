@@ -5051,7 +5051,6 @@ dependencies = [
  "ipnet",
  "jiff",
  "openidconnect",
- "rand 0.10.3",
  "rust-embed",
  "serde",
  "serde_json",

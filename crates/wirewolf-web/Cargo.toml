@@ -26,7 +26,6 @@ openidconnect = { version = "4", default-features = false, features = ["reqwest"
 axum-extra = { version = "0.12.6", features = ["cookie-private"] }
 ipnet = { version = "2.12.2", default-features = false }
 base64 = "0.23.1"
-rand = "0.10"
 time = "0.3.55"
 sha2 = "0.11"
 
