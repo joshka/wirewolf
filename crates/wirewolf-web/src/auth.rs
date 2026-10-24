@@ -221,7 +221,8 @@ pub async fn policy(State(auth): State<Arc<AuthState>>, mut req: Request, next: 
     let peer = ext.get::<ConnectInfo<SocketAddr>>().map(|c| c.0).or_else(|| ext.get::<MockConnectInfo<SocketAddr>>().map(|c| c.0)).map(|a| a.ip());
     let viewer = auth.identify(req.headers(), peer);
     let write = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
-    if req.uri().path().ends_with("/session") && !write {
+    // Exactly `/session` (the path inside the `/api/v1` nest), so no other route skips the read check.
+    if req.uri().path() == "/session" && !write {
         req.extensions_mut().insert(viewer);
         return next.run(req).await;
     }
