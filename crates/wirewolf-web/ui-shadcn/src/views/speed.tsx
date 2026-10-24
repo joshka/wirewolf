@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { SpeedChart } from "@/components/charts"
@@ -6,6 +7,9 @@ import { RelTime } from "@/components/time"
 import { useLive } from "@/lib/live"
 import { bytes, mbps, ms } from "@/lib/format"
 import { PageHeader } from "@/components/page-header"
+import { Button } from "@/components/ui/button"
+import type { SpeedRun } from "@/lib/api"
+import { cn } from "@/lib/utils"
 
 export function SpeedView() {
   const { runs, running, latest, failed } = useSpeed()
@@ -45,48 +49,78 @@ export function SpeedView() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>All tests</CardTitle>
-        </CardHeader>
-        <CardContent className="px-0 sm:px-4">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="pl-4 sm:pl-2">Time</TableHead>
-                <TableHead className="hidden lg:table-cell">Backend</TableHead>
-                <TableHead className="hidden lg:table-cell">Server</TableHead>
-                <TableHead className="text-right">Down</TableHead>
-                <TableHead className="text-right">Up</TableHead>
-                <TableHead className="hidden text-right md:table-cell">Idle</TableHead>
-                <TableHead className="hidden text-right md:table-cell">Loaded</TableHead>
-                <TableHead className="text-center">Grade</TableHead>
-                <TableHead className="hidden pr-4 text-right sm:table-cell sm:pr-2">Data</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody className="tabular-nums">
-              {runs.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell className="pl-4 sm:pl-2">
-                    <RelTime at={r.started} />
-                    {r.state !== "complete" && <span className="ml-2 text-xs text-muted-foreground">{r.state}</span>}
-                  </TableCell>
-                  <TableCell className="hidden text-muted-foreground lg:table-cell">{r.backend}</TableCell>
-                  <TableCell className="hidden text-muted-foreground lg:table-cell">{r.server ?? "—"}</TableCell>
-                  <TableCell className="text-right">{mbps(r.down_mbps)}</TableCell>
-                  <TableCell className="text-right">{mbps(r.up_mbps)}</TableCell>
-                  <TableCell className="hidden text-right md:table-cell">{ms(r.idle_latency_ms)}</TableCell>
-                  <TableCell className="hidden text-right md:table-cell">{ms(r.loaded_latency_ms)}</TableCell>
-                  <TableCell className="text-center">
-                    <BloatBadge grade={r.bloat} className="text-xs" />
-                  </TableCell>
-                  <TableCell className="hidden pr-4 text-right text-muted-foreground sm:table-cell sm:pr-2">{bytes(r.bytes_used)}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <RunsTable runs={runs} />
     </div>
+  )
+}
+
+/** Runs shown before "Show all". */
+const RECENT_RUNS = 10
+
+/**
+ * Every run, newest first: the latest ten, then the rest on request. A column whose values are
+ * all the same (one backend, one server) moves into the description instead of repeating on
+ * every row, and speeds under half the median are coloured so slow runs stand out.
+ */
+function RunsTable({ runs }: { runs: SpeedRun[] }) {
+  const [all, setAll] = useState(false)
+  const done = runs.filter((r) => r.state === "complete")
+  const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]
+  const mid = { down: median(done.map((r) => r.down_mbps ?? 0)), up: median(done.map((r) => r.up_mbps ?? 0)) }
+  const slow = (v: number | null, m: number | undefined) => v != null && m != null && v < m / 2
+  const same = (f: (r: SpeedRun) => string | null) => new Set(runs.map(f)).size <= 1
+  const oneBackend = same((r) => r.backend)
+  const oneServer = same((r) => r.server)
+  const shown = all ? runs : runs.slice(0, RECENT_RUNS)
+  const common = [oneBackend && runs[0]?.backend, oneServer && runs[0]?.server].filter(Boolean).join(" · ")
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>All tests</CardTitle>
+        {common && <CardDescription>Every test used {common}</CardDescription>}
+      </CardHeader>
+      <CardContent className="px-0 sm:px-4">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="pl-4 sm:pl-2">Time</TableHead>
+              {!oneBackend && <TableHead className="hidden lg:table-cell">Backend</TableHead>}
+              {!oneServer && <TableHead className="hidden lg:table-cell">Server</TableHead>}
+              <TableHead className="text-right">Down</TableHead>
+              <TableHead className="text-right">Up</TableHead>
+              <TableHead className="hidden text-right md:table-cell">Idle</TableHead>
+              <TableHead className="hidden text-right md:table-cell">Loaded</TableHead>
+              <TableHead className="text-center">Grade</TableHead>
+              <TableHead className="hidden pr-4 text-right sm:table-cell sm:pr-2">Data</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody className="tabular-nums">
+            {shown.map((r) => (
+              <TableRow key={r.id}>
+                <TableCell className="pl-4 sm:pl-2">
+                  <RelTime at={r.started} />
+                  {r.state !== "complete" && <span className="ml-2 text-xs text-muted-foreground">{r.state}</span>}
+                </TableCell>
+                {!oneBackend && <TableCell className="hidden text-muted-foreground lg:table-cell">{r.backend}</TableCell>}
+                {!oneServer && <TableCell className="hidden text-muted-foreground lg:table-cell">{r.server ?? "—"}</TableCell>}
+                <TableCell className={cn("text-right", slow(r.down_mbps, mid.down) && "text-warn")}>{mbps(r.down_mbps)}</TableCell>
+                <TableCell className={cn("text-right", slow(r.up_mbps, mid.up) && "text-warn")}>{mbps(r.up_mbps)}</TableCell>
+                <TableCell className="hidden text-right md:table-cell">{ms(r.idle_latency_ms)}</TableCell>
+                <TableCell className="hidden text-right md:table-cell">{ms(r.loaded_latency_ms)}</TableCell>
+                <TableCell className="text-center">
+                  <BloatBadge grade={r.bloat} className="text-xs" />
+                </TableCell>
+                <TableCell className="hidden pr-4 text-right text-muted-foreground sm:table-cell sm:pr-2">{bytes(r.bytes_used)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {runs.length > RECENT_RUNS && (
+          <Button variant="ghost" size="sm" className="mt-2 ml-2" onClick={() => setAll(!all)}>
+            {all ? "Show the latest 10" : `Show all ${runs.length}`}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   )
 }
