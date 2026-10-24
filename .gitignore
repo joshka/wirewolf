@@ -7,3 +7,7 @@
 /docs/compare/**/*.png
 /docs/compare/**/*.jpg
 /docs/compare/**/*.webp
+# Machine-specific agent instructions and dev notes; never in the repo.
+/local/
+/CLAUDE.local.md
+/AGENTS.override.md

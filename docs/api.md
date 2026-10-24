@@ -2,9 +2,8 @@
 
 All UIs and the TUI consume this API. The Rust types in `crates/wirewolf-core/src/model.rs`
 are the source of truth, and this page summarizes them. Changing the contract means editing
-`model.rs` and this page together on `main`, then telling the other workstreams (see
-`docs/dev/workstreams.md`). Additive changes (new optional fields, new endpoints) are fine.
-Breaking changes need agreement first.
+`model.rs` and this page together. Additive changes (new optional fields, new endpoints) are
+fine; breaking changes need the maintainer's agreement first.
 
 Run the demo server with `cargo run -- serve --demo [--scenario dns_down]`. It listens on
 `http://127.0.0.1:7465` by default (`--listen` or `WIREWOLF_LISTEN` to change). The demo

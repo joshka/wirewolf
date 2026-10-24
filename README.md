@@ -98,9 +98,8 @@ edit it when you're allowed to.
 - [CLI reference](docs/cli.md): every command and flag
 - [API](docs/api.md): the JSON and SSE API the dashboard and TUI use
 - [Dashboard](docs/ui.md): the pages and how to develop the UI
+- [Design](docs/design.md): why wirewolf works the way it does
 - [Changelog](CHANGELOG.md)
-
-Design history and development notes are in [docs/dev/](docs/dev/).
 
 ## License
 

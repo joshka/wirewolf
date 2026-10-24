@@ -8,7 +8,4 @@ Start with the [project README](../README.md) for what wirewolf is and how to in
 - [CLI reference](cli.md): every command and flag, generated from `--help`
 - [API](api.md): the JSON and server-sent events API
 - [Dashboard](ui.md): the dashboard's pages, and developing it
-
-[dev/](dev/) holds design history and development notes: the original design
-([dev/design-v1.md](dev/design-v1.md)), the dashboard's design language and framework decision,
-and how parallel work is integrated. They describe how wirewolf got here, not how to use it.
+- [Design](design.md): the ideas behind wirewolf, its prior art, and how the code is laid out

@@ -140,7 +140,7 @@
     }
 }
 /*
- * wirewolf additions to the shadcn neutral theme (docs/dev/design-language.md): violet as the
+ * wirewolf additions to the shadcn neutral theme (docs/ui.md, Tokens): violet as the
  * primary, plus status and hop-palette tokens.
  */
 :root {
