@@ -53,6 +53,10 @@ set by a proxy listed in `auth.trusted_header.proxies`.
   Writes the browser marks cross-site (`Sec-Fetch-Site`, or an `Origin` that isn't the host)
   are refused.
 - `POST /auth/logout` with the CSRF header ends an OIDC session (`204`).
+- Every route, the dashboard included, answers `421` when the `Host` header is a public DNS
+  name the server wasn't told about. IP addresses, `localhost`, single-label names, local
+  suffixes (`.local`, `.lan`, `.home.arpa`, `.internal`, `.ts.net`), the `auth.redirect_url`
+  host, and `server.allowed_hosts` are accepted. This stops DNS rebinding.
 
 Non-browser clients such as the TUI send neither cookies nor `Origin`. They can write when the
 server allows unauthenticated writes, or through a trusted proxy.

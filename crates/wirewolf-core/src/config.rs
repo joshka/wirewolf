@@ -41,6 +41,11 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Server {
     pub listen: String,
+    /// Extra host names the server answers to, beyond IP addresses, `localhost`, single-label
+    /// names, local suffixes (`.local`, `.lan`, `.home.arpa`, `.internal`, `.ts.net`), and the
+    /// host in `auth.redirect_url`. `*.example.com` matches subdomains; `*` turns the check off.
+    /// Other names get 421, which stops DNS rebinding attacks from web pages.
+    pub allowed_hosts: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,7 +303,7 @@ fn yes() -> bool {
 
 impl Default for Server {
     fn default() -> Self {
-        Self { listen: "0.0.0.0:7465".into() }
+        Self { listen: "0.0.0.0:7465".into(), allowed_hosts: vec![] }
     }
 }
 

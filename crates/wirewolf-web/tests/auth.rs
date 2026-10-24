@@ -222,3 +222,22 @@ async fn oidc_issuer_down_does_not_stop_startup() {
     assert_eq!(send(&app, Request::get("/auth/login").body(Body::empty()).unwrap()).await.0, StatusCode::BAD_GATEWAY);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[tokio::test]
+async fn unknown_host_names_are_refused() {
+    let auth = AuthState::from_config(&config::Auth { redirect_url: "https://ww.example.org/auth/callback".into(), ..header_auth() })
+        .unwrap()
+        .with_allowed_hosts(&["dash.example.com".into(), "*.example.net".into()]);
+    let app = app(auth, ELSEWHERE);
+    let status = |host: &'static str| {
+        let app = app.clone();
+        async move { send(&app, read().header("host", host).body(Body::empty()).unwrap()).await.0 }
+    };
+    for ok in ["192.0.2.7:7465", "[2001:db8::1]:7465", "localhost:7465", "nas", "wirewolf.local", "pi.home.arpa", "box.tail1234.ts.net", "dash.example.com", "a.example.net", "ww.example.org"] {
+        assert_eq!(status(ok).await, StatusCode::OK, "{ok}");
+    }
+    // A rebinding page sends its own public name.
+    for bad in ["evil.example:7465", "example.net", "dash.example.com.evil.example"] {
+        assert_eq!(status(bad).await, StatusCode::MISDIRECTED_REQUEST, "{bad}");
+    }
+}

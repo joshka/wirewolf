@@ -16,7 +16,7 @@ use crate::config::{self, Config, Loaded, Override, Source};
 use crate::model::ConfigView;
 
 /// Settings read once at startup. Changing them means editing the file and restarting.
-pub const RESTART_KEYS: &[&str] = &["server.listen", "storage.db", "storage.retention"];
+pub const RESTART_KEYS: &[&str] = &["server.listen", "server.allowed_hosts", "storage.db", "storage.retention"];
 
 /// Tables the API never writes, because they decide who can change anything.
 const PROTECTED: &[&str] = &["auth"];

@@ -10,6 +10,11 @@
 [server]
 # Address to serve the dashboard and API on. WIREWOLF_LISTEN, --listen.
 listen = "0.0.0.0:7465"
+# Host names to answer to, besides IP addresses, localhost, single-label names, local suffixes
+# (.local, .lan, .home.arpa, .internal, .ts.net), and the host in auth.redirect_url. Add the
+# name you use behind a reverse proxy, e.g. ["wirewolf.example.com"] or ["*.example.com"].
+# Other names are refused, which stops DNS rebinding attacks. ["*"] turns the check off.
+allowed_hosts = []
 
 [probe]
 # Time between probe cycles (at least 5s). WIREWOLF_INTERVAL, --interval.

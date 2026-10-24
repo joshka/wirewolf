@@ -49,6 +49,8 @@ pub struct AuthState {
     proxies: Vec<IpNet>,
     key: Key,
     secure_cookies: bool,
+    /// `server.allowed_hosts` plus the host in `auth.redirect_url`.
+    hosts: Vec<String>,
 }
 
 struct Oidc {
@@ -65,7 +67,7 @@ impl AuthState {
     /// No sign-in, and anyone may write. For the demo and tests.
     pub fn open() -> Self {
         let config = config::Auth { allow_unauthenticated_writes: true, ..config::Auth::default() };
-        Self { config, oidc: None, proxies: vec![], key: Key::generate(), secure_cookies: false }
+        Self { config, oidc: None, proxies: vec![], key: Key::generate(), secure_cookies: false, hosts: vec![] }
     }
 
     /// Builds the state from `[auth]`: reads the client secret and the session key (creating the
@@ -117,8 +119,32 @@ impl AuthState {
             key = load_key(&config.session_key_file)?;
         }
         let secure_cookies = config.redirect_url.starts_with("https://");
-        Ok(Self { config, oidc, proxies, key, secure_cookies })
+        let hosts = openidconnect::url::Url::parse(&config.redirect_url).ok().and_then(|u| u.host_str().map(str::to_owned)).into_iter().collect();
+        Ok(Self { config, oidc, proxies, key, secure_cookies, hosts })
     }
+
+    /// Also answer to these host names (`server.allowed_hosts`). See [`host_guard`].
+    pub fn with_allowed_hosts(mut self, hosts: &[String]) -> Self {
+        self.hosts.extend(hosts.iter().map(|h| h.to_ascii_lowercase()));
+        self
+    }
+
+    /// Whether a `Host` header names this server. IP addresses and local names always do; a
+    /// public DNS name only if it's listed. A page whose own name is rebound to this server's
+    /// address sends its own name, so it's refused.
+    fn host_allowed(&self, host: &str) -> bool {
+        let host = match host.rsplit_once(':') {
+            Some((h, port)) if port.chars().all(|c| c.is_ascii_digit()) && !h.ends_with(':') => h,
+            _ => host,
+        };
+        let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.').to_ascii_lowercase();
+        const LOCAL: &[&str] = &[".local", ".lan", ".home", ".home.arpa", ".internal", ".localdomain", ".localhost", ".ts.net"];
+        host.parse::<IpAddr>().is_ok()
+            || !host.contains('.')
+            || LOCAL.iter().any(|s| host.ends_with(s))
+            || self.hosts.iter().any(|h| h == "*" || *h == host || h.strip_prefix('*').is_some_and(|suffix| suffix.starts_with('.') && host.ends_with(suffix)))
+    }
+
 
     fn configured(&self) -> bool {
         self.oidc.is_some() || self.config.header_enabled()
@@ -252,6 +278,19 @@ pub async fn policy(State(auth): State<Arc<AuthState>>, mut req: Request, next: 
         return (StatusCode::UNAUTHORIZED, "sign in to see this").into_response();
     }
     next.run(req).await
+}
+
+/// Middleware for every route: refuses requests for host names this server doesn't answer to
+/// (DNS rebinding). Requests with no `Host` header aren't from a browser and pass.
+pub async fn host_guard(State(auth): State<Arc<AuthState>>, req: Request, next: Next) -> Response {
+    let host = req.headers().get(axum::http::header::HOST).and_then(|v| v.to_str().ok()).or_else(|| req.uri().host());
+    match host {
+        Some(h) if !auth.host_allowed(h) => {
+            tracing::warn!("refused a request for host {h:?}; add it to server.allowed_hosts if it's yours");
+            (StatusCode::MISDIRECTED_REQUEST, format!("wirewolf doesn't answer to {h:?}. If that name is yours, add it to server.allowed_hosts.")).into_response()
+        }
+        _ => next.run(req).await,
+    }
 }
 
 /// Browsers mark cross-site requests; refuse those even when cookies would allow them.

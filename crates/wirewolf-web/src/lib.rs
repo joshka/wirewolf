@@ -41,7 +41,11 @@ pub fn router_with_auth(hub: Hub, auth: Arc<AuthState>) -> Router {
     let router = Router::new().nest("/api/v1", api).merge(auth::routes());
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
-    router.layer(Extension(auth)).layer(axum::middleware::map_response(security_headers)).with_state(hub)
+    router
+        .layer(Extension(auth.clone()))
+        .layer(axum::middleware::from_fn_with_state(auth, auth::host_guard))
+        .layer(axum::middleware::map_response(security_headers))
+        .with_state(hub)
 }
 
 /// Headers for every response: no MIME sniffing, no framing (clickjacking the settings page), and
