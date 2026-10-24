@@ -101,7 +101,7 @@ impl Icmp {
                 }
                 continue;
             }
-            socket.set_read_timeout(Some(deadline - now))?;
+            set_read_timeout(&socket, deadline - now)?;
             let (kind, reply_id, seq, from) = match socket.recv_from(&mut buf) {
                 Ok((len, from)) => {
                     // SAFETY: recv_from initialized the first `len` bytes.
@@ -154,7 +154,7 @@ impl Icmp {
             if now >= deadline {
                 return Ok(false);
             }
-            socket.set_read_timeout(Some(deadline - now))?;
+            set_read_timeout(&socket, deadline - now)?;
             let len = match socket.recv_from(&mut buf) {
                 Ok((len, _)) => len,
                 Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => return Ok(false),
@@ -186,6 +186,13 @@ impl Icmp {
         }
         Ok(hops)
     }
+}
+
+/// Sets how long the next receive may block. A timeout that rounds to zero would mean "block
+/// forever" (`SO_RCVTIMEO` of 0), which hung probes whenever a deadline was under a microsecond
+/// away and nothing arrived, so it is never shorter than a millisecond.
+fn set_read_timeout(socket: &Socket, remaining: Duration) -> io::Result<()> {
+    socket.set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
 }
 
 /// Sets don't-fragment, ignoring any cached path MTU so each probe tests the path afresh.
@@ -416,5 +423,21 @@ mod tests {
             println!("{ttl:2} {reply:?}");
         }
         assert!(hops.last().unwrap().1.is_some_and(|r| r.reached));
+    }
+}
+
+#[cfg(test)]
+mod read_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn a_tiny_remaining_time_still_times_out() {
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
+        socket.bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into()).unwrap();
+        set_read_timeout(&socket, Duration::from_nanos(1)).unwrap();
+        let mut buf = [MaybeUninit::<u8>::uninit(); 16];
+        let start = Instant::now();
+        assert!(socket.recv_from(&mut buf).is_err());
+        assert!(start.elapsed() < Duration::from_secs(1));
     }
 }
