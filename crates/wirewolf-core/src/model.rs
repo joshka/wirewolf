@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.1";
+pub const API_VERSION: &str = "1.2";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -273,6 +273,16 @@ pub struct ConfigView {
     /// Where each non-default setting came from, keyed by dotted path (for example
     /// `probe.interval`): `file`, `env`, or `flag`. Anything absent is a default.
     pub sources: std::collections::BTreeMap<String, crate::config::Source>,
+    /// Whether `PUT /config` accepts edits (1.2). False with `--read-only-settings`. The auth
+    /// layer may still refuse a write; see `GET /session`.
+    #[serde(default)]
+    pub editable: bool,
+    /// The file edits are written to, created on first save (1.2).
+    #[serde(default)]
+    pub save_path: Option<String>,
+    /// Settings that only change on restart, so the API won't edit them (1.2).
+    #[serde(default)]
+    pub restart_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use clap::parser::ValueSource;
 use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
 use wirewolf_core::config::{self, Loaded, Override, Source};
+use wirewolf_core::editor::Editor;
 use wirewolf_core::{Hub, demo};
 
 #[derive(Debug, Parser)]
@@ -35,6 +36,9 @@ enum Command {
         config: ConfigArg,
         #[command(flatten)]
         live: LiveArgs,
+        /// Show settings without letting the dashboard change them.
+        #[arg(long, env = "WIREWOLF_READONLY_SETTINGS")]
+        read_only_settings: bool,
     },
     /// Open the terminal dashboard for a running wirewolf server.
     Tui {
@@ -105,6 +109,11 @@ struct LiveArgs {
 /// `sub` is the subcommand's matches, which say whether each value came from the environment or
 /// a flag.
 fn load_config(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[(&'static str, &str, Option<String>)]) -> anyhow::Result<Loaded> {
+    load_config_for_edit(arg, sub, overrides).map(|(loaded, _, _)| loaded)
+}
+
+/// [`load_config`], plus the file path and overrides an [`Editor`] needs to save changes.
+fn load_config_for_edit(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[(&'static str, &str, Option<String>)]) -> anyhow::Result<(Loaded, PathBuf, Vec<Override>)> {
     let from_flag = sub.and_then(|m| m.value_source("path")) == Some(ValueSource::CommandLine);
     let (path, required) = match &arg.path {
         Some(p) => (p.clone(), from_flag),
@@ -122,7 +131,7 @@ fn load_config(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[(&'static
         .collect();
     let loaded = config::load(Some(&path), required, &overrides).map_err(anyhow::Error::msg)?;
     wirewolf_probe::validate(&loaded.config)?;
-    Ok(loaded)
+    Ok((loaded, path, overrides))
 }
 
 fn live_overrides(listen: Option<SocketAddr>, live: &LiveArgs) -> Vec<(&'static str, &'static str, Option<String>)> {
@@ -171,7 +180,7 @@ pub fn run() -> anyhow::Result<()> {
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-    let Command::Serve { listen, demo, scenario, config, live } = cli.command else { unreachable!("handled above") };
+    let Command::Serve { listen, demo, scenario, config, live, read_only_settings } = cli.command else { unreachable!("handled above") };
     tokio::runtime::Runtime::new()?.block_on(async {
         if demo {
             let addr = listen.unwrap_or_else(|| ([0, 0, 0, 0], 7465).into());
@@ -180,14 +189,16 @@ pub fn run() -> anyhow::Result<()> {
             wirewolf_web::serve(hub, addr).await?;
             return Ok(());
         }
-        let loaded = load_config(&config, sub, &live_overrides(listen, &live))?;
+        let (loaded, path, overrides) = load_config_for_edit(&config, sub, &live_overrides(listen, &live))?;
         match &loaded.path {
             Some(p) => tracing::info!("config from {} ({} settings)", p.display(), loaded.sources.len()),
             None => tracing::info!("no config file; using defaults (`wirewolf config default` prints them)"),
         }
         let addr: SocketAddr = loaded.config.server.listen.parse().map_err(|e| anyhow::anyhow!("server.listen {:?}: {e}", loaded.config.server.listen))?;
         let hub = Hub::new(wirewolf_probe::meta());
-        hub.set_config(loaded.view());
+        let editor = Arc::new(Editor::new(path, overrides, wirewolf_probe::field_errors, read_only_settings));
+        hub.set_config(editor.view(&loaded));
+        hub.set_editor(editor);
         let config = Arc::new(loaded.config);
         wirewolf_probe::attach_store(&hub, &config)?;
         tokio::spawn(wirewolf_probe::run(hub.clone(), config));

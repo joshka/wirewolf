@@ -391,6 +391,9 @@ impl Loaded {
             path: self.path.as_ref().map(|p| p.display().to_string()),
             config: self.config.redacted(),
             sources: self.sources.clone(),
+            editable: false,
+            save_path: None,
+            restart_keys: Vec::new(),
         }
     }
 }

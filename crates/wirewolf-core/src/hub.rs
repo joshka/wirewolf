@@ -13,6 +13,7 @@ use jiff::Timestamp;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::config::Incidents;
+use crate::editor::Editor;
 use crate::model::{ConfigView, Event, Incident, Meta, Sample, Severity, Snapshot, SpeedRun, SpeedState};
 
 /// How many samples to keep in memory (about 48h of 20 hops and targets at one sample per 30s).
@@ -21,11 +22,13 @@ const SPEED_CAPACITY: usize = 500;
 const INCIDENT_CAPACITY: usize = 500;
 
 /// A request from a client to the driver.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Command {
     RunSpeedTest,
     /// Demo mode only.
     SetScenario(String),
+    /// A saved config to use from the next probe cycle on. Live mode only.
+    ApplyConfig(Arc<crate::config::Config>),
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +53,7 @@ struct State {
     incidents: VecDeque<Incident>,
     next_incident: u64,
     config: Option<ConfigView>,
+    editor: Option<Arc<Editor>>,
     policy: Incidents,
     /// Unhealthy snapshots in a row while no incident is open: the first one's time, and the
     /// worst one.
@@ -72,6 +76,7 @@ impl Hub {
                     incidents: VecDeque::new(),
                     next_incident: 1,
                     config: None,
+                    editor: None,
                     policy: Incidents::default(),
                     pending: None,
                     recovering: None,
@@ -120,6 +125,11 @@ impl Hub {
         self.read().config.clone()
     }
 
+    /// The config editor, if this server can save settings.
+    pub fn editor(&self) -> Option<Arc<Editor>> {
+        self.read().editor.clone()
+    }
+
     pub fn incident(&self, id: &str) -> Option<Incident> {
         self.read().incidents.iter().find(|i| i.id == id).cloned()
     }
@@ -148,6 +158,11 @@ impl Hub {
         let mut state = self.write();
         state.policy = view.config.incidents;
         state.config = Some(view);
+    }
+
+    /// Lets `PUT /config` save settings through `editor`.
+    pub fn set_editor(&self, editor: Arc<Editor>) {
+        self.write().editor = Some(editor);
     }
 
     /// Sets how many cycles in a row open and close an incident.

@@ -24,3 +24,6 @@ default = ["ui-shadcn"]
 # The React + Vite + shadcn/ui dashboard. Needs Node + pnpm at build time (see build.rs), or
 # WIREWOLF_UI_SHADCN_PREBUILT=1 with a prebuilt dist/.
 ui-shadcn = ["dep:rust-embed"]
+
+[dev-dependencies]
+tower = { version = "0.5.3", features = ["util"] }

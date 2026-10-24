@@ -59,12 +59,66 @@ export interface Target {
 
 export type ConfigSource = "default" | "file" | "env" | "flag"
 
+export interface Limits {
+  rtt_warn_ms: number
+  jitter_warn_ms: number
+  loss_warn_pct: number
+}
+
+export interface UserTargetConfig {
+  name: string
+  check: string
+  critical: boolean
+  verify_tls: boolean
+}
+
+/** `wirewolf.toml` as JSON. Durations are strings such as `"30s"`. */
+export interface Config {
+  server: { listen: string }
+  probe: { interval: string; ipv6: "auto" | "on" | "off"; path_mtu: boolean }
+  internet: { port: number; icmp: boolean; targets: { name: string; v4: string | null; v6: string | null }[] }
+  dns: {
+    system: boolean
+    resolvers: { name: string; address: string }[]
+    queries: { name: string; expect: string[] }[]
+    record_types: ("A" | "AAAA")[]
+  }
+  web: { captive_portal: string; tls_host: string; sites: string[] }
+  thresholds: Record<"gateway" | "isp" | "internet" | "dns" | "targets", Limits>
+  incidents: { open_after: number; close_after: number }
+  speed: { backend: string; interval: string; server: string; streams: number; duration: string }
+  storage: { db: string; retention: string }
+  targets: UserTargetConfig[]
+  [section: string]: unknown
+}
+
 /** `GET /config`: the effective `wirewolf.toml`, as JSON. */
 export interface ConfigView {
   path: string | null
-  config: Record<string, unknown>
+  config: Config
   sources: Record<string, ConfigSource>
+  /** `PUT /config` accepts edits (1.2). */
+  editable?: boolean
+  /** Where edits are written (1.2). */
+  save_path?: string | null
+  /** Settings that only change on restart (1.2). */
+  restart_keys?: string[]
 }
+
+/** One rejected setting from `PUT /config`. `key` is a dotted path; `""` is the whole config. */
+export interface FieldError {
+  key: string
+  message: string
+}
+
+/** `GET /session` (from the auth layer). Absent on servers without it. */
+export interface Session {
+  can_write: boolean
+  csrf?: string | null
+  user?: string | null
+}
+
+export type SaveResult = { ok: true; view: ConfigView } | { ok: false; status: number; errors: FieldError[] }
 
 export interface Sample extends Metrics {
   at: string
@@ -125,10 +179,22 @@ async function post(path: string, body?: unknown): Promise<number> {
   return res.status
 }
 
+async function putConfig(config: Config, csrf?: string | null): Promise<SaveResult> {
+  const headers: Record<string, string> = { "content-type": "application/json" }
+  if (csrf) headers["x-wirewolf-csrf"] = csrf
+  const res = await fetch(BASE + "/config", { method: "PUT", headers, body: JSON.stringify(config) })
+  if (res.ok) return { ok: true, view: (await res.json()) as ConfigView }
+  const body = (await res.json().catch(() => null)) as { errors?: FieldError[] } | null
+  const fallback = res.status === 403 ? "You can't change settings on this server." : `Saving failed (${res.status}).`
+  return { ok: false, status: res.status, errors: body?.errors ?? [{ key: "", message: fallback }] }
+}
+
 export const api = {
   meta: () => get<Meta>("/meta"),
   now: () => get<Snapshot>("/now"),
   config: () => get<ConfigView>("/config"),
+  saveConfig: putConfig,
+  session: () => get<Session>("/session"),
   history: (q: { hop?: string; since?: Date; until?: Date } = {}) => {
     const p = new URLSearchParams()
     if (q.hop) p.set("hop", q.hop)

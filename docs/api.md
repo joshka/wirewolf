@@ -25,6 +25,7 @@ publishes a live snapshot every 2s.
 |---|---|---|
 | GET | `/api/v1/meta` | `Meta`: version, `mode` (`demo`/`live`), host, scenarios, active scenario |
 | GET | `/api/v1/config` | `ConfigView`: the effective config and where each value came from (1.1). `404` if the server didn't publish one |
+| PUT | `/api/v1/config` | Body: a whole `ConfigView.config`. Saves it to the config file and applies it from the next probe cycle (1.2). `200` with the new `ConfigView`, `422` `{ errors: [FieldError] }`, `403` with `--read-only-settings` (or when the auth layer refuses the write), `404` in demo mode |
 | GET | `/api/v1/now` | `Snapshot`, or `204` before the first measurement |
 | GET | `/api/v1/history?hop=&since=&until=` | `[Sample]` in time order. All params are optional. `hop` is a hop id, `since`/`until` are RFC 3339 |
 | GET | `/api/v1/speed` | `[SpeedRun]`, newest first |
@@ -52,7 +53,9 @@ sent first on connect.
 Snapshot  { at, verdict: Verdict, hops: [Hop], open_incident: string?, targets: [Target] }
 Target    { id: "target:<slug>", name, check, kind: tcp|http|https|ping|dns, critical,
             status, detail, rtt_ms?, loss_pct? }                                  (1.1)
-ConfigView { path?, config: <wirewolf.toml as JSON>, sources: { "probe.interval": file|env|flag } }
+ConfigView { path?, config: <wirewolf.toml as JSON>, sources: { "probe.interval": file|env|flag },
+             editable, save_path?, restart_keys: [string] }                           (1.2)
+FieldError { key: "probe.interval" | "targets.0.check" | "" (whole config), message }  (1.2)
 Verdict   { severity: healthy|degraded|down|unknown, headline, detail, blame: hop_id?,
             confidence: low|medium|high, fix_hint?, method }
 Hop       { id, kind: host|gateway|isp|internet|dns|web, label, target?, status, summary,
@@ -73,6 +76,16 @@ with `hop: "target:nas"`. A failing `critical` target makes an otherwise healthy
 hop. `ConfigView.config` has the same shape as the TOML file (`wirewolf config default`),
 with credentials in URLs replaced by `***`. A key that's missing from `sources` has its
 default value.
+
+`PUT /config` (1.2) writes the file with its comments, ordering, and untouched values kept.
+It writes only settings that differ from what the file says, or from the default when the
+file doesn't mention them, and creates the file at `save_path` if needed. The server rejects
+changes it can't honour, with one `FieldError` per key: a value set by an env var or flag
+(the override would win), a key in `restart_keys` (`server.listen`, `storage.*`), and
+anything that fails validation (bad target checks, intervals under 5s, and so on). `[auth]`
+is never taken from the request. A `***` credential in a URL is kept as it was when the
+URL is otherwise unchanged. `editable` is false with `--read-only-settings`
+(`WIREWOLF_READONLY_SETTINGS=1`). The auth layer can also refuse writes; see `GET /session`.
 
 Incidents open after `incidents.open_after` unhealthy snapshots in a row, and close after
 `incidents.close_after` healthy ones. Both default to 2. The open is backdated to the first

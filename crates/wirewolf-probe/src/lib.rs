@@ -80,8 +80,38 @@ pub fn validate(config: &Config) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// [`validate`] per field, for the config editor: each bad target is reported under its own key.
+pub fn field_errors(config: &Config) -> Vec<wirewolf_core::editor::FieldError> {
+    use wirewolf_core::editor::FieldError;
+    let mut errors: Vec<FieldError> = config
+        .targets
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| targets::parse(&t.check, t.verify_tls).err().map(|e| FieldError::new(format!("targets.{i}.check"), e)))
+        .collect();
+    if let Err(e) = config.speed.backend.parse::<Backend>() {
+        errors.push(FieldError::new("speed.backend", e));
+    }
+    errors
+}
+
+fn probe_ticker(config: &Config) -> tokio::time::Interval {
+    let mut ticker = tokio::time::interval(config.probe.interval.0.max(Duration::from_secs(5)));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticker
+}
+
+fn speed_ticker_for(hub: &Hub, config: &Config) -> Option<tokio::time::Interval> {
+    let every = Some(config.speed.interval.0).filter(|d| !d.is_zero())?;
+    // First scheduled run after one interval, unless the history says one is overdue.
+    let last = hub.speed_runs().first().map(|r| r.started);
+    let since = last.map(|t| Timestamp::now().duration_since(t).unsigned_abs()).unwrap_or(Duration::MAX);
+    let first = every.saturating_sub(since).max(Duration::from_secs(60));
+    Some(tokio::time::interval_at(tokio::time::Instant::now() + first, every))
+}
+
 /// Probes forever, publishing into the hub.
-pub async fn run(hub: Hub, config: Arc<Config>) {
+pub async fn run(hub: Hub, mut config: Arc<Config>) {
     let mut commands = hub.take_commands().expect("the live driver needs the command receiver");
     let mut prober = match measure::Prober::new(config.clone()) {
         Ok(p) => p,
@@ -95,16 +125,8 @@ pub async fn run(hub: Hub, config: Arc<Config>) {
         Some(i) => tracing::info!("ICMP available ({i:?}) without TTL replies; the ISP hop is inferred"),
         None => tracing::info!("ICMP unavailable; the gateway uses TCP connects and the ISP hop is inferred"),
     }
-    let mut ticker = tokio::time::interval(config.probe.interval.0.max(Duration::from_secs(5)));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let speed_interval = Some(config.speed.interval.0).filter(|d| !d.is_zero());
-    let mut speed_ticker = speed_interval.map(|every| {
-        // First scheduled run after one interval, unless the history says one is overdue.
-        let last = hub.speed_runs().first().map(|r| r.started);
-        let since = last.map(|t| Timestamp::now().duration_since(t).unsigned_abs()).unwrap_or(Duration::MAX);
-        let first = every.saturating_sub(since).max(Duration::from_secs(60));
-        tokio::time::interval_at(tokio::time::Instant::now() + first, every)
-    });
+    let mut ticker = probe_ticker(&config);
+    let mut speed_ticker = speed_ticker_for(&hub, &config);
     let mut upstream_fault = false;
     loop {
         tokio::select! {
@@ -139,6 +161,20 @@ pub async fn run(hub: Hub, config: Arc<Config>) {
             Some(command) = commands.recv() => match command {
                 Command::RunSpeedTest => start_speed(&hub, &config),
                 Command::SetScenario(_) => {}
+                Command::ApplyConfig(new) => match measure::Prober::new(new.clone()) {
+                    Ok(p) => {
+                        tracing::info!("applying saved settings from the next cycle");
+                        if new.probe.interval != config.probe.interval {
+                            ticker = probe_ticker(&new);
+                        }
+                        if new.speed.interval != config.speed.interval {
+                            speed_ticker = speed_ticker_for(&hub, &new);
+                        }
+                        prober = p;
+                        config = new;
+                    }
+                    Err(e) => tracing::error!("can't apply saved settings: {e}"),
+                },
             }
         }
     }

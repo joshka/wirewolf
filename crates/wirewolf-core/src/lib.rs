@@ -4,6 +4,7 @@
 pub mod demo;
 pub mod config;
 pub mod diagnose;
+pub mod editor;
 pub mod hub;
 pub mod model;
 

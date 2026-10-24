@@ -5,6 +5,7 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -17,6 +18,8 @@ use futures_util::StreamExt;
 use jiff::Timestamp;
 use serde::Deserialize;
 use tokio_stream::wrappers::BroadcastStream;
+use wirewolf_core::config::Config;
+use wirewolf_core::editor::FieldError;
 use wirewolf_core::model::Event;
 use wirewolf_core::{Command, Hub};
 
@@ -36,7 +39,7 @@ pub fn api_router() -> Router<Hub> {
     Router::new()
         .route("/meta", get(meta))
         .route("/now", get(now))
-        .route("/config", get(config))
+        .route("/config", get(config).put(put_config))
         .route("/history", get(history))
         .route("/speed", get(speed))
         .route("/speed/run", post(run_speed))
@@ -60,6 +63,28 @@ async fn config(State(hub): State<Hub>) -> Response {
     match hub.config() {
         Some(view) => Json(view).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// Saves settings to the config file and applies them from the next probe cycle. Whether the
+/// caller may write is checked by the auth layer before this runs.
+async fn put_config(State(hub): State<Hub>, Json(body): Json<serde_json::Value>) -> Response {
+    let Some(editor) = hub.editor() else { return StatusCode::NOT_FOUND.into_response() };
+    let errors = |status, errors: Vec<FieldError>| (status, Json(serde_json::json!({ "errors": errors }))).into_response();
+    if editor.read_only() {
+        return errors(StatusCode::FORBIDDEN, vec![FieldError::new("", "settings are read-only on this server")]);
+    }
+    let submitted: Config = match serde_json::from_value(body) {
+        Ok(c) => c,
+        Err(e) => return errors(StatusCode::UNPROCESSABLE_ENTITY, vec![FieldError::new("", e.to_string())]),
+    };
+    match tokio::task::spawn_blocking(move || editor.apply(submitted).map(|l| (editor.view(&l), l.config))).await.expect("editor doesn't panic") {
+        Ok((view, config)) => {
+            hub.set_config(view.clone());
+            hub.send(Command::ApplyConfig(Arc::new(config)));
+            Json(view).into_response()
+        }
+        Err(e) => errors(StatusCode::UNPROCESSABLE_ENTITY, e),
     }
 }
 
@@ -136,4 +161,67 @@ async fn events(State(hub): State<Hub>) -> Sse<impl Stream<Item = Result<SseEven
         Ok(SseEvent::default().event(event.name()).data(data))
     });
     Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::{Body, to_bytes};
+    use axum::http::Request;
+    use tower::ServiceExt;
+    use wirewolf_core::config;
+    use wirewolf_core::editor::Editor;
+    use wirewolf_core::model::{ConfigView, Meta};
+
+    fn live_hub(path: std::path::PathBuf, read_only: bool) -> Hub {
+        let hub = Hub::new(Meta { version: "0".into(), api_version: "1".into(), mode: "live".into(), host: "h".into(), scenarios: vec![], scenario: None });
+        let editor = Arc::new(Editor::new(path.clone(), vec![], |_| vec![], read_only));
+        hub.set_config(editor.view(&config::load(Some(&path), false, &[]).unwrap()));
+        hub.set_editor(editor);
+        hub
+    }
+
+    async fn put(hub: &Hub, body: serde_json::Value) -> (StatusCode, serde_json::Value) {
+        let req = Request::put("/api/v1/config").header("content-type", "application/json").body(Body::from(body.to_string())).unwrap();
+        let res = router(hub.clone()).oneshot(req).await.unwrap();
+        let status = res.status();
+        let bytes = to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null))
+    }
+
+    #[tokio::test]
+    async fn put_config_saves_and_reloads_live() {
+        let dir = std::env::temp_dir().join(format!("wirewolf-web-put-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("wirewolf.toml");
+        let hub = live_hub(path.clone(), false);
+        let mut commands = hub.take_commands().unwrap();
+        let mut c = serde_json::to_value(hub.config().unwrap().config).unwrap();
+        c["incidents"]["open_after"] = 4.into();
+        let (status, body) = put(&hub, c.clone()).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let view: ConfigView = serde_json::from_value(body).unwrap();
+        assert_eq!(view.config.incidents.open_after, 4);
+        assert_eq!(hub.config().unwrap().config.incidents.open_after, 4);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("open_after = 4"));
+        match commands.try_recv().unwrap() {
+            Command::ApplyConfig(cfg) => assert_eq!(cfg.incidents.open_after, 4),
+            other => panic!("unexpected {other:?}"),
+        }
+
+        c["probe"]["interval"] = "1s".into();
+        let (status, body) = put(&hub, c).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body["errors"][0]["key"], "probe.interval");
+        assert!(commands.try_recv().is_err());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn read_only_settings_refuse_writes() {
+        let hub = live_hub(std::env::temp_dir().join("wirewolf-web-ro/wirewolf.toml"), true);
+        assert!(!hub.config().unwrap().editable);
+        let c = serde_json::to_value(hub.config().unwrap().config).unwrap();
+        assert_eq!(put(&hub, c).await.0, StatusCode::FORBIDDEN);
+    }
 }
