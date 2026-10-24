@@ -156,6 +156,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                     tracing::debug!("skipping probe cycle during speed test");
                     continue;
                 }
+                let started = std::time::Instant::now();
                 let (measurements, targets) = prober.cycle(upstream_fault).await;
                 let at = Timestamp::now();
                 let hops = assess::hops(&measurements);
@@ -167,6 +168,11 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                 }
                 for t in &targets {
                     hub.push_sample(Sample { at, hop: t.id.clone(), status: t.status, rtt_ms: t.rtt_ms, jitter_ms: None, loss_pct: t.loss_pct });
+                }
+                if tracing::enabled!(tracing::Level::DEBUG) {
+                    let ms = |v: Option<f64>| v.map(|v| format!(" {v:.1}ms")).unwrap_or_default();
+                    let path: Vec<String> = hops.iter().map(|h| format!("{} {:?}{}", h.id, h.status, ms(h.metrics.rtt_ms)).to_lowercase()).chain(targets.iter().map(|t| format!("{} {:?}{}", t.id, t.status, ms(t.rtt_ms)).to_lowercase())).collect();
+                    tracing::debug!(took_ms = started.elapsed().as_millis() as u64, sweep_next = upstream_fault, "cycle: {}", path.join(", "));
                 }
                 let verdict = with_targets(diagnose(&hops), &targets);
                 if verdict.severity != Severity::Healthy {

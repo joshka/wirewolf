@@ -376,11 +376,24 @@ The **Logs** page has two tabs.
   addresses on your network, so only people who can change settings see them. Passwords,
   tokens, and cookies are removed before a line is kept.
 
-The **Filter** box on that tab sets what the server logs, in `RUST_LOG` syntax: a level
-(`error`, `warn`, `info`, `debug`, `trace`), optionally per module. For example,
-`info,wirewolf_probe=debug` shows what each probe does. It applies at once, without a
-restart, and is saved as `log.filter` (also on the Settings page, and `WIREWOLF_LOG_FILTER`).
-If `RUST_LOG` is set when wirewolf starts, it wins until you change the filter.
+The **Filter** on that tab sets what the server logs, in `RUST_LOG` syntax: a level
+(`error`, `warn`, `info`, `debug`, `trace`), optionally per module. It applies at once,
+without a restart, and is saved as `log.filter` (also on the Settings page, and
+`WIREWOLF_LOG_FILTER`). If `RUST_LOG` is set when wirewolf starts, it wins until you change
+the filter. Lines read like the console output: time, level, module, then the message and
+its fields.
+
+Plain `debug` and `trace` are mostly the internals of the DNS, TLS, and HTTP libraries,
+thousands of lines a minute, so start from a preset:
+
+| Preset | Filter | Adds |
+|---|---|---|
+| Normal | `info` | Startup, speed tests, problems (the default) |
+| Quiet | `warn` | Only warnings and errors |
+| wirewolf detail | `info,wirewolf=debug` | One line per probe cycle: each hop's status and time |
+| DNS detail | `info,wirewolf=debug,hickory_resolver=debug` | Each DNS query and which server answered |
+| HTTP and TLS detail | `info,wirewolf=debug,reqwest=debug,rustls=debug` | Web checks, connections, and handshakes |
+| Everything | `trace` | Every library's internals |
 
 ## Troubleshooting
 

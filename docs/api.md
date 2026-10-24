@@ -162,7 +162,8 @@ line is stored, URL credentials, the values of secret-looking keys (`client_secr
 `token=`, `code=`, `Cookie:`, `X-Wirewolf-CSRF:` and the like), and the configured OIDC
 client secret are replaced with `***`. `level` keeps that level and more severe ones,
 `target` keeps modules starting with it, `q` matches text case-insensitively, and `after`
-returns only lines with a higher `seq`.
+returns only lines with a higher `seq`. `message` reads like the console's: any span
+context first (`cycle{n=3}: `), then the message, then its fields as `key=value`.
 
 `filter` is the log filter in effect, in `RUST_LOG` syntax. It decides what the server
 records at all, both here and on stderr. `PUT /logs/filter` changes it at once. It also

@@ -432,9 +432,9 @@ async fn put_log_filter(State(hub): State<Hub>, access: Option<Extension<auth::A
         let mut submitted = view.config.clone();
         submitted.log.filter = filter.clone();
         match tokio::task::spawn_blocking(move || editor.apply(submitted).map(|l| (editor.view(&l), l.config))).await.expect("editor doesn't panic") {
-            Ok((view, config)) => {
+            // Only the log filter changed, so the probes have nothing to reload.
+            Ok((view, _)) => {
                 hub.set_config(view);
-                hub.send(Command::ApplyConfig(Arc::new(config)));
                 saved = true;
             }
             Err(e) => return errors(StatusCode::UNPROCESSABLE_ENTITY, e),

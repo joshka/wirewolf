@@ -144,6 +144,25 @@ const LEVEL_TONE: Record<string, string> = {
   trace: "text-purple-600 dark:text-purple-400",
 }
 
+/** Local `HH:MM:SS.mmm`. */
+function clock(at: string): string {
+  const d = new Date(at)
+  return `${d.toLocaleTimeString([], { hour12: false })}.${String(d.getMilliseconds()).padStart(3, "0")}`
+}
+
+/**
+ * Starting points for the log filter. Plain `debug` and `trace` are mostly DNS, TLS, and HTTP
+ * library internals (thousands of lines a minute), so these turn up wirewolf first.
+ */
+export const PRESETS: { filter: string; label: string; hint: string }[] = [
+  { filter: "info", label: "Normal", hint: "What wirewolf does: startup, verdict changes, speed tests, problems" },
+  { filter: "warn", label: "Quiet", hint: "Only warnings and errors" },
+  { filter: "info,wirewolf=debug", label: "wirewolf detail", hint: "Adds a summary of every probe cycle" },
+  { filter: "info,wirewolf=debug,hickory_resolver=debug", label: "DNS detail", hint: "Adds each DNS query and which server answered" },
+  { filter: "info,wirewolf=debug,reqwest=debug,rustls=debug", label: "HTTP and TLS detail", hint: "Adds web checks, connections, and handshakes" },
+  { filter: "trace", label: "Everything", hint: "Every library's internals; thousands of lines a minute" },
+]
+
 /** Field names in italics with a dim `=`, as tracing-subscriber prints `key=value`. */
 function Message({ text }: { text: string }) {
   const parts = text.split(/(?<=^|\s)([A-Za-z_][\w.]*)=/)
@@ -228,8 +247,8 @@ function ServerLogs() {
     return (lines ?? []).filter((l) => (RANK[l.level] ?? 4) <= RANK[level] && (!q || l.message.toLowerCase().includes(q) || l.target.toLowerCase().includes(q)))
   }, [lines, level, query])
 
-  const apply = async () => {
-    const r = await api.setLogFilter(draft)
+  const apply = async (to = draft) => {
+    const r = await api.setLogFilter(to)
     if (!r.ok) return toast.error(`Log filter not changed: ${r.message}`)
     setFilter(r.filter)
     setDraft(r.filter)
@@ -274,6 +293,21 @@ function ServerLogs() {
           <label htmlFor="log-filter" className="text-sm font-medium">
             Filter
           </label>
+          <Select value={PRESETS.find((p) => p.filter === filter)?.filter ?? ""} onValueChange={(v) => v && void apply(String(v))}>
+            <SelectTrigger className="h-8 w-48" aria-label="Preset">
+              <SelectValue>{PRESETS.find((p) => p.filter === filter)?.label ?? "Custom"}</SelectValue>
+            </SelectTrigger>
+            <SelectContent className="w-80">
+              {PRESETS.map((p) => (
+                <SelectItem key={p.filter} value={p.filter}>
+                  <div className="flex flex-col gap-0.5">
+                    <span>{p.label}</span>
+                    <span className="text-xs text-muted-foreground">{p.hint}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Input id="log-filter" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="info,wirewolf_probe=debug" className="h-8 min-w-0 flex-1 font-mono text-xs sm:max-w-md" />
           <Button type="submit" size="sm" variant="outline" disabled={!draft.trim() || draft.trim() === filter}>
             Apply
@@ -345,32 +379,31 @@ function LogList({ lines, total, stream }: { lines: LogLine[]; total: number; st
   }
   return (
     <>
-    <div
-      ref={box}
-      onScroll={(e) => {
-        const el = e.currentTarget
-        setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
-      }}
-      className="h-[65vh] overflow-auto py-2 font-mono text-xs leading-5"
-      role="log"
-      aria-live="off"
-    >
-      {lines.map((l) => (
-        <div key={l.seq} className="flex gap-3 px-4 hover:bg-muted/50">
-          <time dateTime={l.at} className="shrink-0 text-muted-foreground tabular-nums" title={l.at}>
-            {new Date(l.at).toLocaleTimeString([], { hour12: false })}
-          </time>
-          <span className={cn("w-10 shrink-0 font-semibold uppercase", LEVEL_TONE[l.level])}>{l.level}</span>
-          <span className="hidden w-48 shrink-0 truncate text-muted-foreground/70 lg:inline" title={l.target}>
-            {l.target}
-          </span>
-          <span className={cn("min-w-0 break-words whitespace-pre-wrap", l.level === "error" && "text-fail", l.level === "warn" && "text-warn")}>
-            <Message text={l.message} />
-          </span>
-        </div>
-      ))}
-    </div>
-    {bar}
+      <div
+        ref={box}
+        onScroll={(e) => {
+          const el = e.currentTarget
+          setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
+        }}
+        className="h-[65vh] overflow-auto py-2 font-mono text-xs leading-5"
+        role="log"
+        aria-live="off"
+      >
+        {lines.map((l) => (
+          // Laid out like tracing's console output: `time LEVEL target: message k=v`, with
+          // wrapped lines hanging under the message.
+          <div key={l.seq} className="grid grid-cols-[auto_auto_1fr] gap-x-2 px-4 hover:bg-muted/50">
+            <time dateTime={l.at} className="text-muted-foreground tabular-nums" title={l.at}>
+              {clock(l.at)}
+            </time>
+            <span className={cn("w-[5ch] text-right font-semibold uppercase", LEVEL_TONE[l.level])}>{l.level}</span>
+            <span className={cn("min-w-0 break-words whitespace-pre-wrap", l.level === "error" && "text-fail", l.level === "warn" && "text-warn")}>
+              <span className="text-muted-foreground/70">{l.target}:</span> <Message text={l.message} />
+            </span>
+          </div>
+        ))}
+      </div>
+      {bar}
     </>
   )
 }

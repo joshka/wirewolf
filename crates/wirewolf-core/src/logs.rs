@@ -212,12 +212,50 @@ pub struct Layer {
     logs: Arc<Logs>,
 }
 
-impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Layer {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
+/// A span's fields, formatted once when it opens.
+struct SpanFields(String);
+
+impl<S> tracing_subscriber::Layer<S> for Layer
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+{
+    fn on_new_span(&self, attrs: &tracing::span::Attributes<'_>, id: &tracing::span::Id, ctx: Context<'_, S>) {
+        let mut visitor = Message::default();
+        attrs.record(&mut visitor);
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(SpanFields(visitor.text));
+        }
+    }
+
+    fn on_record(&self, id: &tracing::span::Id, values: &tracing::span::Record<'_>, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(id) else { return };
+        let mut ext = span.extensions_mut();
+        if let Some(fields) = ext.get_mut::<SpanFields>() {
+            let mut visitor = Message { text: std::mem::take(&mut fields.0) };
+            values.record(&mut visitor);
+            fields.0 = visitor.text;
+        }
+    }
+
+    fn on_event(&self, event: &tracing::Event<'_>, ctx: Context<'_, S>) {
+        // Like the console: `outer{a=1}:inner: message k=v`.
+        let mut text = String::new();
+        if let Some(scope) = ctx.event_scope(event) {
+            for span in scope.from_root() {
+                text.push_str(span.name());
+                if let Some(SpanFields(f)) = span.extensions().get::<SpanFields>()
+                    && !f.is_empty()
+                {
+                    let _ = write!(text, "{{{f}}}");
+                }
+                text.push_str(": ");
+            }
+        }
         let mut visitor = Message::default();
         event.record(&mut visitor);
+        text.push_str(&visitor.text);
         let meta = event.metadata();
-        self.logs.push(meta.level().as_str(), meta.target(), &visitor.text);
+        self.logs.push(meta.level().as_str(), meta.target(), &text);
     }
 }
 
@@ -312,10 +350,14 @@ mod tests {
         let subscriber = tracing_subscriber::registry().with(logs.layer());
         tracing::subscriber::with_default(subscriber, || {
             tracing::warn!(peer = "192.0.2.1", "refused password=hunter2");
+            let _cycle = tracing::info_span!("cycle", n = 3).entered();
+            let _hop = tracing::debug_span!("hop", id = "dns").entered();
+            tracing::info!(rtt_ms = 2.5, "answered");
         });
         let line = &logs.lines(0)[0];
         assert_eq!(line.level, "warn");
         assert_eq!(line.message, "refused password=*** peer=\"192.0.2.1\"");
         assert!(line.target.starts_with("wirewolf_core"));
+        assert_eq!(logs.lines(0)[1].message, "cycle{n=3}: hop{id=\"dns\"}: answered rtt_ms=2.5");
     }
 }
