@@ -17,6 +17,11 @@ import { RANGES, type Range } from "./history"
 import { useIncident } from "./incidents"
 
 const HOUR = RANGES["1h"]
+// Stat tiles keep one width however many the hop measures.
+const TILE_GRID = ["", "grid-cols-1 lg:w-36", "grid-cols-2 lg:w-72", "grid-cols-3 lg:w-md"]
+
+/** Whether the hop measures round trips, unlike the host, which only reports its setup. */
+const measuresRtt = (hop: Hop) => [hop.metrics.rtt_ms, hop.metrics.jitter_ms, hop.metrics.loss_pct].some((v) => v != null) || hop.checks.some((c) => c.rtt_ms != null)
 
 /**
  * One hop's page: live at `/path/<hop>`, or as an incident's evidence at
@@ -80,6 +85,15 @@ export function HopView({ id, incident: incidentId }: { id: string; incident?: s
 
 function Header({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; severity: Severity; at?: string }) {
   const m = hop.metrics
+  const tiles = (
+    [
+      ["RTT", m.rtt_ms, ms],
+      ["Jitter", m.jitter_ms, ms],
+      ["Loss", m.loss_pct, pct],
+    ] as const
+  )
+    .filter(([, v]) => v != null)
+    .map(([k, v, f]) => [k, f(v)])
   return (
     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
       <div className="flex min-w-0 flex-col gap-4">
@@ -103,18 +117,16 @@ function Header({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; seve
         </div>
         <p className="text-sm">{hop.summary}</p>
       </div>
-      <dl className="grid shrink-0 grid-cols-3 gap-2 lg:w-md">
-        {[
-          ["RTT", ms(m.rtt_ms)],
-          ["Jitter", ms(m.jitter_ms)],
-          ["Loss", pct(m.loss_pct)],
-        ].map(([k, v]) => (
-          <div key={k} className="rounded-lg border bg-card p-3">
-            <dt className="text-xs text-muted-foreground">{k}</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{v}</dd>
-          </div>
-        ))}
-      </dl>
+      {tiles.length > 0 && (
+        <dl className={`grid shrink-0 gap-2 ${TILE_GRID[tiles.length]}`}>
+          {tiles.map(([k, v]) => (
+            <div key={k} className="rounded-lg border bg-card p-3">
+              <dt className="text-xs text-muted-foreground">{k}</dt>
+              <dd className="mt-1 text-lg font-semibold tabular-nums">{v}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   )
 }
@@ -151,11 +163,17 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
     return [...fetched, ...recent.filter((s) => s.at > last)]
   }, [fetched, recent, anchor])
   const data = useMemo(() => bucket(samples, from, to, 180), [samples, from, to])
+  // A hop that measures nothing now gets a chart only if its history does, so a hop
+  // skipped during an outage still shows what it measured before.
+  const hasRtt = samples.some((s) => s.rtt_ms != null)
+  const hasLoss = samples.some((s) => s.loss_pct != null)
+  const hasSeries = hasRtt || hasLoss
+  if (!measuresRtt(hop) && !hasSeries) return null
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Round-trip time and loss</CardTitle>
+        <CardTitle>{hasRtt && hasLoss ? "Round-trip time and loss" : hasLoss ? "Loss" : "Round-trip time"}</CardTitle>
         <CardDescription>{at ? "The hour around the evidence" : "Shaded bands are incidents"}</CardDescription>
         {!at && (
           <ToggleGroup variant="outline" value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} aria-label="Time range" className="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
@@ -172,10 +190,10 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
           <p className="py-10 text-center text-sm text-fail">Couldn't load history: {error}</p>
         ) : !fetched ? (
           <Skeleton className="h-72 w-full" />
-        ) : samples.some((s) => s.rtt_ms != null) ? (
+        ) : hasSeries ? (
           <div className="flex flex-col gap-2">
-            <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-48 w-full" />
-            <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-28 w-full" />
+            {hasRtt && <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-48 w-full" />}
+            {hasLoss && <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-28 w-full" />}
           </div>
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">This hop has no latency series.</p>
@@ -186,18 +204,32 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
 }
 
 function Checks({ hop }: { hop: Hop }) {
+  const rtt = hop.checks.some((c) => c.rtt_ms != null)
+  // Hops that don't measure round trips (the host) lead with their facts.
+  const lead = !measuresRtt(hop)
+  const evidence = hop.evidence.length > 0 && (
+    <dl className={lead ? "divide-y text-sm" : "divide-y border-t text-sm"}>
+      {hop.evidence.map((e, i) => (
+        <div key={`${i}-${e.key}`} className="flex gap-4 py-2">
+          <dt className="w-32 shrink-0 text-xs text-muted-foreground">{e.key}</dt>
+          <dd className="min-w-0 font-mono text-xs break-words">{e.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
   return (
     <Card>
       <CardHeader>
         <CardTitle>Checks</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {lead && evidence}
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Check</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">RTT</TableHead>
+              {rtt && <TableHead className="text-right">RTT</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -210,21 +242,12 @@ function Checks({ hop }: { hop: Hop }) {
                 <TableCell>
                   <StatusPill status={c.status} />
                 </TableCell>
-                <TableCell className="text-right tabular-nums">{ms(c.rtt_ms)}</TableCell>
+                {rtt && <TableCell className="text-right tabular-nums">{ms(c.rtt_ms)}</TableCell>}
               </TableRow>
             ))}
           </TableBody>
         </Table>
-        {hop.evidence.length > 0 && (
-          <dl className="divide-y border-t text-sm">
-            {hop.evidence.map((e, i) => (
-              <div key={`${i}-${e.key}`} className="flex gap-4 py-2">
-                <dt className="w-32 shrink-0 text-xs text-muted-foreground">{e.key}</dt>
-                <dd className="min-w-0 font-mono text-xs break-words">{e.value}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
+        {!lead && evidence}
       </CardContent>
     </Card>
   )
