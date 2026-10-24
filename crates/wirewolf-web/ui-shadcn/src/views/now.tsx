@@ -133,7 +133,7 @@ function RecentIncidents() {
                   onClick={onLinkClick}
                   className="flex items-start gap-3 rounded-lg px-2 py-2 outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring"
                 >
-                  <SeverityPill severity={i.severity} className="mt-0.5 shrink-0" />
+                  <SeverityPill severity={i.severity} className="mt-0.5 w-24 shrink-0 justify-start" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{i.headline}</div>
                     <div className="text-xs text-muted-foreground">
