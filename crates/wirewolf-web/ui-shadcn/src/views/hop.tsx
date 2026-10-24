@@ -120,7 +120,7 @@ function Header({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; seve
       {tiles.length > 0 && (
         <dl className={`grid shrink-0 gap-2 ${TILE_GRID[tiles.length]}`}>
           {tiles.map(([k, v]) => (
-            <div key={k} className="rounded-lg border bg-card p-3">
+            <div key={k} className="border-l pl-3">
               <dt className="text-xs text-muted-foreground">{k}</dt>
               <dd className="mt-1 text-lg font-semibold tabular-nums">{v}</dd>
             </div>

@@ -100,7 +100,7 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
           ["Idle", num(run?.idle_latency_ms, 1), "ms"],
           ["Loaded", num(run?.loaded_latency_ms, 1), "ms"],
         ].map(([k, v, u]) => (
-          <div key={k} className="rounded-lg border p-3">
+          <div key={k} className="border-l pl-3">
             <dt className="text-xs text-muted-foreground">{k}</dt>
             <dd className="tabular-nums mt-1 flex items-baseline gap-1">
               <span className="text-lg font-semibold">{v}</span>
@@ -108,7 +108,7 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
             </dd>
           </div>
         ))}
-        <div className="rounded-lg border p-3">
+        <div className="border-l pl-3">
           <dt className="text-xs text-muted-foreground">Bufferbloat</dt>
           <dd className="mt-1.5">
             <BloatBadge grade={running ? null : (run?.bloat ?? null)} />

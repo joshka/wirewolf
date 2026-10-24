@@ -52,7 +52,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground text-pretty">{v.detail}</p>
         {v.fix_hint && !healthy && (
-          <div className="mt-4 flex max-w-2xl items-start gap-2 rounded-lg border bg-background p-3 text-sm">
+          <div className="mt-4 flex max-w-2xl items-start gap-2 p-0 text-sm">
             <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             <p>
               <span className="font-medium">Try next: </span>

@@ -106,7 +106,7 @@ export function PathDiagram({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-      <ol className={cn("grid gap-0 overflow-hidden rounded-xl border bg-card", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
+      <ol className={cn("grid gap-0 border-y", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
         {hops.map((hop, i) => {
           const blamed = hop.id === blame
           const spark = samples && now != null && hop.kind !== "host"
@@ -118,7 +118,7 @@ export function PathDiagram({
                 data-hop={hop.id}
                 aria-label={`${hop.label}: ${statusLabel[hop.status]}. ${hop.summary}. Open details`}
                 className={cn(
-                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
+                  "flex w-full items-center gap-3 px-0 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-0",
                   cards && "lg:flex-col lg:items-stretch lg:gap-2 lg:rounded-xl lg:border lg:bg-card lg:p-4",
                   blamed && (severity === "down" ? "bg-fail/5" : "bg-warn/5"),
                   blamed && cards && (severity === "down" ? "lg:border-fail" : "lg:border-warn"),

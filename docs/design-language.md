@@ -32,8 +32,8 @@ deviate where a default is clearly worse:
 
 1. **Calm by default, loud only when something's wrong.** A healthy page should be almost
    monochrome. Color is information. If everything is green, nothing stands out.
-2. **One frame per idea.** Don't nest bordered boxes more than one level deep inside a card.
-   Stat tiles inside a card are the only allowed nested frame.
+2. **One frame per page.** The verdict banner is the only box. Everything else is a flat
+   section: headings, spacing, and hairline dividers carry the structure.
 3. **Numbers are the content.** Values are bigger and brighter than their labels. Units are
    smaller and muted.
 
@@ -45,27 +45,26 @@ Use a 4px base. Only these values: 4, 8, 12, 16, 20, 24, 32.
 |---|---|
 | Page padding (desktop / mobile) | 24 / 16 |
 | Gap between cards and sections | 16 |
-| Card padding | 20 (16 on mobile) |
-| Card title to content | 16 |
+| Section top padding (below its hairline) | 20 |
+| Section title to content | 16 |
 | Within a group (label to value, icon to text) | 8 |
 | Tight inline (badge to text, meta items) | 4–8 |
-| Stat tile padding | 12 |
+| Stat pair: left rule to text | 12 |
 | Table cell padding | 12 horizontal, row height 44 |
 
 ## Frames
 
-- **Card:** 1px `border` (`#262626` dark, `#e5e5e5` light), background `card`, radius 12, and
-  no shadow. Cards never have a colored background, except the verdict banner and the blamed
-  hop.
-- **Verdict banner:** the card plus a 10% tint of the severity color, a 1px border at 40% of
+- **Section** (the shadcn `Card`): no border, background, or radius. A 1px `border` hairline
+  on top, and content flush with the page edge. Side-by-side sections are separated by the
+  grid gap alone.
+- **Verdict banner:** the one framed box: 1px border, radius 12, plus a 10% tint of the severity color, a 1px border at 40% of
   the severity color, and a 3px top edge in the severity color. The healthy banner has no tint
   and a green top edge only.
-- **Blamed hop card:** a 1px border in the severity color plus a 6% tint. No glow and no
-  thicker border.
-- **Stat tile:** 1px border, transparent background, radius 8.
-- **Fix box** ("Try next"): 1px border and a `background` fill (darker than the card), radius
-  8, width up to 720px.
-- **Tables:** inside a card with no outer border of their own. Rows are separated by 1px
+- **Path list:** no outer frame. A hairline above and below, and between rows. The blamed hop
+  row gets a 6% severity tint (and, in the cards layout, a 1px severity border).
+- **Stat pair:** a label/value pair with a 1px left rule. No box.
+- **Fix hint** ("Try next"): a lightbulb line inside the banner, no box. Width up to 720px.
+- **Tables:** inside a section with no outer border of their own. Rows are separated by 1px
   borders, with no zebra striping. The header row is 12px muted text, not bold.
 - **Drawer:** full height with a 1px left border. Its sections are separated by a 24px gap,
   not by borders.
@@ -106,10 +105,10 @@ Avoid all-caps, except for the `LIKELY CAUSE` badge.
 
 There is one badge component in three tones.
 
-- **Shape:** 20px tall, radius 6, horizontal padding 6, 12/500 text, and an optional 12px icon
+- **Shape:** 12/500 text, and an optional 12px icon
   with a 4px gap.
-- **Status tone:** 12% tinted background plus 1px border at 30% of the status color, with
-  text in the status color. Used for Degraded, Down, Warning, Failing, OK (OK rarely appears,
+- **Status tone:** no pill. The status icon and word in the status color, with no
+  background, border, or padding. Used for Degraded, Down, Warning, Failing, OK (OK rarely appears,
   because of the calm-by-default rule), and grades.
 - **Cause tone:** the `LIKELY CAUSE` badge. 11/600 uppercase with 0.04em tracking, in the
   status tone. It is always on its own line under the hop label, both in cards and in mobile
