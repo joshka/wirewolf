@@ -15,6 +15,7 @@ export function HistoryView() {
   const allHops = useLive((s) => s.snapshot?.hops)
   const hops = useMemo(() => (allHops ?? []).filter((h) => h.kind !== "host"), [allHops])
   const [hidden, setHidden] = useState<string[]>([])
+  const [focus, setFocus] = useState<string | null>(null)
   const shown = hops.filter((h) => !hidden.includes(h.id))
   const incidents = useLive((s) => s.incidents)
   const speedRuns = useLive((s) => s.speedRuns)
@@ -73,7 +74,15 @@ export function HistoryView() {
           aria-label="Hops"
         >
           {hops.map((h) => (
-            <ToggleGroupItem key={h.id} value={h.id} className="gap-2 px-3">
+            <ToggleGroupItem
+              key={h.id}
+              value={h.id}
+              className="gap-2 px-3"
+              onMouseEnter={() => setFocus(h.id)}
+              onMouseLeave={() => setFocus(null)}
+              onFocus={() => setFocus(h.id)}
+              onBlur={() => setFocus(null)}
+            >
               <span className="size-2 rounded-full" style={{ background: hopColor[h.kind] }} />
               {h.label}
             </ToggleGroupItem>
@@ -87,8 +96,8 @@ export function HistoryView() {
           ))}
         </ToggleGroup>
       </div>
-      {chart("Round-trip time", "Mean per interval · shaded bands are incidents", <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} />)}
-      {chart("Packet loss", "Worst per interval", <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-44 w-full" />)}
+      {chart("Round-trip time", "Mean per interval · shaded bands are incidents · hover a hop above to pick out its line", <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} focus={focus} />)}
+      {chart("Packet loss", "Worst per interval · only hops that lost packets are drawn", <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} focus={focus} className="aspect-auto h-44 w-full" />)}
       {chart("Speed tests", "Download and upload per test", <SpeedChart runs={speedRuns} from={from} to={to} incidents={incidents} />)}
     </div>
   )

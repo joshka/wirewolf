@@ -79,6 +79,7 @@ export function TimeChart({
   from,
   to,
   incidents = [],
+  focus = null,
   className = "aspect-auto h-64 w-full",
 }: {
   data: Point[]
@@ -87,11 +88,17 @@ export function TimeChart({
   from: number
   to: number
   incidents?: Incident[]
+  /** A hop id to highlight; the other lines fade so it can be followed through the overlap. */
+  focus?: string | null
   className?: string
 }) {
   // CSS variable names can't hold the `:` in target ids, so the config keys swap it out.
   const key = (h: Series) => `${h.id.replace(/[^\w-]/g, "-")}_${metric}`
   const config: ChartConfig = Object.fromEntries(hops.map((h) => [key(h), { label: h.label, color: hopColor[h.kind] }]))
+  // Loss is zero almost always, and lines at zero hide each other, so only hops that lost
+  // packets in this window are drawn (all of them if none did).
+  const lossy = metric === "loss" ? hops.filter((h) => data.some((p) => (p[`${h.id}_loss`] ?? 0) > 0)) : hops
+  const drawn = lossy.length > 0 ? lossy : hops
   return (
     <ChartContainer config={config} className={className}>
       <LineChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
@@ -106,14 +113,15 @@ export function TimeChart({
         />
         {incidentBands(incidents, from, to)}
         {tooltip(config)}
-        {hops.map((h) => (
+        {drawn.map((h) => (
           <Line
             key={h.id}
             dataKey={`${h.id}_${metric}`}
             type={metric === "loss" ? "stepAfter" : "monotone"}
             name={key(h)}
             stroke={`var(--color-${key(h)})`}
-            strokeWidth={1.75}
+            strokeOpacity={focus && focus !== h.id ? 0.15 : 1}
+            strokeWidth={focus === h.id ? 2.5 : 1.75}
             dot={false}
             isAnimationActive={false}
           />
