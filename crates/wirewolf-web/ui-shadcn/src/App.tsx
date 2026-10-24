@@ -110,9 +110,7 @@ function AppSidebar() {
       <SidebarFooter className="items-start gap-2 px-4 pb-4 group-data-[collapsible=icon]:hidden">
         <ScenarioSwitcher />
         {meta && (
-          <span className="text-xs text-muted-foreground">
-            wirewolf v{meta.version} · {meta.mode}
-          </span>
+          <span className="text-xs text-muted-foreground">wirewolf v{meta.version}</span>
         )}
       </SidebarFooter>
     </Sidebar>
