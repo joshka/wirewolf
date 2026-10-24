@@ -16,8 +16,18 @@ import { copyText } from "@/lib/clipboard"
 import { reportText } from "@/lib/report"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
+import { PageHeader } from "@/components/page-header"
 
 export function IncidentsView() {
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader title="Incidents" description="Every period the network was degraded or down, open ones first. Each keeps the evidence from its worst moment." />
+      <IncidentList />
+    </div>
+  )
+}
+
+function IncidentList() {
   const all = useLive((s) => s.incidents)
   const meta = useLive((s) => s.meta)
   const now = useNow()

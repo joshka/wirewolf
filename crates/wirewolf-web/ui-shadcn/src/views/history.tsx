@@ -5,6 +5,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { bucket, hopColor, SpeedChart, TimeChart } from "@/components/charts"
 import { api, type Sample } from "@/lib/api"
 import { useLive } from "@/lib/live"
+import { PageHeader } from "@/components/page-header"
 
 export const RANGES = { "1h": 3600e3, "6h": 6 * 3600e3, "24h": 24 * 3600e3 } as const
 export type Range = keyof typeof RANGES
@@ -60,6 +61,7 @@ export function HistoryView() {
 
   return (
     <div className="flex flex-col gap-4">
+      <PageHeader title="History" description="Round-trip time, packet loss, and speed tests over time, with incidents shaded." />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <ToggleGroup
           variant="outline"

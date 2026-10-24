@@ -21,11 +21,17 @@ import { useLive } from "@/lib/live"
 import { href, navigate, onLinkClick } from "@/lib/router"
 import { useSession, writeBlocked } from "@/lib/session"
 import { cn } from "@/lib/utils"
+import { PageHeader } from "@/components/page-header"
 
 type Tab = "activity" | "server"
 
 export function LogsView({ tab }: { tab: Tab }) {
-  return tab === "server" ? <ServerLogs /> : <ActivityLog />
+  return (
+    <div className="flex flex-col gap-4">
+      <PageHeader title="Logs" description="What wirewolf noticed and did (verdict changes, incidents, speed tests, settings), and the server's own log." />
+      <div>{tab === "server" ? <ServerLogs /> : <ActivityLog />}</div>
+    </div>
+  )
 }
 
 function Tabs({ tab, children }: { tab: Tab; children?: React.ReactNode }) {
