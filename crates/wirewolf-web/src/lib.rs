@@ -13,7 +13,6 @@ use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
-use futures_util::Stream;
 use futures_util::StreamExt;
 use jiff::Timestamp;
 use serde::Deserialize;
@@ -257,11 +256,18 @@ async fn set_scenario(State(hub): State<Hub>, Json(body): Json<ScenarioBody>) ->
     StatusCode::ACCEPTED
 }
 
+/// Open `/events` streams at once. Each is cheap, but anyone who can read could open thousands.
+const MAX_EVENT_STREAMS: usize = 64;
+static EVENT_STREAMS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> = std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(MAX_EVENT_STREAMS)));
+
 /// Server-sent events. The current snapshot is sent first so clients render immediately.
-async fn events(State(hub): State<Hub>) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
+async fn events(State(hub): State<Hub>) -> Response {
+    let Ok(permit) = EVENT_STREAMS.clone().try_acquire_owned() else {
+        return (StatusCode::SERVICE_UNAVAILABLE, [(axum::http::header::RETRY_AFTER, "30")], "too many live connections").into_response();
+    };
     let initial = hub.snapshot().map(Event::Snapshot);
     let live = BroadcastStream::new(hub.subscribe()).filter_map(|e| async move { e.ok() });
-    let stream = futures_util::stream::iter(initial).chain(live).map(|event| {
+    let stream = futures_util::stream::iter(initial).chain(live).map(move |event| {
         let data = match &event {
             Event::Snapshot(x) => serde_json::to_string(x),
             Event::Sample(x) => serde_json::to_string(x),
@@ -269,9 +275,11 @@ async fn events(State(hub): State<Hub>) -> Sse<impl Stream<Item = Result<SseEven
             Event::Incident(x) => serde_json::to_string(x),
         }
         .expect("model types serialize");
-        Ok(SseEvent::default().event(event.name()).data(data))
+        // The permit lives as long as the stream, so a closed connection frees its slot.
+        let _ = &permit;
+        Ok::<_, Infallible>(SseEvent::default().event(event.name()).data(data))
     });
-    Sse::new(stream).keep_alive(KeepAlive::default())
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }
 
 #[cfg(test)]
