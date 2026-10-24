@@ -6,7 +6,9 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ## [Unreleased]
 
-The first release has not been cut yet. This is what exists today.
+## [0.1.0] - 2026-10-24
+
+The first release.
 
 ### Added
 
@@ -41,4 +43,6 @@ The first release has not been cut yet. This is what exists today.
 - A hardened container image and compose file, and a signed release workflow.
 - A user guide, a deployment guide, and a CLI reference generated from `--help`.
 
-[Unreleased]: https://github.com/joshka/wirewolf/commits/main
+
+[Unreleased]: https://github.com/joshka/wirewolf/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/joshka/wirewolf/releases/tag/v0.1.0

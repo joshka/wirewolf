@@ -10,7 +10,7 @@ readme = "../../README.md"
 
 [dependencies]
 anyhow = "1.0.104"
-wirewolf-cli = { version = "0.0.0", path = "../wirewolf-cli" }
+wirewolf-cli = { version = "0.1.0", path = "../wirewolf-cli" }
 
 [features]
 ui-shadcn = ["wirewolf-cli/ui-shadcn"]

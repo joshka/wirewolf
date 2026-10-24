@@ -27,4 +27,4 @@ tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net", "t
 tokio-rustls = "0.26"
 tracing = "0.1.44"
 webpki-roots = "1"
-wirewolf-core = { version = "0.0.0", path = "../wirewolf-core" }
+wirewolf-core = { version = "0.1.0", path = "../wirewolf-core" }

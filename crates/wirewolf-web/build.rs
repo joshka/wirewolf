@@ -25,10 +25,13 @@ fn main() {
     ] {
         println!("cargo::rerun-if-changed=ui-shadcn/{input}");
     }
-    if std::env::var_os("WIREWOLF_UI_SHADCN_PREBUILT").is_some() {
+    // A published crate ships the built dashboard (ui-shadcn/dist) but not its sources, so
+    // `cargo install wirewolf` needs no Node.
+    let packaged = !ui.join("package.json").exists();
+    if packaged || std::env::var_os("WIREWOLF_UI_SHADCN_PREBUILT").is_some() {
         assert!(
             ui.join("dist/index.html").exists(),
-            "WIREWOLF_UI_SHADCN_PREBUILT is set but ui-shadcn/dist/index.html is missing"
+            "ui-shadcn/dist/index.html is missing (WIREWOLF_UI_SHADCN_PREBUILT is set, or the sources aren't here)"
         );
         return;
     }
