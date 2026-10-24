@@ -3,7 +3,8 @@
 export type Status = "pass" | "warn" | "fail" | "skip" | "not_applicable" | "pending"
 export type Severity = "healthy" | "degraded" | "down" | "unknown"
 export type Confidence = "low" | "medium" | "high"
-export type HopKind = "host" | "gateway" | "isp" | "internet" | "dns" | "web"
+/** `target` is UI-only: a user target shown as a hop (see `lib/targets.ts`). */
+export type HopKind = "host" | "gateway" | "isp" | "internet" | "dns" | "web" | "target"
 export type BloatGrade = "A+" | "A" | "B" | "C" | "D" | "F"
 
 export interface Metrics {
@@ -39,6 +40,30 @@ export interface Snapshot {
   verdict: Verdict
   hops: Hop[]
   open_incident: string | null
+  /** User targets from `[[targets]]` (API 1.1; missing from older servers). */
+  targets?: Target[]
+}
+
+export interface Target {
+  /** `target:<slug>`; also the history series id. */
+  id: string
+  name: string
+  check: string
+  kind: "tcp" | "http" | "https" | "ping" | "dns" | string
+  critical: boolean
+  status: Status
+  detail: string
+  rtt_ms: number | null
+  loss_pct: number | null
+}
+
+export type ConfigSource = "default" | "file" | "env" | "flag"
+
+/** `GET /config`: the effective `wirewolf.toml`, as JSON. */
+export interface ConfigView {
+  path: string | null
+  config: Record<string, unknown>
+  sources: Record<string, ConfigSource>
 }
 
 export interface Sample extends Metrics {
@@ -103,6 +128,7 @@ async function post(path: string, body?: unknown): Promise<number> {
 export const api = {
   meta: () => get<Meta>("/meta"),
   now: () => get<Snapshot>("/now"),
+  config: () => get<ConfigView>("/config"),
   history: (q: { hop?: string; since?: Date; until?: Date } = {}) => {
     const p = new URLSearchParams()
     if (q.hop) p.set("hop", q.hop)

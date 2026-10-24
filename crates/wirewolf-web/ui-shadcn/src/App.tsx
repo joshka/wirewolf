@@ -1,5 +1,5 @@
-import { useEffect } from "react"
-import { Activity, ChartLine, Flag, Gauge, type LucideIcon } from "lucide-react"
+import { useEffect, useMemo } from "react"
+import { Activity, ChartLine, Flag, Gauge, Settings, type LucideIcon } from "lucide-react"
 import { ThemeProvider } from "next-themes"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -28,6 +28,9 @@ import { NowView } from "@/views/now"
 import { HistoryView } from "@/views/history"
 import { IncidentsView, IncidentView } from "@/views/incidents"
 import { SpeedView } from "@/views/speed"
+import { SettingsView } from "@/views/settings"
+import { findHop, targetHop } from "@/lib/targets"
+import type { Hop } from "@/lib/api"
 import { HopView } from "@/views/hop"
 
 const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
@@ -35,6 +38,7 @@ const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
   { route: { name: "history" }, label: "History", icon: ChartLine },
   { route: { name: "incidents" }, label: "Incidents", icon: Flag },
   { route: { name: "speed" }, label: "Speed", icon: Gauge },
+  { route: { name: "settings" }, label: "Settings", icon: Settings },
 ]
 
 const isActive = (nav: Route, cur: Route) =>
@@ -60,6 +64,8 @@ function AppSidebar() {
   const meta = useLive((s) => s.meta)
   const open = useLive((s) => s.incidents.filter((i) => !i.ended).length)
   const hops = useLive((s) => s.snapshot?.hops)
+  const rawTargets = useLive((s) => s.snapshot?.targets)
+  const targets = useMemo(() => rawTargets?.map(targetHop), [rawTargets])
   const { setOpenMobile } = useSidebar()
   const go = (e: React.MouseEvent<HTMLAnchorElement>) => {
     onLinkClick(e)
@@ -111,29 +117,31 @@ function AppSidebar() {
             ))}
           </SidebarMenu>
         </SidebarGroup>
-        {hops && (
-          <SidebarGroup>
-            <SidebarGroupLabel>Path</SidebarGroupLabel>
-            <SidebarMenu>
-              {hops.map((h) => {
-                const active = route.name === "hop" && !route.incident && route.id === h.id
-                const Icon = hopIcon[h.kind]
-                return (
-                  <SidebarMenuItem key={h.id}>
-                    <SidebarMenuButton
-                      isActive={active}
-                      tooltip={h.label}
-                      render={<a href={href({ name: "hop", id: h.id })} onClick={go} aria-current={active ? "page" : undefined} />}
-                    >
-                      <Icon aria-hidden />
-                      <span>{h.label}</span>
-                      <StatusIcon status={h.status} className="ml-auto group-data-[collapsible=icon]:hidden" />
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroup>
+        {[["Path", hops], ["Targets", targets]].map(([label, list]) =>
+          list && list.length > 0 ? (
+            <SidebarGroup key={label as string}>
+              <SidebarGroupLabel>{label as string}</SidebarGroupLabel>
+              <SidebarMenu>
+                {(list as Hop[]).map((h) => {
+                  const active = route.name === "hop" && !route.incident && route.id === h.id
+                  const Icon = hopIcon[h.kind]
+                  return (
+                    <SidebarMenuItem key={h.id}>
+                      <SidebarMenuButton
+                        isActive={active}
+                        tooltip={h.label}
+                        render={<a href={href({ name: "hop", id: h.id })} onClick={go} aria-current={active ? "page" : undefined} />}
+                      >
+                        <Icon aria-hidden />
+                        <span>{h.label}</span>
+                        <StatusIcon status={h.status} className="ml-auto group-data-[collapsible=icon]:hidden" />
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  )
+                })}
+              </SidebarMenu>
+            </SidebarGroup>
+          ) : null,
         )}
       </SidebarContent>
       <SidebarFooter className="items-start gap-2 px-4 pb-4 group-data-[collapsible=icon]:hidden">
@@ -150,7 +158,7 @@ function Main() {
   const route = useRoute()
   const severity = useLive((s) => s.snapshot?.verdict.severity)
   const error = useLive((s) => s.error)
-  const snapshotHop = useLive((s) => (route.name === "hop" ? s.snapshot?.hops.find((h) => h.id === route.id)?.label : undefined))
+  const snapshotHop = useLive((s) => (route.name === "hop" ? findHop(s.snapshot, route.id)?.label : undefined))
   const title = route.name === "incident" ? "Incident" : route.name === "hop" ? (snapshotHop ?? route.id) : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
     const sev = severity && severity !== "healthy" ? `⚠ ${severity} · ` : ""
@@ -173,6 +181,7 @@ function Main() {
         {route.name === "incidents" && <IncidentsView />}
         {route.name === "incident" && <IncidentView id={route.id} />}
         {route.name === "speed" && <SpeedView />}
+        {route.name === "settings" && <SettingsView />}
         {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
       </main>
     </SidebarInset>

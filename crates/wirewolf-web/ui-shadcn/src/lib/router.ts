@@ -10,6 +10,7 @@ export type Route =
   | { name: "incidents" }
   | { name: "incident"; id: string }
   | { name: "speed" }
+  | { name: "settings" }
   | { name: "hop"; id: string; incident?: string } // incident: show that incident's evidence
 
 export function parse(pathname: string): Route {
@@ -25,6 +26,8 @@ export function parse(pathname: string): Route {
       return parts[1] ? { name: "hop", id: decodeURIComponent(parts[1]) } : { name: "now" }
     case "speed":
       return { name: "speed" }
+    case "settings":
+      return { name: "settings" }
     default:
       return { name: "now" }
   }

@@ -10,6 +10,7 @@ import { CauseBadge, SeverityPill, StatusPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { api, type Hop, type Incident, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
+import { findHop } from "@/lib/targets"
 import { duration, ms, pct } from "@/lib/format"
 import { href, onLinkClick, type Route } from "@/lib/router"
 import { RANGES, type Range } from "./history"
@@ -25,7 +26,7 @@ export function HopView({ id, incident: incidentId }: { id: string; incident?: s
   const snapshot = useLive((s) => s.snapshot)
   const incident = useIncident(incidentId)
   const source = incidentId ? incident?.evidence : snapshot
-  const hop = source?.hops.find((h) => h.id === id)
+  const hop = findHop(source, id)
 
   const crumbs: [string, Route][] = incident
     ? [["Incidents", { name: "incidents" }], [incident.headline, { name: "incident", id: incident.id }]]
@@ -59,7 +60,7 @@ export function HopView({ id, incident: incidentId }: { id: string; incident?: s
     return (
       <div className="flex flex-col gap-4">
         {breadcrumb}
-        <p className="text-muted-foreground">There's no hop “{id}” on this path.</p>
+        <p className="text-muted-foreground">There's no hop or target “{id}” here.</p>
       </div>
     )
 

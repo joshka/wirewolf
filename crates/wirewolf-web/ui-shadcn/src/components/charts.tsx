@@ -15,6 +15,7 @@ export const hopColor: Record<HopKind, string> = {
   internet: "var(--hop-internet)",
   dns: "var(--hop-dns)",
   web: "var(--hop-web)",
+  target: "var(--primary)",
 }
 
 const fmtFor = (key: string) => (key.endsWith("_loss") ? pct : key.endsWith("_rtt") ? ms : mbps)
@@ -96,7 +97,9 @@ export function TimeChart({
   incidents?: Incident[]
   className?: string
 }) {
-  const config: ChartConfig = Object.fromEntries(hops.map((h) => [`${h.id}_${metric}`, { label: h.label, color: hopColor[h.kind] }]))
+  // CSS variable names can't hold the `:` in target ids, so the config keys swap it out.
+  const key = (h: Series) => `${h.id.replace(/[^\w-]/g, "-")}_${metric}`
+  const config: ChartConfig = Object.fromEntries(hops.map((h) => [key(h), { label: h.label, color: hopColor[h.kind] }]))
   return (
     <ChartContainer config={config} className={className}>
       <LineChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
@@ -116,7 +119,8 @@ export function TimeChart({
             key={h.id}
             dataKey={`${h.id}_${metric}`}
             type={metric === "loss" ? "stepAfter" : "monotone"}
-            stroke={`var(--color-${h.id}_${metric})`}
+            name={key(h)}
+            stroke={`var(--color-${key(h)})`}
             strokeWidth={1.75}
             dot={false}
             isAnimationActive={false}

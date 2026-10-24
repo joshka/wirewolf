@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Router, Rows3, type LucideIcon } from "lucide-react"
+import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Crosshair, Router, Rows3, type LucideIcon } from "lucide-react"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ChartContainer } from "@/components/ui/chart"
@@ -18,6 +18,7 @@ export const hopIcon: Record<HopKind, LucideIcon> = {
   internet: Globe,
   dns: AtSign,
   web: AppWindow,
+  target: Crosshair,
 }
 
 /** The one number that matters for a hop, or its summary if it has none. */
