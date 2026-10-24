@@ -55,6 +55,10 @@ function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample
     return <span className={cn("self-center text-xs text-muted-foreground", className)}>collecting…</span>
   }
   const stale = dimmed(hop.status)
+  // Until there's a full window of samples (e.g. just after a restart), stretch what there is
+  // across the width instead of leaving most of the line empty.
+  const first = data.find((p) => p.rtt != null)?.t ?? now - SPARK_WINDOW_MS
+  const from = Math.max(now - SPARK_WINDOW_MS, first)
   return (
     <ChartContainer
       config={{ rtt: { label: hop.label, color: stale ? "var(--muted-foreground)" : hopColor[hop.kind] } }}
@@ -62,7 +66,7 @@ function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample
       aria-label={`${hop.label} round-trip time, last 15 minutes`}
     >
       <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }} accessibilityLayer={false}>
-        <XAxis dataKey="t" type="number" domain={[now - SPARK_WINDOW_MS, now]} hide />
+        <XAxis dataKey="t" type="number" domain={[from, now]} hide />
         <YAxis domain={[0, "auto"]} hide />
         <Area
           dataKey="rtt"
