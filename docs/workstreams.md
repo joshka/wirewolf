@@ -2,7 +2,7 @@
 
 Several agent threads often work on wirewolf at once. Each one works in its own jj workspace
 and integrates into `main`. One coordinator thread hands out work, owns this file, and runs
-Josh's local server.
+the maintainer's local server.
 
 ## Workspaces
 
@@ -11,7 +11,7 @@ Josh's local server.
 - Never edit in the repo root; that is the coordinator's working copy.
 - T3 Code deletes a thread's `work/<name>` directory when the thread goes away. Land work on
   `main` before finishing, and don't keep anything you need only in a workspace.
-- The release build of Josh's server runs from `/Users/joshka/local/wirewolf-deploy`, a jj
+- The release build of the maintainer's server runs from `/Users/joshka/local/wirewolf-deploy`, a jj
   workspace that is deliberately outside `work/`. Don't use it.
 
 ## Rules
@@ -27,14 +27,14 @@ Josh's local server.
 - **Messaging.** Reach other threads with `t3_thread_send` in `auto` mode (steer). Don't
   queue a message unless it's a separate follow-up task.
 - **Servers.** Start whatever test servers you need, on your own port, and stop them before
-  you finish. Leave 127.0.0.1:7480 alone; it's Josh's.
+  you finish. Leave 127.0.0.1:7480 alone; it's the maintainer's.
 
 ## Ports
 
 | Port | Use |
 |---|---|
 | 7465 | Default `serve` port |
-| 7480 | Josh's local server. `artifacts/redeploy.sh` rebuilds and restarts it whenever `main` moves |
+| 7480 | the maintainer's local server. `artifacts/redeploy.sh` rebuilds and restarts it whenever `main` moves |
 | 7476–7479, 7481–7489 | Per-thread test servers. The coordinator assigns one in each brief |
 
 ## Integrating to main

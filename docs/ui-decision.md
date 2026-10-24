@@ -1,6 +1,6 @@
 # UI decision: shadcn
 
-On 2026-10-24 Josh chose the shadcn (React + Vite) variant over HTMX + Basecoat and Topcoat.
+On 2026-10-24 the maintainer chose the shadcn (React + Vite) variant over HTMX + Basecoat and Topcoat.
 The losing variants were deleted. Their code and notes remain in jj/git history (search for
 `feat(web): HTMX + Basecoat UI variant` and `feat(web): Topcoat UI variant`). Screenshots from
 the comparison live outside the repo in `artifacts/compare/`.

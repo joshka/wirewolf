@@ -103,10 +103,10 @@ UI stack options (decision needed):
 - **C. Server-rendered HTMX + a small chart lib**. Simplest build, but less slick for live
   interactive views.
 
-Recommendation: **A with Svelte + uPlot**. It gives the best UX per unit of effort, and Josh
-listed node among his preferred stacks.
+Recommendation: **A with Svelte + uPlot**. It gives the best UX per unit of effort, and node
+is among the maintainer's preferred stacks.
 
-## Open questions for Josh
+## Open questions for the maintainer
 
 1. Should the UI stack be A, B, or C?
 2. Should we also ship a ratatui TUI client against the same API? This would be a v1.x, not v1.
@@ -126,5 +126,5 @@ listed node among his preferred stacks.
 - Throughput: Cloudflare is the default. Ookla is an optional backend. Intervals get tuned
   over time.
 - Publishing: `ghcr.io/joshka/wirewolf`. The crates are `wirewolf` (facade + binary),
-  `wirewolf-core`, `-probe`, `-web`, `-tui`, `-cli`. Josh publishes them.
+  `wirewolf-core`, `-probe`, `-web`, `-tui`, `-cli`. The maintainer publishes them.
 - Work plan: see `docs/workstreams.md`.
