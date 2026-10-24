@@ -216,7 +216,7 @@ fn build_brief(hub: &Hub, q: &BriefQuery) -> Result<brief::Brief, (StatusCode, S
     Ok(brief::build(input, &options))
 }
 
-/// `redact=false` shows public IPs and host names, so only those who can write may ask for it.
+/// `redact=false` shows public IPs and MAC addresses, so only those who can write may ask for it.
 fn refuse_unredacted(q: &BriefQuery, access: Option<Extension<auth::Access>>) -> Option<Response> {
     (q.redact == Some(false) && !access.is_some_and(|a| a.can_write)).then(|| (StatusCode::FORBIDDEN, "redact=false needs permission to change settings").into_response())
 }
