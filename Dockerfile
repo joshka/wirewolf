@@ -14,7 +14,7 @@
 # us; Dependabot (.github/dependabot.yml) proposes digest updates.
 
 # The dashboard is built with Node here; the final image has no Node.
-FROM --platform=$BUILDPLATFORM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS ui
+FROM --platform=$BUILDPLATFORM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS ui
 WORKDIR /ui
 RUN corepack enable
 COPY crates/wirewolf-web/ui-shadcn/package.json crates/wirewolf-web/ui-shadcn/pnpm-lock.yaml ./
