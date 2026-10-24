@@ -61,7 +61,7 @@ export default function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider delay={300}>
-        <SidebarProvider>
+        <SidebarProvider defaultOpen={initialSidebarOpen()}>
           <a
             href="#main"
             className="sr-only z-50 rounded-md bg-background text-sm font-medium focus:not-sr-only focus:fixed focus:px-3 focus:py-2 focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
@@ -75,6 +75,16 @@ export default function App() {
       </TooltipProvider>
     </ThemeProvider>
   )
+}
+
+/**
+ * The sidebar's last state if the user toggled it (the sidebar saves it in a cookie), otherwise
+ * open only on wide screens: on a tablet the full sidebar leaves the page too narrow, so it
+ * starts collapsed to icons.
+ */
+function initialSidebarOpen(): boolean {
+  const saved = document.cookie.match(/(?:^|; )sidebar_state=(true|false)/)?.[1]
+  return saved ? saved === "true" : window.innerWidth >= 1024
 }
 
 function AppSidebar() {

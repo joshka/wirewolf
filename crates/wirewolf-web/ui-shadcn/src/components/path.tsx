@@ -95,7 +95,7 @@ export function PathDiagram({
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
-      <ol className={cn("grid gap-0 border-y", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
+      <ol className={cn("@container grid gap-0 border-y", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
         {hops.map((hop, i) => {
           const blamed = hop.id === blame
           const spark = samples && now != null && hop.kind !== "host"
@@ -130,15 +130,15 @@ export function PathDiagram({
                   <span className={cn("truncate text-sm font-medium tabular-nums sm:hidden", metricTone(hop.status))}>{keyMetric(hop)}</span>
                 </div>
                 {spark ? (
-                  <Suspense fallback={<span className={cn("hidden h-8 flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />}>
-                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
+                  <Suspense fallback={<span className={cn("hidden h-8 flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />}>
+                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
                   </Suspense>
                 ) : (
                   <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
                 )}
                 <span
                   className={cn(
-                    "hidden truncate text-right text-sm font-medium tabular-nums sm:block sm:flex-[0_1_auto] sm:min-w-40 sm:max-w-[45%]",
+                    "hidden truncate text-right text-sm font-medium tabular-nums sm:ml-auto sm:block sm:flex-[0_1_auto] sm:min-w-40 sm:max-w-[45%]",
                     cards && "lg:w-auto lg:text-left",
                     metricTone(hop.status),
                   )}
