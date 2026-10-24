@@ -12,7 +12,7 @@ use axum::http::StatusCode;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Json, Router};
+use axum::{Extension, Json, Router};
 use futures_util::Stream;
 use futures_util::StreamExt;
 use jiff::Timestamp;
@@ -23,15 +23,24 @@ use wirewolf_core::editor::FieldError;
 use wirewolf_core::model::Event;
 use wirewolf_core::{Command, Hub};
 
+pub mod auth;
 #[cfg(feature = "ui-shadcn")]
 mod ui_shadcn;
 
-/// The full app: the API under `/api/v1` plus the UI.
+use auth::AuthState;
+
+/// The full app with no sign-in and open writes (the demo). See [`router_with_auth`].
 pub fn router(hub: Hub) -> Router {
-    let router = Router::new().nest("/api/v1", api_router());
+    router_with_auth(hub, Arc::new(AuthState::open()))
+}
+
+/// The full app: the API under `/api/v1`, guarded by [`auth::policy`], plus sign-in and the UI.
+pub fn router_with_auth(hub: Hub, auth: Arc<AuthState>) -> Router {
+    let api = api_router().merge(auth::api_routes()).layer(axum::middleware::from_fn_with_state(auth.clone(), auth::policy));
+    let router = Router::new().nest("/api/v1", api).merge(auth::routes());
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
-    router.with_state(hub)
+    router.layer(Extension(auth)).with_state(hub)
 }
 
 /// The JSON + SSE API. Mount under `/api/v1`.
@@ -49,10 +58,17 @@ pub fn api_router() -> Router<Hub> {
         .route("/demo/scenario", post(set_scenario))
 }
 
+/// Serves the demo: no sign-in, open writes.
 pub async fn serve(hub: Hub, addr: SocketAddr) -> std::io::Result<()> {
+    serve_with_auth(hub, addr, AuthState::open()).await
+}
+
+pub async fn serve_with_auth(hub: Hub, addr: SocketAddr, auth: AuthState) -> std::io::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("listening on http://{}", listener.local_addr()?);
-    axum::serve(listener, router(hub)).await
+    // The peer address decides whether trusted-header sign-in applies.
+    let app = router_with_auth(hub, Arc::new(auth)).into_make_service_with_connect_info::<SocketAddr>();
+    axum::serve(listener, app).await
 }
 
 async fn meta(State(hub): State<Hub>) -> impl IntoResponse {

@@ -201,8 +201,9 @@ pub fn run() -> anyhow::Result<()> {
         hub.set_editor(editor);
         let config = Arc::new(loaded.config);
         wirewolf_probe::attach_store(&hub, &config)?;
+        let auth = wirewolf_web::auth::AuthState::from_config(&config.auth).map_err(anyhow::Error::msg)?;
         tokio::spawn(wirewolf_probe::run(hub.clone(), config));
-        wirewolf_web::serve(hub, addr).await?;
+        wirewolf_web::serve_with_auth(hub, addr, auth).await?;
         Ok(())
     })
 }

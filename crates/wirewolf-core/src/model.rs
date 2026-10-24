@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.2";
+pub const API_VERSION: &str = "1.3";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,4 +312,32 @@ impl Event {
             Event::Incident(_) => "incident",
         }
     }
+}
+
+/// `GET /api/v1/session`: who is signed in and what they may do.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    /// Sign-in methods this server offers: `oidc`, `header`. Empty when auth isn't configured.
+    pub methods: Vec<String>,
+    pub user: Option<SessionUser>,
+    /// Whether this visitor may run speed tests, switch demo scenarios, and save settings.
+    pub can_write: bool,
+    /// Whether the dashboard and read API need a signed-in user.
+    pub reads_require_login: bool,
+    /// Send as `X-Wirewolf-CSRF` on writes when signed in with OIDC.
+    pub csrf: Option<String>,
+    /// Where to send the browser to sign in (`/auth/login`), when OIDC is on.
+    pub login_url: Option<String>,
+    /// `POST` here (with the CSRF header) to sign out, when signed in with OIDC.
+    pub logout_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionUser {
+    /// Stable id: the OIDC subject or the proxy's user header.
+    pub id: String,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    /// `oidc` or `header`.
+    pub via: String,
 }

@@ -141,6 +141,35 @@ db = "wirewolf.db"
 # How long to keep history. WIREWOLF_RETENTION, --retention.
 retention = "30d"
 
+# Sign-in. Reads (the dashboard, GET API, live events) are open unless `require_for_reads`.
+# Writes (speed tests, settings) need a signed-in user. With no sign-in configured, writes are
+# refused unless `allow_unauthenticated_writes = true`.
+[auth]
+# OIDC: register wirewolf as a confidential client with redirect URL
+# https://<this server>/auth/callback, then fill in these four.
+issuer = ""
+client_id = ""
+# Or WIREWOLF_AUTH_CLIENT_SECRET, or a file named by client_secret_file.
+client_secret = ""
+client_secret_file = ""
+redirect_url = ""
+scopes = ["email", "profile"]
+# Empty allows anyone the issuer signs in.
+allowed_emails = []
+allowed_groups = []
+session_ttl = "7d"
+session_key_file = "wirewolf-session.key"
+require_for_reads = false
+allow_unauthenticated_writes = false
+
+# Behind a proxy that signs users in, trust its headers, but only from these addresses.
+[auth.trusted_header]
+user = ""        # for example "Remote-User"
+email = ""       # "Remote-Email"
+name = ""        # "Remote-Name"
+groups = ""      # "Remote-Groups"
+proxies = []     # ["127.0.0.1", "10.0.0.0/8"]
+
 # Your own things to watch. Each gets a status on the Now page and its own history. A failing
 # `critical` target degrades the verdict and opens incidents like any hop. Checks:
 #

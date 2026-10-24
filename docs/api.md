@@ -34,6 +34,26 @@ publishes a live snapshot every 2s.
 | GET | `/api/v1/incidents/{id}` | `Incident` or `404` |
 | GET | `/api/v1/events` | SSE stream (see below) |
 | POST | `/api/v1/demo/scenario` | Body `{"id":"dns_down"}`. Returns `202`, `422` for an unknown id, or `404` in live mode |
+| GET | `/api/v1/session` | `Session`: who is signed in and what they may do (1.3). Always readable |
+
+## Sign-in and writes (1.3)
+
+`[auth]` in `wirewolf.toml` configures sign-in: OIDC (`/auth/login` → issuer →
+`/auth/callback`, kept in an HttpOnly cookie), and/or a trusted header such as `Remote-User`
+set by a proxy listed in `auth.trusted_header.proxies`.
+
+- **Reads** (every `GET`, including SSE) are open, or need a user with
+  `auth.require_for_reads` (`401` otherwise).
+- **Writes** (every other method) need a user when a sign-in method is configured (`401`).
+  With none configured they're refused (`403`) unless `auth.allow_unauthenticated_writes`;
+  `serve --demo` allows them.
+- Writes from an OIDC session must send `X-Wirewolf-CSRF: <Session.csrf>` (`403` otherwise).
+  Writes the browser marks cross-site (`Sec-Fetch-Site`, or an `Origin` that isn't the host)
+  are refused.
+- `POST /auth/logout` with the CSRF header ends an OIDC session (`204`).
+
+Non-browser clients such as the TUI send neither cookies nor `Origin`. They can write when the
+server allows unauthenticated writes, or through a trusted proxy.
 
 ## Live events (SSE)
 
@@ -67,6 +87,8 @@ SpeedRun  { id, started, state: running|complete|failed, backend, server?, down_
             up_mbps?, idle_latency_ms?, loaded_latency_ms?, bloat?, bytes_used?, progress?,
             error? }
 Incident  { id, started, ended?, severity, headline, blame?, evidence: Snapshot }
+Session   { methods: [oidc|header], user: { id, name?, email?, via: oidc|header }?,
+            can_write, reads_require_login, csrf?, login_url?, logout_url? }      (1.3)
 ```
 
 User targets (`[[targets]]` in `wirewolf.toml`) arrive in `Snapshot.targets`, in config

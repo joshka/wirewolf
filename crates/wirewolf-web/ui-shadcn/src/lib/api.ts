@@ -1,5 +1,7 @@
 // Wire types for the wirewolf API v1 (docs/api.md, crates/wirewolf-core/src/model.rs).
 
+import { currentSession } from "@/lib/session"
+
 export type Status = "pass" | "warn" | "fail" | "skip" | "not_applicable" | "pending"
 export type Severity = "healthy" | "degraded" | "down" | "unknown"
 export type Confidence = "low" | "medium" | "high"
@@ -111,13 +113,6 @@ export interface FieldError {
   message: string
 }
 
-/** `GET /session` (from the auth layer). Absent on servers without it. */
-export interface Session {
-  can_write: boolean
-  csrf?: string | null
-  user?: string | null
-}
-
 export type SaveResult = { ok: true; view: ConfigView } | { ok: false; status: number; errors: FieldError[] }
 
 export interface Sample extends Metrics {
@@ -161,6 +156,19 @@ export interface Meta {
   scenario: string | null
 }
 
+/** `GET /session`: who is signed in and what they may do. */
+export interface Session {
+  /** `oidc`, `header`; empty when the server has no sign-in configured. */
+  methods: string[]
+  user: { id: string; name: string | null; email: string | null; via: string } | null
+  can_write: boolean
+  reads_require_login: boolean
+  /** Sent as `X-Wirewolf-CSRF` on writes. */
+  csrf: string | null
+  login_url: string | null
+  logout_url: string | null
+}
+
 const BASE = "/api/v1"
 
 async function get<T>(path: string): Promise<T | null> {
@@ -171,9 +179,13 @@ async function get<T>(path: string): Promise<T | null> {
 }
 
 async function post(path: string, body?: unknown): Promise<number> {
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["content-type"] = "application/json"
+  const csrf = currentSession()?.csrf
+  if (csrf) headers["x-wirewolf-csrf"] = csrf
   const res = await fetch(BASE + path, {
     method: "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers,
     body: body === undefined ? undefined : JSON.stringify(body),
   })
   return res.status

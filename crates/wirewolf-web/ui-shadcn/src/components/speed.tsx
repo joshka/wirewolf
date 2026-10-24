@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { api, type BloatGrade, type SpeedRun } from "@/lib/api"
 import { useLive } from "@/lib/live"
+import { useSession, writeBlocked } from "@/lib/session"
+import { Gated } from "./chrome"
 import { cn } from "@/lib/utils"
 import { bytes } from "@/lib/format"
 import { RelTime } from "./time"
@@ -37,6 +39,7 @@ export function RunSpeedButton({ running, primary }: { running: boolean; primary
     try {
       const status = await api.runSpeed()
       if (status === 409) toast.info("A speed test is already running")
+      else if (status === 401 || status === 403) toast.error("Sign in to run a speed test")
       else if (status !== 202) toast.error(`Couldn't start a speed test (HTTP ${status})`)
     } catch {
       toast.error("Couldn't reach wirewolf to start a speed test")
@@ -45,11 +48,14 @@ export function RunSpeedButton({ running, primary }: { running: boolean; primary
     }
   }
   const active = running || busy
+  const blocked = writeBlocked(useSession(), "run a speed test")
   return (
-    <Button variant={primary ? "default" : "outline"} onClick={start} disabled={active}>
-      {active ? <Loader2 className="animate-spin" aria-hidden /> : <Play aria-hidden />}
-      {running ? "Running…" : "Run now"}
-    </Button>
+    <Gated reason={blocked}>
+      <Button variant={primary ? "default" : "outline"} onClick={start} disabled={active || !!blocked}>
+        {active ? <Loader2 className="animate-spin" aria-hidden /> : <Play aria-hidden />}
+        {running ? "Running…" : "Run now"}
+      </Button>
+    </Gated>
   )
 }
 

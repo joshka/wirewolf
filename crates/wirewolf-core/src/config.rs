@@ -31,6 +31,8 @@ pub struct Config {
     pub incidents: Incidents,
     pub speed: Speed,
     pub storage: Storage,
+    /// Who may sign in, and what anonymous visitors may do.
+    pub auth: Auth,
     /// Your own things to watch: a NAS, the router admin page, a Pi-hole.
     pub targets: Vec<UserTarget>,
 }
@@ -195,6 +197,83 @@ pub struct Storage {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Auth {
+    /// OIDC issuer URL, for example `https://auth.example.com`. Empty turns OIDC login off.
+    pub issuer: String,
+    pub client_id: String,
+    /// Also `WIREWOLF_AUTH_CLIENT_SECRET`, or `client_secret_file`. Never shown by the API.
+    pub client_secret: String,
+    /// A file holding the client secret, for Docker or systemd credentials.
+    pub client_secret_file: String,
+    /// Where the issuer sends the browser back: `https://<this server>/auth/callback`.
+    pub redirect_url: String,
+    /// Scopes beyond `openid`. Add `groups` if your issuer needs it for `allowed_groups`.
+    pub scopes: Vec<String>,
+    /// If set, only these emails may sign in. Matched case-insensitively.
+    pub allowed_emails: Vec<String>,
+    /// If set, only members of one of these groups (the `groups` claim) may sign in.
+    pub allowed_groups: Vec<String>,
+    /// Sign-in lifetime.
+    pub session_ttl: Dur,
+    /// Key that signs and encrypts session cookies. Created on first start; keep it so restarts
+    /// don't sign everyone out.
+    pub session_key_file: PathBuf,
+    /// Require sign-in to see the dashboard and API, not just to change things.
+    pub require_for_reads: bool,
+    /// With no sign-in method configured, let anyone on the network run speed tests and change
+    /// settings. Off by default.
+    pub allow_unauthenticated_writes: bool,
+    /// Trust a reverse proxy that has already signed the user in (oauth2-proxy, Authelia,
+    /// Authentik, Tailscale serve).
+    pub trusted_header: TrustedHeader,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TrustedHeader {
+    /// Header carrying the user name, for example `Remote-User`. Empty turns this off.
+    pub user: String,
+    pub email: String,
+    pub name: String,
+    /// Comma-separated groups, checked against `allowed_groups`.
+    pub groups: String,
+    /// Proxy addresses or CIDRs to trust the headers from. Required: requests from anywhere
+    /// else are anonymous.
+    pub proxies: Vec<String>,
+}
+
+impl Auth {
+    pub fn oidc_enabled(&self) -> bool {
+        !self.issuer.is_empty()
+    }
+
+    pub fn header_enabled(&self) -> bool {
+        !self.trusted_header.user.is_empty()
+    }
+}
+
+impl Default for Auth {
+    fn default() -> Self {
+        Self {
+            issuer: String::new(),
+            client_id: String::new(),
+            client_secret: String::new(),
+            client_secret_file: String::new(),
+            redirect_url: String::new(),
+            scopes: vec!["email".into(), "profile".into()],
+            allowed_emails: vec![],
+            allowed_groups: vec![],
+            session_ttl: Dur::secs(7 * 24 * 60 * 60),
+            session_key_file: "wirewolf-session.key".into(),
+            require_for_reads: false,
+            allow_unauthenticated_writes: false,
+            trusted_header: TrustedHeader::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UserTarget {
     pub name: String,
@@ -301,6 +380,9 @@ impl Config {
         }
         c.web.sites = c.web.sites.iter().map(|s| redact_url(s)).collect();
         c.web.captive_portal = redact_url(&c.web.captive_portal);
+        if !c.auth.client_secret.is_empty() {
+            c.auth.client_secret = "***".into();
+        }
         c
     }
 }
@@ -543,5 +625,8 @@ critical = true
     fn redacts_credentials() {
         assert_eq!(redact_url("https://admin:hunter2@router.local/x@y"), "https://***@router.local/x@y");
         assert_eq!(redact_url("tcp://nas.local:445"), "tcp://nas.local:445");
+        let mut c = Config::default();
+        c.auth.client_secret = "s3cret".into();
+        assert_eq!(c.redacted().auth.client_secret, "***");
     }
 }

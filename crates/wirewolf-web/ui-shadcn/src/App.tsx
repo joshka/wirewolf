@@ -21,7 +21,9 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { hopIcon } from "@/components/path"
 import { StatusIcon } from "@/components/status"
-import { LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/components/chrome"
+import { AccountControl, LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/components/chrome"
+import { loadSession, signIn, useSession } from "@/lib/session"
+import { Button } from "@/components/ui/button"
 import { start, useLive } from "@/lib/live"
 import { href, onLinkClick, useRoute, type Route } from "@/lib/router"
 import { NowView } from "@/views/now"
@@ -45,7 +47,10 @@ const isActive = (nav: Route, cur: Route) =>
   nav.name === cur.name || (nav.name === "incidents" && (cur.name === "incident" || (cur.name === "hop" && !!cur.incident)))
 
 export default function App() {
-  useEffect(start, [])
+  useEffect(() => {
+    loadSession()
+    start()
+  }, [])
   return (
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider delay={300}>
@@ -93,7 +98,10 @@ function AppSidebar() {
         </div>
         <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
           <LiveIndicator />
-          {meta && <span className="truncate font-mono text-[11px] text-muted-foreground" title={meta.host}>{meta.host}</span>}
+          {meta && <span className="min-w-8 truncate font-mono text-[11px] text-muted-foreground" title={meta.host}>{meta.host}</span>}
+          <div className="ml-auto flex min-w-0 justify-end">
+            <AccountControl />
+          </div>
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -159,6 +167,8 @@ function Main() {
   const route = useRoute()
   const severity = useLive((s) => s.snapshot?.verdict.severity)
   const error = useLive((s) => s.error)
+  const session = useSession()
+  const locked = !!session?.reads_require_login && !session.user
   const snapshotHop = useLive((s) => (route.name === "hop" ? findHop(s.snapshot, route.id)?.label : undefined))
   const title = route.name === "incident" ? "Incident" : route.name === "hop" ? (snapshotHop ?? route.id) : (NAV.find((n) => isActive(n.route, route))?.label ?? "wirewolf")
   useEffect(() => {
@@ -171,19 +181,34 @@ function Main() {
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur md:hidden">
         <SidebarTrigger aria-label="Open navigation" />
         <span className="font-semibold">wirewolf</span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <AccountControl />
           <LiveIndicator />
         </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">
-        {error && <p className="mb-4 rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">{error}</p>}
-        {route.name === "now" && <NowView />}
-        {route.name === "history" && <HistoryView />}
-        {route.name === "incidents" && <IncidentsView />}
-        {route.name === "incident" && <IncidentView id={route.id} />}
-        {route.name === "speed" && <SpeedView />}
-        {route.name === "settings" && <SettingsView />}
-        {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
+        {locked ? (
+          <div className="mx-auto mt-24 max-w-sm space-y-3 text-center">
+            <h1 className="text-xl font-semibold">Sign in to see this network</h1>
+            <p className="text-sm text-muted-foreground">This wirewolf only shows its dashboard to signed-in users.</p>
+            {session.login_url ? (
+              <Button onClick={() => signIn(session.login_url!)}>Sign in</Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">Sign in through the proxy in front of wirewolf.</p>
+            )}
+          </div>
+        ) : (
+          <>
+            {error && <p className="mb-4 rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">{error}</p>}
+            {route.name === "now" && <NowView />}
+            {route.name === "history" && <HistoryView />}
+            {route.name === "incidents" && <IncidentsView />}
+            {route.name === "incident" && <IncidentView id={route.id} />}
+            {route.name === "speed" && <SpeedView />}
+            {route.name === "settings" && <SettingsView />}
+            {route.name === "hop" && <HopView key={`${route.incident}/${route.id}`} id={route.id} incident={route.incident} />}
+          </>
+        )}
       </main>
     </SidebarInset>
   )
