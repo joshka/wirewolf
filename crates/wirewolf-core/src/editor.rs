@@ -365,7 +365,18 @@ fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text)?;
+    let _ = std::fs::remove_file(&tmp);
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    // The file can hold credentials (target URLs, `auth.client_secret`), so a new one is private
+    // and an existing one keeps its permissions.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mode = std::fs::metadata(path).map_or(0o600, |m| m.permissions().mode() & 0o777);
+        options.mode(mode);
+    }
+    std::io::Write::write_all(&mut options.open(&tmp)?, text.as_bytes())?;
     std::fs::rename(&tmp, path)
 }
 
@@ -443,6 +454,24 @@ mod tests {
         c.incidents.close_after = 4;
         ed.apply(c).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "[incidents]\nclose_after = 4\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saves_keep_the_file_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let dir = TmpDir::new("mode");
+        let path = dir.file();
+        let ed = Editor::new(path.clone(), vec![], no_extra, false);
+        let mut c = Config::default();
+        c.incidents.close_after = 4;
+        ed.apply(c.clone()).unwrap();
+        assert_eq!(mode(&path), 0o600);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+        c.incidents.close_after = 5;
+        ed.apply(c).unwrap();
+        assert_eq!(mode(&path), 0o640);
     }
 
     #[test]
