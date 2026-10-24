@@ -11,7 +11,7 @@ It probes the path from your machine outward (host → gateway → ISP → inter
 so "the internet was flaky last night" turns into a time, a hop, and a report you can send your
 ISP.
 
-![The Now page during an ISP outage: the verdict banner blames the ISP hop, and the hops after it are skipped](docs/images/now-isp-outage.png)
+![The Now page during an ISP outage: the verdict banner blames the ISP hop, and the hops after it are skipped](https://github.com/joshka/wirewolf/releases/download/v0.1.1/now-isp-outage.png)
 
 ## Features
 
