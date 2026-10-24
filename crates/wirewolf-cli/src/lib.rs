@@ -1,5 +1,7 @@
 //! Command line interface for wirewolf.
 
+mod check;
+
 use std::net::SocketAddr;
 
 use clap::{Parser, Subcommand};
@@ -28,7 +30,25 @@ enum Command {
         #[command(flatten)]
         live: LiveArgs,
     },
+    /// Open the terminal dashboard for a running wirewolf server.
+    Tui {
+        /// The wirewolf server to connect to.
+        #[arg(long, env = "WIREWOLF_URL", default_value = DEFAULT_URL)]
+        url: String,
+    },
+    /// Print the current verdict and exit 0 healthy, 1 degraded, 2 down, 3 unreachable,
+    /// 4 unknown.
+    Check {
+        /// The wirewolf server to ask.
+        #[arg(long, env = "WIREWOLF_URL", default_value = DEFAULT_URL)]
+        url: String,
+        /// Print the snapshot as JSON instead of text.
+        #[arg(long)]
+        json: bool,
+    },
 }
+
+const DEFAULT_URL: &str = "http://127.0.0.1:7465";
 
 /// Settings for live probing (ignored with `--demo`).
 #[derive(Debug, clap::Args)]
@@ -60,12 +80,20 @@ fn parse_duration(s: &str) -> Result<std::time::Duration, String> {
 }
 
 pub fn run() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    if let Command::Tui { url } = &cli.command {
+        // No log subscriber: log lines would corrupt the screen.
+        return tokio::runtime::Runtime::new()?.block_on(wirewolf_tui::run(url));
+    }
+    if let Command::Check { url, json } = &cli.command {
+        let code = tokio::runtime::Runtime::new()?.block_on(check::run(url, *json));
+        std::process::exit(code);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
-    let cli = Cli::parse();
     tokio::runtime::Runtime::new()?.block_on(async {
         match cli.command {
             Command::Serve { listen, demo: true, scenario, .. } => {
@@ -87,6 +115,7 @@ pub fn run() -> anyhow::Result<()> {
                 tokio::spawn(wirewolf_probe::run(hub.clone(), config));
                 wirewolf_web::serve(hub, listen).await?;
             }
+            Command::Tui { .. } | Command::Check { .. } => unreachable!("handled above"),
         }
         Ok(())
     })

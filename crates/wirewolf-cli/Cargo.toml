@@ -18,6 +18,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 wirewolf-core = { version = "0.0.0", path = "../wirewolf-core", features = ["demo"] }
 wirewolf-probe = { version = "0.0.0", path = "../wirewolf-probe" }
 wirewolf-web = { version = "0.0.0", path = "../wirewolf-web" }
+wirewolf-tui = { version = "0.0.0", path = "../wirewolf-tui" }
 
 [features]
 ui-shadcn = ["wirewolf-web/ui-shadcn"]
