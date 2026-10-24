@@ -237,13 +237,16 @@ where
     F: FnOnce(reqwest::Client) -> Fut,
     Fut: Future<Output = Result<Target, String>>,
 {
-    let client = reqwest::Client::builder()
+    // Ookla servers are run by third parties: don't let one redirect the test to a LAN or
+    // metadata address.
+    let builder = || reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).dns_resolver(crate::targets::NoLinkLocal);
+    let client = builder()
         .timeout(cfg.duration + Duration::from_secs(20))
         .user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION")))
         .build()
         .map_err(|e| Box::new((run.clone(), e.to_string())))?;
     // A separate client so latency probes don't queue behind the loaded connections.
-    let probe = reqwest::Client::builder().timeout(Duration::from_secs(5)).build().map_err(|e| Box::new((run.clone(), e.to_string())))?;
+    let probe = builder().timeout(Duration::from_secs(5)).build().map_err(|e| Box::new((run.clone(), e.to_string())))?;
 
     let target = match target(probe.clone()).await {
         Ok(t) => t,
