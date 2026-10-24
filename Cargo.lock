@@ -4958,7 +4958,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "wirewolf-cli",
@@ -4966,7 +4966,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf-cli"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4985,7 +4985,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf-core"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "fastrand",
  "jiff",
@@ -5000,7 +5000,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf-probe"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5025,7 +5025,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf-tui"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "jiff",
@@ -5040,7 +5040,7 @@ dependencies = [
 
 [[package]]
 name = "wirewolf-web"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "axum",
  "axum-extra",

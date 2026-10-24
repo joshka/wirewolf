@@ -6,6 +6,36 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-24
+
+### Added
+
+- Notifications when incidents open and close.
+- A printable connection report to hand to your ISP.
+- Export of history, incidents, and speed tests.
+- Speed results compared with the plan you pay for.
+- The current state says how long it has lasted, and speed tests say which phase they are in.
+- DNS and web rows say what failed.
+- Every page has a title and description.
+
+### Fixed
+
+- A probe that hangs no longer stops probing: each probe is capped at 20 seconds and skipped
+  for that cycle, and ICMP reads can no longer block forever.
+- A new incident opens when the blamed hop moves, instead of extending the old one.
+
+### Changed
+
+- The Incidents page shows the last 30 days.
+- Speed tests are drawn as measured points, the speed tests table is trimmed, and each
+  target's timing is shown once.
+- Overlapping history lines are easier to follow, and keyboard-focused charts show a focus
+  ring.
+- Charts and other pages load on demand, and the sidebar collapses on tablets.
+- The dashboard builds with Node 26, TypeScript 7.0, and recharts 3.10. Dependencies and
+  GitHub Actions are updated, and the unused `rand` dependency is removed from
+  `wirewolf-web`.
+
 ## [0.1.1] - 2026-10-24
 
 ### Fixed
@@ -63,6 +93,7 @@ The first release.
 - A user guide, a deployment guide, and a CLI reference generated from `--help`.
 
 
-[Unreleased]: https://github.com/joshka/wirewolf/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/joshka/wirewolf/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/joshka/wirewolf/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/joshka/wirewolf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joshka/wirewolf/releases/tag/v0.1.0
