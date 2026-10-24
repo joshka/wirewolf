@@ -119,10 +119,11 @@ impl Editor {
     }
 }
 
-/// Puts back credentials that `GET /config` replaced with `***`, matching by position.
+/// Puts back credentials (userinfo and query values) that `GET /config` replaced with `***`,
+/// matching by position.
 fn unredact(new: &mut Config, current: &Config) {
     let restore = |shown: &mut String, real: &str| {
-        if shown.contains("***@") && *shown == config::redact_url(real) {
+        if shown.contains("***") && *shown == config::redact_url(real) {
             *shown = real.to_string();
         }
     };
@@ -509,13 +510,14 @@ mod tests {
     fn keeps_redacted_credentials() {
         let dir = TmpDir::new("redact");
         let path = dir.file();
-        std::fs::write(&path, "[[targets]]\nname = \"Router\"\ncheck = \"https://admin:pw@router.local\"\n").unwrap();
+        std::fs::write(&path, "[[targets]]\nname = \"Router\"\ncheck = \"https://admin:pw@router.local\"\n[[targets]]\nname = \"NAS\"\ncheck = \"https://nas.lan/health?token=s3cret\"\n").unwrap();
         let ed = Editor::new(path.clone(), vec![], no_extra, false);
         let mut c = config::load(Some(&path), true, &[]).unwrap().config.redacted();
         c.targets[0].critical = true;
         ed.apply(c).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains("admin:pw@router.local") && text.contains("critical = true"), "{text}");
+        assert!(text.contains("health?token=s3cret"), "{text}");
     }
 
     #[test]

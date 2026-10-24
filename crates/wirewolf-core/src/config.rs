@@ -397,14 +397,24 @@ impl Config {
     }
 }
 
-/// Replaces `user:pass@` in a URL with `***@`.
+/// Hides credentials in a URL: `user:pass@` becomes `***@`, and query values (`?token=…`)
+/// become `***`, since tokens often travel there.
 pub fn redact_url(url: &str) -> String {
     let Some((scheme, rest)) = url.split_once("://") else { return url.to_string() };
-    let authority_end = rest.find('/').unwrap_or(rest.len());
-    match rest[..authority_end].rfind('@') {
-        Some(at) => format!("{scheme}://***@{}", &rest[at + 1..]),
-        None => url.to_string(),
-    }
+    let authority_end = rest.find('/').or_else(|| rest.find('?')).unwrap_or(rest.len());
+    let rest = match rest[..authority_end].rfind('@') {
+        Some(at) => format!("***@{}", &rest[at + 1..]),
+        None => rest.to_string(),
+    };
+    let rest = match rest.split_once('?') {
+        Some((path, query)) => {
+            let (query, fragment) = query.split_once('#').map_or((query, None), |(q, f)| (q, Some(f)));
+            let query: Vec<String> = query.split('&').map(|kv| kv.split_once('=').map_or(kv.to_string(), |(k, _)| format!("{k}=***"))).collect();
+            format!("{path}?{}{}", query.join("&"), fragment.map(|f| format!("#{f}")).unwrap_or_default())
+        }
+        None => rest,
+    };
+    format!("{scheme}://{rest}")
 }
 
 /// A duration written like `30s`, `5m`, `1h`, or `30d`.
@@ -636,6 +646,8 @@ critical = true
     fn redacts_credentials() {
         assert_eq!(redact_url("https://admin:hunter2@router.local/x@y"), "https://***@router.local/x@y");
         assert_eq!(redact_url("tcp://nas.local:445"), "tcp://nas.local:445");
+        assert_eq!(redact_url("https://nas.lan/health?token=s3cret&v=2#top"), "https://nas.lan/health?token=***&v=***#top");
+        assert_eq!(redact_url("https://u:p@nas.lan?key=x"), "https://***@nas.lan?key=***");
         let mut c = Config::default();
         c.auth.client_secret = "s3cret".into();
         assert_eq!(c.redacted().auth.client_secret, "***");
