@@ -63,16 +63,26 @@ function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton size="lg" className="group-data-[collapsible=icon]:p-0!" render={<a href={href({ name: "now" })} onClick={go} />}>
-              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
-                <Activity aria-hidden className="size-4" />
-              </span>
-              <span className="font-semibold">wirewolf</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
+        <div className="flex items-center group-data-[collapsible=icon]:flex-col">
+          <SidebarMenu className="min-w-0 flex-1">
+            <SidebarMenuItem>
+              <SidebarMenuButton size="lg" className="group-data-[collapsible=icon]:p-0!" render={<a href={href({ name: "now" })} onClick={go} />}>
+                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
+                  <Activity aria-hidden className="size-4" />
+                </span>
+                <span className="font-semibold">wirewolf</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+          <div className="flex items-center gap-0.5 group-data-[collapsible=icon]:flex-col">
+            <ThemeToggle />
+            <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
+          </div>
+        </div>
+        <div className="flex min-w-0 items-center gap-2 px-2 group-data-[collapsible=icon]:hidden">
+          <LiveIndicator />
+          {meta && <span className="truncate font-mono text-xs text-muted-foreground" title={meta.host}>{meta.host}</span>}
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -97,25 +107,13 @@ function AppSidebar() {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter>
-        <div className="flex flex-col items-start gap-2 group-data-[collapsible=icon]:hidden">
-          <LiveIndicator />
-          <ScenarioSwitcher />
-        </div>
-        <div className="flex items-end gap-1">
-          {meta && (
-            <div className="flex min-w-0 flex-1 flex-col px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-              <span className="truncate font-mono">{meta.host}</span>
-              <span>
-                wirewolf v{meta.version} · {meta.mode}
-              </span>
-            </div>
-          )}
-          <div className="flex gap-1 group-data-[collapsible=icon]:flex-col">
-            <ThemeToggle />
-            <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
-          </div>
-        </div>
+      <SidebarFooter className="items-start gap-2 px-4 pb-4 group-data-[collapsible=icon]:hidden">
+        <ScenarioSwitcher />
+        {meta && (
+          <span className="text-xs text-muted-foreground">
+            wirewolf v{meta.version} · {meta.mode}
+          </span>
+        )}
       </SidebarFooter>
     </Sidebar>
   )
