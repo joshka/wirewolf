@@ -368,15 +368,20 @@ From the command line, `wirewolf check --brief` prints the brief, and the API se
 
 ### The ISP hop says "inferred"
 
-Measuring the ISP's edge router needs to see ICMP "time exceeded" replies, which needs a raw
-socket on Linux. Without one, wirewolf infers the ISP hop from whether the internet answers, and
+Measuring the ISP's edge router needs to see ICMP "time exceeded" replies. On Linux that takes
+either a raw socket or unprivileged ICMP (`net.ipv4.ping_group_range` covering wirewolf's group;
+wirewolf checks at startup that time-exceeded replies arrive). Without either, wirewolf infers the ISP hop from whether the internet answers, and
 the hop's evidence says `inferred from internet reachability (TTL probes need a raw socket)`. The
 rest of the path still works.
 
 - In Docker, keep `--cap-add NET_RAW` and run as the image's default user (see
   [deploy.md](deploy.md)).
 - On Linux without a container, run as a user with `CAP_NET_RAW`, for example
-  `sudo setcap cap_net_raw+ep "$(which wirewolf)"`.
+  `sudo setcap cap_net_raw+ep "$(which wirewolf)"`, or allow unprivileged ICMP for its group,
+  for example `sysctl net.ipv4.ping_group_range="1000 1000"`.
+- A container that runs as a non-root user without `NET_RAW` can use unprivileged ICMP too:
+  set the sysctl on the host with host networking, or pass
+  `--sysctl net.ipv4.ping_group_range="0 2147483647"` in bridge mode.
 - macOS delivers these replies to unprivileged sockets, so no extra setup is needed.
 
 Separately, some ISP routers never send time-exceeded replies. Then the hop reads "edge router

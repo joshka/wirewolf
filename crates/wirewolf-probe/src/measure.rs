@@ -45,7 +45,7 @@ impl Prober {
     /// Fails if a `[[targets]]` check can't be parsed.
     pub fn new(config: Arc<Config>) -> anyhow::Result<Self> {
         let targets = targets::parse_all(&config.targets).map_err(anyhow::Error::msg)?;
-        let icmp = Icmp::detect();
+        let icmp = Icmp::detect(TRACE_TARGET, Duration::from_secs(1));
         let builder = || reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(WEB_TIMEOUT).user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION"))).dns_resolver(targets::NoLinkLocal);
         let http = builder().build()?;
         let http_insecure = builder().danger_accept_invalid_certs(true).build()?;

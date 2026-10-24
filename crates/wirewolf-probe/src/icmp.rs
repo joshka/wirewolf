@@ -2,8 +2,9 @@
 //!
 //! macOS allows unprivileged `SOCK_DGRAM` ICMP sockets and delivers both echo replies and
 //! time-exceeded messages to them. Linux allows them when `net.ipv4.ping_group_range` covers the
-//! user, but only delivers echo replies, so TTL sweeps there need a raw socket (`CAP_NET_RAW`,
-//! which Docker grants by default). [`Icmp::detect`] picks the best socket type available.
+//! user, delivers echo replies normally, and queues time-exceeded messages on the socket error
+//! queue when `IP_RECVERR` is set. [`Icmp::detect`] picks the best socket type available, and on
+//! Linux sends one TTL-1 probe to check that time-exceeded replies really arrive.
 //!
 //! All calls block; run them on a blocking thread.
 
@@ -32,13 +33,23 @@ pub struct Reply {
 
 impl Icmp {
     /// Returns the best ICMP socket type this process may open, or `None` if ICMP is unavailable.
-    pub fn detect() -> Option<Self> {
+    ///
+    /// On Linux a datagram socket only counts as able to trace if a TTL-1 probe toward `probe`
+    /// brings back a time-exceeded reply, which takes up to `timeout`.
+    pub fn detect(probe: Ipv4Addr, timeout: Duration) -> Option<Self> {
         if Socket::new(Domain::IPV4, Type::RAW, Some(Protocol::ICMPV4)).is_ok() {
             return Some(Self::Raw);
         }
-        Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4))
-            .ok()
-            .map(|_| Self::Dgram { ttl_exceeded: cfg!(target_vendor = "apple") })
+        Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).ok()?;
+        if cfg!(target_vendor = "apple") {
+            return Some(Self::Dgram { ttl_exceeded: true });
+        }
+        if !cfg!(target_os = "linux") {
+            return Some(Self::Dgram { ttl_exceeded: false });
+        }
+        let traced = Self::Dgram { ttl_exceeded: true }.burst(probe, 1, 1, Duration::ZERO, timeout);
+        let ttl_exceeded = matches!(traced.as_deref(), Ok([Some(_)]));
+        Some(Self::Dgram { ttl_exceeded })
     }
 
     /// Whether TTL-limited probes can see which router answered.
@@ -51,7 +62,12 @@ impl Icmp {
             Self::Raw => Type::RAW,
             Self::Dgram { .. } => Type::DGRAM,
         };
-        Socket::new(Domain::IPV4, ty, Some(Protocol::ICMPV4))
+        let socket = Socket::new(Domain::IPV4, ty, Some(Protocol::ICMPV4))?;
+        #[cfg(target_os = "linux")]
+        if matches!(self, Self::Dgram { ttl_exceeded: true }) {
+            set_recverr(&socket)?;
+        }
+        Ok(socket)
     }
 
     /// Sends `count` echo requests `spacing` apart with the given TTL, and returns one entry per
@@ -86,16 +102,25 @@ impl Icmp {
                 continue;
             }
             socket.set_read_timeout(Some(deadline - now))?;
-            let (len, from) = match socket.recv_from(&mut buf) {
-                Ok(r) => r,
+            let (kind, reply_id, seq, from) = match socket.recv_from(&mut buf) {
+                Ok((len, from)) => {
+                    // SAFETY: recv_from initialized the first `len` bytes.
+                    let data = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), len) };
+                    let Some((kind, reply_id, seq)) = parse(data) else { continue };
+                    (kind, reply_id, seq, from.as_socket().map(|s| s.ip()))
+                }
                 Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => continue,
+                // A queued ICMP error makes recv fail with its errno (EHOSTUNREACH for
+                // time-exceeded); the message itself waits on the error queue.
+                #[cfg(target_os = "linux")]
+                Err(_) if matches!(self, Self::Dgram { ttl_exceeded: true }) => {
+                    let Some((seq, from)) = recv_time_exceeded(&socket) else { continue };
+                    (ReplyKind::TimeExceeded, id, seq, Some(IpAddr::V4(from)))
+                }
                 Err(e) => return Err(e),
             };
             let received = Instant::now();
-            // SAFETY: recv_from initialized the first `len` bytes.
-            let data = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), len) };
             let check_id = self == Self::Raw || cfg!(target_vendor = "apple");
-            let Some((kind, reply_id, seq)) = parse(data) else { continue };
             if (check_id && reply_id != id) || seq as usize >= sent.len() {
                 continue;
             }
@@ -103,7 +128,7 @@ impl Icmp {
             if rtt > timeout || replies[seq as usize].is_some() {
                 continue;
             }
-            let from = from.as_socket().map(|s| s.ip()).unwrap_or(IpAddr::V4(target));
+            let from = from.unwrap_or(IpAddr::V4(target));
             replies[seq as usize] = Some(Reply { from, rtt, reached: kind == ReplyKind::Echo });
         }
         Ok(replies)
@@ -175,6 +200,77 @@ fn set_dont_fragment(socket: &Socket) -> io::Result<()> {
         libc::setsockopt(socket.as_raw_fd(), libc::IPPROTO_IP, opt, (&raw const value).cast(), size_of::<libc::c_int>() as libc::socklen_t)
     };
     if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Asks Linux to queue ICMP errors (time-exceeded included) for reading with `MSG_ERRQUEUE`.
+#[cfg(target_os = "linux")]
+fn set_recverr(socket: &Socket) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let on: libc::c_int = 1;
+    // SAFETY: a valid socket, and a c_int option value of the right size.
+    let r = unsafe {
+        libc::setsockopt(socket.as_raw_fd(), libc::IPPROTO_IP, libc::IP_RECVERR, (&raw const on).cast(), size_of::<libc::c_int>() as libc::socklen_t)
+    };
+    if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// Reads one message from the error queue and returns (seq, router) if it is a time-exceeded
+/// reply to one of our echo requests.
+#[cfg(target_os = "linux")]
+fn recv_time_exceeded(socket: &Socket) -> Option<(u16, Ipv4Addr)> {
+    use std::os::fd::AsRawFd;
+    let mut data = [0u8; 576];
+    let mut control = [0u64; 64];
+    let mut iov = libc::iovec { iov_base: data.as_mut_ptr().cast(), iov_len: data.len() };
+    // SAFETY: an all-zero msghdr is valid; the pointers set below outlive the call.
+    let mut msg: libc::msghdr = unsafe { std::mem::zeroed() };
+    msg.msg_iov = &raw mut iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = control.as_mut_ptr().cast();
+    msg.msg_controllen = size_of_val(&control) as _;
+    // SAFETY: a valid socket and a msghdr whose buffers are live and correctly sized.
+    let len = unsafe { libc::recvmsg(socket.as_raw_fd(), &raw mut msg, libc::MSG_ERRQUEUE | libc::MSG_DONTWAIT) };
+    let len = usize::try_from(len).ok()?;
+    // SAFETY: `control` is a plain byte buffer of at least `msg_controllen` bytes.
+    let control = unsafe { std::slice::from_raw_parts(control.as_ptr().cast::<u8>(), msg.msg_controllen as usize) };
+    let from = time_exceeded_offender(control)?;
+    // The payload is the echo request we sent (ICMP header first, no IP header).
+    let sent = data.get(..len)?;
+    (*sent.first()? == 8).then_some(())?;
+    Some((u16::from_be_bytes([*sent.get(6)?, *sent.get(7)?]), from))
+}
+
+/// Finds the `IP_RECVERR` control message in `control` and returns the router that sent a
+/// time-exceeded reply, from `SO_EE_OFFENDER`. The layout is Linux's `cmsghdr`, then
+/// `sock_extended_err`, then the offender's `sockaddr_in`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn time_exceeded_offender(control: &[u8]) -> Option<Ipv4Addr> {
+    const SOL_IP: i32 = 0;
+    const IP_RECVERR: i32 = 11;
+    const SO_EE_ORIGIN_ICMP: u8 = 2;
+    const AF_INET: u16 = 2;
+    const WORD: usize = size_of::<usize>();
+    let align = |n: usize| n.div_ceil(WORD) * WORD;
+    let header = align(WORD + 8);
+    let mut rest = control;
+    while rest.len() >= header {
+        let len = usize::from_ne_bytes(rest[..WORD].try_into().ok()?);
+        let level = i32::from_ne_bytes(rest[WORD..WORD + 4].try_into().ok()?);
+        let kind = i32::from_ne_bytes(rest[WORD + 4..WORD + 8].try_into().ok()?);
+        if len < header || len > rest.len() {
+            return None;
+        }
+        if level == SOL_IP && kind == IP_RECVERR {
+            // sock_extended_err: errno u32, origin, type, code, pad, info u32, data u32.
+            let ee = rest.get(header..len)?;
+            let offender = ee.get(16..24)?;
+            let family = u16::from_ne_bytes([offender[0], offender[1]]);
+            return (ee.get(4) == Some(&SO_EE_ORIGIN_ICMP) && ee.get(5) == Some(&11) && family == AF_INET)
+                .then(|| Ipv4Addr::new(offender[4], offender[5], offender[6], offender[7]));
+        }
+        rest = rest.get(align(len)..)?;
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -264,11 +360,57 @@ mod tests {
         assert_eq!(parse(&packet), Some((ReplyKind::TimeExceeded, 42, 9)));
     }
 
+    /// A Linux `IP_RECVERR` control message for a time-exceeded reply from `from`.
+    fn recverr_cmsg(origin: u8, icmp_type: u8, from: [u8; 4]) -> Vec<u8> {
+        let word = size_of::<usize>();
+        let header = (word + 8).div_ceil(word) * word;
+        let mut ee = vec![0u8; 16];
+        ee[..4].copy_from_slice(&113u32.to_ne_bytes()); // EHOSTUNREACH
+        ee[4] = origin;
+        ee[5] = icmp_type;
+        ee.extend(2u16.to_ne_bytes());
+        ee.extend([0, 0]);
+        ee.extend(from);
+        ee.extend([0u8; 8]);
+        let mut cmsg = (header + ee.len()).to_ne_bytes().to_vec();
+        cmsg.extend(0i32.to_ne_bytes());
+        cmsg.extend(11i32.to_ne_bytes());
+        cmsg.resize(header, 0);
+        cmsg.extend(ee);
+        cmsg
+    }
+
+    #[test]
+    fn reads_time_exceeded_offender() {
+        let cmsg = recverr_cmsg(2, 11, [192, 0, 2, 1]);
+        assert_eq!(time_exceeded_offender(&cmsg), Some(Ipv4Addr::new(192, 0, 2, 1)));
+    }
+
+    #[test]
+    fn skips_other_control_messages() {
+        let word = size_of::<usize>();
+        let mut control = (word + 8 + 4).to_ne_bytes().to_vec();
+        control.extend(0i32.to_ne_bytes());
+        control.extend(2i32.to_ne_bytes()); // IP_TTL
+        control.extend(64i32.to_ne_bytes());
+        control.resize((word + 12).div_ceil(word) * word, 0);
+        control.extend(recverr_cmsg(2, 11, [198, 51, 100, 7]));
+        assert_eq!(time_exceeded_offender(&control), Some(Ipv4Addr::new(198, 51, 100, 7)));
+    }
+
+    #[test]
+    fn ignores_other_errors() {
+        assert_eq!(time_exceeded_offender(&recverr_cmsg(2, 3, [192, 0, 2, 1])), None); // unreachable
+        assert_eq!(time_exceeded_offender(&recverr_cmsg(1, 11, [192, 0, 2, 1])), None); // local
+        assert_eq!(time_exceeded_offender(&recverr_cmsg(2, 11, [192, 0, 2, 1])[..20]), None);
+        assert_eq!(time_exceeded_offender(&[]), None);
+    }
+
     /// Needs a network. `cargo test -p wirewolf-probe -- --ignored live_trace --nocapture`
     #[test]
     #[ignore]
     fn live_trace() {
-        let icmp = Icmp::detect().expect("ICMP available");
+        let icmp = Icmp::detect(Ipv4Addr::new(1, 1, 1, 1), Duration::from_secs(1)).expect("ICMP available");
         let hops = icmp.trace(Ipv4Addr::new(1, 1, 1, 1), 12, Duration::from_secs(1)).unwrap();
         for (ttl, reply) in &hops {
             println!("{ttl:2} {reply:?}");
