@@ -20,7 +20,7 @@ export interface LiveState {
   error: string | null
 }
 
-let state: LiveState = {
+const empty: LiveState = {
   meta: null,
   snapshot: null,
   samples: {},
@@ -29,6 +29,36 @@ let state: LiveState = {
   connection: "connecting",
   error: null,
 }
+
+// A reload (Cmd+R) would otherwise paint skeletons until the API answers, which reads as a flash.
+// Keep the last state in this tab's sessionStorage and render it immediately; live data replaces
+// it within a moment. Stale copies (older than a few minutes) are ignored.
+const CACHE_KEY = "wirewolf.live"
+const CACHE_MAX_AGE_MS = 5 * 60 * 1000
+
+function restore(): LiveState {
+  try {
+    const raw = sessionStorage.getItem(CACHE_KEY)
+    if (!raw) return empty
+    const { savedAt, ...cached } = JSON.parse(raw) as Partial<LiveState> & { savedAt: number }
+    if (Date.now() - savedAt > CACHE_MAX_AGE_MS) return empty
+    return { ...empty, ...cached }
+  } catch {
+    return empty
+  }
+}
+
+function save() {
+  try {
+    const { meta, snapshot, samples, speedRuns, incidents } = state
+    sessionStorage.setItem(CACHE_KEY, JSON.stringify({ savedAt: Date.now(), meta, snapshot, samples, speedRuns, incidents: incidents.slice(0, 50) }))
+  } catch {
+    // Quota or privacy mode: the cache is only an optimisation.
+  }
+}
+
+let state: LiveState = restore()
+if (typeof window !== "undefined") window.addEventListener("pagehide", save)
 
 const listeners = new Set<() => void>()
 

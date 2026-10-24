@@ -6,6 +6,11 @@
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <title>wirewolf</title>
+    <style>
+      /* Paint the theme background before the stylesheet and app load. */
+      html { background: #fff; }
+      html.dark { background: oklch(0.145 0 0); }
+    </style>
     <script>
       // Apply the stored or system theme before first paint to avoid a flash.
       try {
