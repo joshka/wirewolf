@@ -374,11 +374,26 @@ mod tests {
     use super::*;
     use crate::config::{Dur, UserTarget};
 
-    fn tmp(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("wirewolf-editor-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir.join("wirewolf.toml")
+    /// A fresh directory for one test, removed when the guard drops.
+    struct TmpDir(PathBuf);
+
+    impl TmpDir {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("wirewolf-editor-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+
+        fn file(&self) -> PathBuf {
+            self.0.join("wirewolf.toml")
+        }
+    }
+
+    impl Drop for TmpDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
 
     fn no_extra(_: &Config) -> Vec<FieldError> {
@@ -387,7 +402,8 @@ mod tests {
 
     #[test]
     fn round_trip_keeps_comments_and_order() {
-        let path = tmp("round");
+        let dir = TmpDir::new("round");
+        let path = dir.file();
         let original = "# my notes\n[probe]\n# how often\ninterval = \"10s\" # fast\n\n[incidents]\nopen_after = 3\n";
         std::fs::write(&path, original).unwrap();
         let ed = Editor::new(path.clone(), vec![], no_extra, false);
@@ -410,7 +426,8 @@ mod tests {
 
     #[test]
     fn default_file_round_trips_unchanged() {
-        let path = tmp("default");
+        let dir = TmpDir::new("default");
+        let path = dir.file();
         std::fs::write(&path, config::DEFAULT_TOML).unwrap();
         let ed = Editor::new(path.clone(), vec![], no_extra, false);
         ed.apply(Config::default()).unwrap();
@@ -419,7 +436,8 @@ mod tests {
 
     #[test]
     fn creates_a_missing_file() {
-        let path = tmp("create").with_file_name("sub").join("wirewolf.toml");
+        let dir = TmpDir::new("create");
+        let path = dir.0.join("sub").join("wirewolf.toml");
         let ed = Editor::new(path.clone(), vec![], no_extra, false);
         let mut c = Config::default();
         c.incidents.close_after = 4;
@@ -429,7 +447,8 @@ mod tests {
 
     #[test]
     fn rejects_invalid_and_locked_values() {
-        let path = tmp("invalid");
+        let dir = TmpDir::new("invalid");
+        let path = dir.file();
         let o = vec![Override { key: "speed.backend", value: "ookla".into(), source: Source::Env }];
         let ed = Editor::new(path.clone(), o, |_| vec![FieldError::new("targets.0.check", "bad")], false);
         let mut c = config::load(Some(&path), false, &[]).unwrap().config;
@@ -446,7 +465,8 @@ mod tests {
 
     #[test]
     fn env_values_are_not_written() {
-        let path = tmp("env");
+        let dir = TmpDir::new("env");
+        let path = dir.file();
         let o = vec![Override { key: "probe.interval", value: "15s".into(), source: Source::Env }];
         let ed = Editor::new(path.clone(), o.clone(), no_extra, false);
         let mut c = config::load(Some(&path), false, &o).unwrap().config;
@@ -458,7 +478,8 @@ mod tests {
 
     #[test]
     fn keeps_redacted_credentials() {
-        let path = tmp("redact");
+        let dir = TmpDir::new("redact");
+        let path = dir.file();
         std::fs::write(&path, "[[targets]]\nname = \"Router\"\ncheck = \"https://admin:pw@router.local\"\n").unwrap();
         let ed = Editor::new(path.clone(), vec![], no_extra, false);
         let mut c = config::load(Some(&path), true, &[]).unwrap().config.redacted();
@@ -470,7 +491,8 @@ mod tests {
 
     #[test]
     fn read_only_refuses() {
-        let ed = Editor::new(tmp("ro"), vec![], no_extra, true);
+        let dir = TmpDir::new("ro");
+        let ed = Editor::new(dir.file(), vec![], no_extra, true);
         assert!(ed.apply(Config::default()).is_err());
     }
 }
