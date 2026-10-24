@@ -65,8 +65,8 @@ function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" render={<a href={href({ name: "now" })} onClick={go} />}>
-              <span className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground">
+            <SidebarMenuButton size="lg" className="group-data-[collapsible=icon]:p-0!" render={<a href={href({ name: "now" })} onClick={go} />}>
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-primary text-primary-foreground">
                 <Activity aria-hidden className="size-4" />
               </span>
               <span className="font-semibold">wirewolf</span>
@@ -97,14 +97,26 @@ function AppSidebar() {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      {meta && (
-        <SidebarFooter className="px-4 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
-          <span className="font-mono">{meta.host}</span>
-          <span>
-            wirewolf v{meta.version} · {meta.mode}
-          </span>
-        </SidebarFooter>
-      )}
+      <SidebarFooter>
+        <div className="flex flex-col items-start gap-2 group-data-[collapsible=icon]:hidden">
+          <LiveIndicator />
+          <ScenarioSwitcher />
+        </div>
+        <div className="flex items-end gap-1">
+          {meta && (
+            <div className="flex min-w-0 flex-1 flex-col px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden">
+              <span className="truncate font-mono">{meta.host}</span>
+              <span>
+                wirewolf v{meta.version} · {meta.mode}
+              </span>
+            </div>
+          )}
+          <div className="flex gap-1 group-data-[collapsible=icon]:flex-col">
+            <ThemeToggle />
+            <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
+          </div>
+        </div>
+      </SidebarFooter>
     </Sidebar>
   )
 }
@@ -120,13 +132,12 @@ function Main() {
   }, [title, severity])
   return (
     <SidebarInset>
-      <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
-        <SidebarTrigger aria-label="Toggle navigation" />
-        <h1 className="hidden font-semibold sm:block">{title}</h1>
-        <div className="ml-auto flex items-center gap-2">
+      {/* Phones only: the sidebar is a sheet there, so it needs a trigger. */}
+      <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur md:hidden">
+        <SidebarTrigger aria-label="Open navigation" />
+        <span className="font-semibold">wirewolf</span>
+        <div className="ml-auto">
           <LiveIndicator />
-          <ScenarioSwitcher />
-          <ThemeToggle />
         </div>
       </header>
       <main id="main" className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">

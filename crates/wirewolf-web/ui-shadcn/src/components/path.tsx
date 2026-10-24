@@ -92,8 +92,8 @@ export function PathDiagram({
                 )}
               >
                 <IconTile icon={hopIcon[hop.kind]} />
-                <div className="flex w-40 min-w-0 shrink-0 flex-col gap-0.5 sm:w-56">
-                  <span className="flex items-center gap-2 text-sm font-medium">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:w-56 sm:flex-none">
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
                     {hop.label}
                     {blamed && <CauseBadge severity={severity} />}
                   </span>
@@ -101,10 +101,10 @@ export function PathDiagram({
                     {hop.target ?? "—"}
                   </span>
                 </div>
-                {samples && now != null && hop.kind !== "host" ? <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} /> : <span className="flex-1" />}
+                {samples && now != null && hop.kind !== "host" ? <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} /> : <span className="hidden flex-1 sm:block" />}
                 <span
                   className={cn(
-                    "w-28 truncate text-right text-sm font-medium tabular-nums sm:w-40",
+                    "max-w-[45%] shrink-0 truncate text-right text-sm font-medium tabular-nums sm:w-40 sm:max-w-none",
                     hop.status === "pass" ? "text-foreground" : dimmed(hop.status) ? "text-muted-foreground" : statusText[hop.status],
                   )}
                   title={hop.summary}
