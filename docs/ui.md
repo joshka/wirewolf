@@ -1,8 +1,8 @@
 # wirewolf dashboard
 
 The dashboard is a React + Vite + shadcn/ui app in `crates/wirewolf-web/ui-shadcn`, embedded in
-the binary and served from `/`. How it looks is in `docs/design-language.md`. The data it
-reads is in `docs/api.md`. Why it's shadcn is in `docs/ui-decision.md`.
+the binary and served from `/`. How it looks is in `docs/dev/design-language.md`. The data it
+reads is in `docs/api.md`. Why it's shadcn is in `docs/dev/ui-decision.md`.
 
 ## Who it's for
 

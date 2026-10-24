@@ -3,6 +3,10 @@
 //! [`run`] is the live driver: it probes the path on an interval, publishes snapshots and samples
 //! into a [`Hub`] with the same shapes the demo driver uses, runs scheduled and on-demand speed
 //! tests, and keeps history in SQLite.
+//!
+//! This crate is part of [wirewolf](https://github.com/joshka/wirewolf), a self-hosted network
+//! diagnostics service. Most people want the `wirewolf` crate, which installs the binary
+//! (`cargo install wirewolf`). This crate's API is internal and may change in any release.
 
 use std::sync::Arc;
 use std::time::Duration;

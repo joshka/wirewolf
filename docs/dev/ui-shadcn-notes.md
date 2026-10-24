@@ -182,7 +182,7 @@ with no console errors and no horizontal overflow at 390px on any route.
 
 ## Applying the design language
 
-Followed `docs/design-language.md`. The change touched 15 files, **+265 / −232** lines. This
+Followed `docs/dev/design-language.md`. The change touched 15 files, **+265 / −232** lines. This
 time it included the vendored `components/ui` files, because the defaults themselves had to
 change:
 - `card.tsx`: a border instead of a ring, 20px padding (16 on mobile), a 16px title gap, a
@@ -216,7 +216,7 @@ Awkward in React/shadcn:
 
 ## De-tweak: shadcn defaults first
 
-This pass followed the "shadcn defaults first" rule in `docs/design-language.md`, with **less
+This pass followed the "shadcn defaults first" rule in `docs/dev/design-language.md`, with **less
 own code** as the main goal. The before/after Now screenshots are in `detweak/`
 (`before-now-{desk,mob,desk-light}.png` vs `after-now-*.png`).
 

@@ -1,7 +1,16 @@
 //! Web API and dashboard for wirewolf.
 //!
-//! [`api_router`] is the JSON + SSE contract documented in `docs/api.md`. UIs mount alongside
-//! it via [`router`].
+//! [`api_router`] is the JSON + SSE contract documented in `docs/api.md`, served under
+//! `/api/v1`. [`router_with_auth`] adds sign-in and the read/write policy ([`auth`]), the
+//! host-name check against DNS rebinding, security headers, and, with the `ui-shadcn` feature
+//! (on by default), the embedded dashboard. [`serve`] and [`serve_with_auth`] bind and run it.
+//!
+//! Building with `ui-shadcn` compiles the dashboard with Node and pnpm. Set
+//! `WIREWOLF_UI_SHADCN_PREBUILT=1` to embed an existing `ui-shadcn/dist` instead.
+//!
+//! This crate is part of [wirewolf](https://github.com/joshka/wirewolf), a self-hosted network
+//! diagnostics service. Most people want the `wirewolf` crate, which installs the binary
+//! (`cargo install wirewolf`). This crate's API is internal and may change in any release.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;

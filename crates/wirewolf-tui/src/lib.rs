@@ -1,7 +1,15 @@
 //! Terminal UI client for wirewolf.
 //!
 //! The TUI talks to a wirewolf server over its HTTP API (`docs/api.md`): it loads state over
-//! REST, then follows the SSE event stream, reconnecting with backoff when it drops.
+//! REST, then follows the SSE event stream, reconnecting with backoff when it drops. [`run`]
+//! starts it; `wirewolf tui` calls it.
+//!
+//! [`Client`] is the API client, which `wirewolf check --url` also uses. [`report`] and
+//! [`format`](mod@format) render snapshots and incidents as plain text.
+//!
+//! This crate is part of [wirewolf](https://github.com/joshka/wirewolf), a self-hosted network
+//! diagnostics service. Most people want the `wirewolf` crate, which installs the binary
+//! (`cargo install wirewolf`). This crate's API is internal and may change in any release.
 
 mod app;
 pub mod client;

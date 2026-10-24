@@ -37,7 +37,7 @@ interface Ctx {
   set: (key: string, value: unknown) => void
 }
 
-// Layout (see docs/design-language.md, flat sections):
+// Layout (see docs/dev/design-language.md, flat sections):
 // - Each section is one full-width row: what it controls on the left, its fields on the right.
 //   Rows always fill the width, so sections line up and leave no holes.
 // - Every field is the same 56px row: label and hint left, control right, hairlines between.

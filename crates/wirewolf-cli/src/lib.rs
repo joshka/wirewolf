@@ -1,4 +1,12 @@
 //! Command line interface for wirewolf.
+//!
+//! [`run`] parses the command line and runs `serve`, `check`, `tui`, or `config`; the `wirewolf`
+//! binary is a thin wrapper around it. [`Cli`] is the clap definition, which the CLI reference in
+//! `docs/cli.md` is generated from. See that page, or `wirewolf --help`, for the commands.
+//!
+//! This crate is part of [wirewolf](https://github.com/joshka/wirewolf), a self-hosted network
+//! diagnostics service. Most people want the `wirewolf` crate, which installs the binary
+//! (`cargo install wirewolf`). This crate's API is internal and may change in any release.
 
 mod check;
 

@@ -52,7 +52,7 @@ back to 1.88 unless Topcoat wins.
 ## Assessment after converging (2026-10-24)
 
 This was measured on main after all three implemented a converged spec (`docs/ui-spec.md`, now replaced by `docs/ui.md`). HTMX and Topcoat had
-also applied `docs/design-language.md`; shadcn's design-language pass was still pending.
+also applied `docs/dev/design-language.md`; shadcn's design-language pass was still pending.
 "Own code" counts code lines only and excludes vendored and copied-in component code.
 
 | | shadcn | HTMX | Topcoat |

@@ -1,4 +1,7 @@
-# wirewolf v1 design (draft for review)
+# wirewolf v1 design (historical)
+
+> This is the design written before wirewolf was built, kept for its reasoning. The code and
+> the user docs (`README.md`, `docs/guide.md`, `docs/api.md`) describe how wirewolf works now.
 
 wirewolf is a network diagnostics service for your own network. Run it in a container on a
 home server, NAS, or laptop, open it in a browser, and it tells you what is wrong with the
@@ -127,4 +130,4 @@ is among the maintainer's preferred stacks.
   over time.
 - Publishing: `ghcr.io/joshka/wirewolf`. The crates are `wirewolf` (facade + binary),
   `wirewolf-core`, `-probe`, `-web`, `-tui`, `-cli`. The maintainer publishes them.
-- Work plan: see `docs/workstreams.md`.
+- Work plan: see `docs/dev/workstreams.md`.

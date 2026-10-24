@@ -1,5 +1,5 @@
-# Site raster images (shipped with the UI) live in Git LFS. Screenshots don't belong in the
-# repo at all; see AGENTS.md.
+# Raster images (site images the UI ships, and doc screenshots in docs/images/) live in Git
+# LFS. Throwaway screenshots go in the ignored artifacts/; see AGENTS.md.
 *.png  filter=lfs diff=lfs merge=lfs -text
 *.jpg  filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text

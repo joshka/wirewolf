@@ -18,7 +18,7 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
-        // wirewolf status tones (docs/design-language.md): tinted, never solid.
+        // wirewolf status tones (docs/dev/design-language.md): tinted, never solid.
         pass: "h-auto rounded-none bg-transparent px-0! text-pass",
         warn: "h-auto rounded-none bg-transparent px-0! text-warn",
         fail: "h-auto rounded-none bg-transparent px-0! text-fail",
