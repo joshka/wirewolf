@@ -3,7 +3,7 @@ import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from
 import { Skeleton } from "@/components/ui/skeleton"
 import { RecentPanel } from "@/components/recent"
 import { SnapshotView } from "@/components/snapshot"
-import { RunSpeedButton, SpeedSummary, useSpeed } from "@/components/speed"
+import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
 import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { useLive } from "@/lib/live"
@@ -38,14 +38,18 @@ function SpeedCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Speed test</CardTitle>
+        <CardTitle>
+          <a href={href({ name: "speed" })} onClick={onLinkClick} className="hover:underline">
+            Speed test
+          </a>
+        </CardTitle>
         <CardAction>
           <RunSpeedButton running={!!running} />
         </CardAction>
       </CardHeader>
       <CardContent>
         {running || latest ? (
-          <SpeedSummary run={running ?? latest} running={!!running} />
+          <SpeedCompact run={running ?? latest} running={!!running} />
         ) : (
           <p className="py-4 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>
         )}

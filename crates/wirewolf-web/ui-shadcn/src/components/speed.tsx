@@ -125,3 +125,47 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
     </div>
   )
 }
+
+/**
+ * One row of numbers for the Now page: down, up, loaded latency, and grade. The Speed page has
+ * the full breakdown.
+ */
+export function SpeedCompact({ run, running }: { run: SpeedRun | null; running: boolean }) {
+  const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
+  const stats = [
+    { label: "Down", value: num(run?.down_mbps), unit: "Mbps" },
+    { label: "Up", value: num(run?.up_mbps), unit: "Mbps" },
+    { label: "Loaded", value: num(run?.loaded_latency_ms), unit: "ms" },
+  ]
+  return (
+    <div className="flex flex-col gap-3">
+      <dl className="grid grid-cols-4 gap-3">
+        {stats.map(({ label, value, unit }) => (
+          <div key={label} className="min-w-0">
+            <dt className="text-xs text-muted-foreground">{label}</dt>
+            <dd className="tabular-nums flex items-baseline gap-1">
+              <span className="text-xl font-semibold">{value}</span>
+              <span className="text-xs text-muted-foreground">{unit}</span>
+            </dd>
+          </div>
+        ))}
+        <div>
+          <dt className="text-xs text-muted-foreground">Bloat</dt>
+          <dd className="mt-1">
+            <BloatBadge grade={running ? null : (run?.bloat ?? null)} />
+          </dd>
+        </div>
+      </dl>
+      {running && run ? (
+        <SpeedProgress run={run} />
+      ) : (
+        run && (
+          <p className="text-xs text-muted-foreground">
+            {run.state === "failed" ? `Last test failed: ${run.error ?? "unknown error"} · ` : `${run.server ?? run.backend} · `}
+            <RelTime at={run.started} />
+          </p>
+        )
+      )}
+    </div>
+  )
+}
