@@ -2,7 +2,8 @@
 //
 // Layout: one toolbar row (tabs on the left, the tab's filters on the right, all h-8 controls),
 // then a full-width card. Activity is a table like Incidents. Server logs are a dense mono list
-// that scrolls inside the card and follows the tail until you scroll up.
+// that scrolls inside the card and follows the tail until you scroll up. A bar under it says
+// whether the stream is live, and offers a jump back to the newest line when scrolled up.
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "sonner"
@@ -134,7 +135,33 @@ function Subject({ a }: { a: Activity }) {
 
 const LEVELS: Record<string, string> = { error: "Errors", warn: "Warnings", info: "Info", debug: "Debug", trace: "All levels" }
 const RANK: Record<string, number> = { error: 0, warn: 1, info: 2, debug: 3, trace: 4 }
-const LEVEL_TONE: Record<string, string> = { error: "text-fail", warn: "text-warn", info: "text-foreground", debug: "text-muted-foreground", trace: "text-muted-foreground" }
+// The colors tracing-subscriber uses on a terminal: red, yellow, green, blue, purple.
+const LEVEL_TONE: Record<string, string> = {
+  error: "text-fail",
+  warn: "text-warn",
+  info: "text-pass",
+  debug: "text-blue-600 dark:text-blue-400",
+  trace: "text-purple-600 dark:text-purple-400",
+}
+
+/** Field names in italics with a dim `=`, as tracing-subscriber prints `key=value`. */
+function Message({ text }: { text: string }) {
+  const parts = text.split(/(?<=^|\s)([A-Za-z_][\w.]*)=/)
+  return (
+    <>
+      {parts.map((p, i) =>
+        i % 2 === 1 ? (
+          <span key={i}>
+            <i className="text-muted-foreground">{p}</i>
+            <span className="text-muted-foreground/60">=</span>
+          </span>
+        ) : (
+          p
+        ),
+      )}
+    </>
+  )
+}
 
 /** Lines kept in the browser; the server keeps its own ring. */
 const KEEP = 5000
@@ -149,27 +176,41 @@ function ServerLogs() {
   const [level, setLevel] = useState("trace")
   const [query, setQuery] = useState("")
 
+  const [stream, setStream] = useState<Stream>("connecting")
+
   useEffect(() => {
     if (blocked) return
     let source: EventSource | null = null
     let closed = false
+    const merge = (incoming: LogLine[]) =>
+      setLines((prev) => {
+        const list = prev ?? []
+        const last = list.length ? list[list.length - 1].seq : 0
+        const fresh = incoming.filter((l) => l.seq > last)
+        if (!fresh.length) return list
+        const next = [...list, ...fresh]
+        return next.length > KEEP ? next.slice(next.length - KEEP) : next
+      })
     api
       .logs()
       .then((page) => {
         if (closed || !page) return setLines((l) => l ?? [])
-        setLines(page.lines)
+        merge(page.lines)
         setFilter(page.filter)
         setDraft(page.filter)
+        let opened = false
         source = new EventSource(api.logEventsUrl)
+        source.onopen = () => {
+          setStream("live")
+          // After a reconnect, fetch what arrived while the stream was down.
+          if (opened) api.logs().then((p) => p && merge(p.lines)).catch(() => {})
+          opened = true
+        }
+        // EventSource reconnects on its own; this only reports it.
+        source.onerror = () => setStream(source?.readyState === EventSource.CLOSED ? "closed" : "reconnecting")
         source.addEventListener("log", (e) => {
           try {
-            const line = JSON.parse((e as MessageEvent).data) as LogLine
-            setLines((prev) => {
-              const list = prev ?? []
-              if (list.length && list[list.length - 1].seq >= line.seq) return list
-              const next = [...list, line]
-              return next.length > KEEP ? next.slice(next.length - KEEP) : next
-            })
+            merge([JSON.parse((e as MessageEvent).data) as LogLine])
           } catch {
             // ignore malformed lines
           }
@@ -242,29 +283,73 @@ function ServerLogs() {
           </span>
         </form>
         <CardContent className="px-0">
-          {lines === null ? <Skeleton className="m-4 h-64 rounded-lg" /> : <LogList lines={shown} total={lines.length} />}
+          {lines === null ? <Skeleton className="m-4 h-64 rounded-lg" /> : <LogList lines={shown} total={lines.length} stream={stream} />}
         </CardContent>
       </Card>
     </>
   )
 }
 
-function LogList({ lines, total }: { lines: LogLine[]; total: number }) {
+type Stream = "connecting" | "live" | "reconnecting" | "closed"
+
+/** Whether new lines are arriving, and whether the list is following them. */
+function StreamBar({ stream, following, behind, onJump }: { stream: Stream; following: boolean; behind: number; onJump: () => void }) {
+  const paused = stream === "live" && !following
+  const label = { connecting: "Connecting…", live: paused ? "Live · paused" : "Live", reconnecting: "Reconnecting…", closed: "Disconnected · reload the page" }[stream]
+  return (
+    <div className="flex h-10 items-center gap-3 border-t px-4 text-xs text-muted-foreground">
+      <span role="status" className="inline-flex items-center gap-1.5 font-medium">
+        <span
+          className={cn(
+            "size-1.5 rounded-full",
+            stream === "live" ? (paused ? "bg-muted-foreground" : "animate-pulse bg-pass") : stream === "closed" ? "bg-fail" : "bg-warn",
+          )}
+        />
+        <span className={cn(stream === "live" && !paused && "text-foreground", stream === "reconnecting" && "text-warn", stream === "closed" && "text-fail")}>{label}</span>
+      </span>
+      <span className="hidden sm:inline">{paused ? "Scrolled up, so the list holds still. New lines keep arriving below." : "New lines appear at the bottom as the server logs them."}</span>
+      {paused && (
+        <Button size="sm" variant="outline" className="ml-auto h-7" onClick={onJump}>
+          Jump to latest{behind > 0 ? ` (${behind} new)` : ""}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function LogList({ lines, total, stream }: { lines: LogLine[]; total: number; stream: Stream }) {
   const box = useRef<HTMLDivElement>(null)
-  const follow = useRef(true)
+  const [following, setFollowing] = useState(true)
+  // The newest line seen while following, to count what arrived since.
+  const [seenSeq, setSeenSeq] = useState(0)
+  const newest = lines.length ? lines[lines.length - 1].seq : 0
   useEffect(() => {
     const el = box.current
-    if (el && follow.current) el.scrollTop = el.scrollHeight
-  }, [lines])
+    if (el && following) el.scrollTop = el.scrollHeight
+    if (following) setSeenSeq(newest)
+  }, [lines, following, newest])
+  const behind = following ? 0 : lines.filter((l) => l.seq > seenSeq).length
+  const jump = () => {
+    setFollowing(true)
+    const el = box.current
+    if (el) el.scrollTop = el.scrollHeight
+  }
+  const bar = <StreamBar stream={stream} following={following} behind={behind} onJump={jump} />
   if (lines.length === 0) {
-    return <p className="py-16 text-center text-sm text-muted-foreground">{total ? "No lines match." : "No log lines yet."}</p>
+    return (
+      <>
+        <p className="py-16 text-center text-sm text-muted-foreground">{total ? "No lines match." : "No log lines yet."}</p>
+        {bar}
+      </>
+    )
   }
   return (
+    <>
     <div
       ref={box}
       onScroll={(e) => {
         const el = e.currentTarget
-        follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
+        setFollowing(el.scrollHeight - el.scrollTop - el.clientHeight < 24)
       }}
       className="h-[65vh] overflow-auto py-2 font-mono text-xs leading-5"
       role="log"
@@ -275,13 +360,17 @@ function LogList({ lines, total }: { lines: LogLine[]; total: number }) {
           <time dateTime={l.at} className="shrink-0 text-muted-foreground tabular-nums" title={l.at}>
             {new Date(l.at).toLocaleTimeString([], { hour12: false })}
           </time>
-          <span className={cn("w-10 shrink-0 uppercase", LEVEL_TONE[l.level])}>{l.level}</span>
-          <span className="hidden w-48 shrink-0 truncate text-muted-foreground lg:inline" title={l.target}>
+          <span className={cn("w-10 shrink-0 font-semibold uppercase", LEVEL_TONE[l.level])}>{l.level}</span>
+          <span className="hidden w-48 shrink-0 truncate text-muted-foreground/70 lg:inline" title={l.target}>
             {l.target}
           </span>
-          <span className="min-w-0 break-words whitespace-pre-wrap">{l.message}</span>
+          <span className={cn("min-w-0 break-words whitespace-pre-wrap", l.level === "error" && "text-fail", l.level === "warn" && "text-warn")}>
+            <Message text={l.message} />
+          </span>
         </div>
       ))}
     </div>
+    {bar}
+    </>
   )
 }
