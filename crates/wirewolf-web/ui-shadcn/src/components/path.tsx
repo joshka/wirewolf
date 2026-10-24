@@ -1,6 +1,7 @@
-import { AppWindow, AtSign, Building2, ChevronRight, Globe, Laptop, Router, type LucideIcon } from "lucide-react"
+import { useState } from "react"
+import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Router, Rows3, type LucideIcon } from "lucide-react"
 import { Area, AreaChart, XAxis, YAxis } from "recharts"
-import { Card } from "@/components/ui/card"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ChartContainer } from "@/components/ui/chart"
 import { cn } from "@/lib/utils"
 import type { Hop, HopKind, Sample, Severity, Status } from "@/lib/api"
@@ -37,12 +38,12 @@ export function IconTile({ icon: Icon }: { icon: LucideIcon }) {
 }
 
 /** RTT over the last 15 minutes, in the hop's colour. */
-function Sparkline({ hop, samples, now }: { hop: Hop; samples: Sample[]; now: number }) {
+function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample[]; now: number; className?: string }) {
   const data = samples.map((s) => ({ t: new Date(s.at).getTime(), rtt: s.rtt_ms }))
   return (
     <ChartContainer
       config={{ rtt: { label: hop.label, color: hopColor[hop.kind] } }}
-      className="hidden aspect-auto h-8 min-w-0 flex-1 sm:block"
+      className={cn("aspect-auto h-8 min-w-0", className)}
       aria-label={`${hop.label} round-trip time, last 15 minutes`}
     >
       <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }}>
@@ -54,9 +55,24 @@ function Sparkline({ hop, samples, now }: { hop: Hop; samples: Sample[]; now: nu
   )
 }
 
+type Layout = "rows" | "cards"
+const LAYOUT_KEY = "wirewolf.pathLayout"
+
+function useLayout(): [Layout, (l: Layout) => void] {
+  const [layout, setLayout] = useState<Layout>(() => (localStorage.getItem(LAYOUT_KEY) === "cards" ? "cards" : "rows"))
+  return [
+    layout,
+    (l) => {
+      localStorage.setItem(LAYOUT_KEY, l)
+      setLayout(l)
+    },
+  ]
+}
+
 /**
- * The path from this machine to the web: one row per hop with its target, a 15-minute RTT
- * sparkline (when samples are given), and its key metric. Rows open the hop drawer.
+ * The path from this machine to the web, as rows (one per hop, with a wide sparkline) or as six
+ * cards across (from `lg` up, with small sparklines). The choice is remembered per browser; phones
+ * always get rows. Each hop opens the drawer.
  */
 export function PathDiagram({
   hops,
@@ -73,13 +89,27 @@ export function PathDiagram({
   now?: number
   onSelect: (hop: Hop, opener: HTMLElement) => void
 }) {
+  const [layout, setLayout] = useLayout()
+  const cards = layout === "cards"
   return (
-    <Card className="py-2 sm:py-2">
-      <ol aria-label="Network path" className="flex flex-col divide-y">
-        {hops.map((hop) => {
+    <section aria-label="Network path" className="flex flex-col gap-2">
+      <div className="hidden items-center justify-between lg:flex">
+        <h2 className="text-sm font-medium text-muted-foreground">Path</h2>
+        <ToggleGroup variant="outline" size="sm" value={[layout]} onValueChange={(v) => v[0] && setLayout(v[0] as Layout)} aria-label="Path layout">
+          <ToggleGroupItem value="rows" aria-label="Rows">
+            <Rows3 aria-hidden />
+          </ToggleGroupItem>
+          <ToggleGroupItem value="cards" aria-label="Cards">
+            <Columns3 aria-hidden />
+          </ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+      <ol className={cn("grid gap-0 overflow-hidden rounded-xl border bg-card", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
+        {hops.map((hop, i) => {
           const blamed = hop.id === blame
+          const spark = samples && now != null && hop.kind !== "host"
           return (
-            <li key={hop.id}>
+            <li key={hop.id} className={cn("flex", i > 0 && "border-t", cards && "lg:border-t-0")}>
               <button
                 type="button"
                 data-hop={hop.id}
@@ -87,12 +117,17 @@ export function PathDiagram({
                 aria-label={`${hop.label}: ${statusLabel[hop.status]}. ${hop.summary}. Open details`}
                 className={cn(
                   "flex w-full items-center gap-3 px-4 py-2.5 text-left transition outline-none hover:bg-accent/50 focus-visible:ring-3 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
+                  cards && "lg:flex-col lg:items-stretch lg:gap-2 lg:rounded-xl lg:border lg:bg-card lg:p-4",
                   blamed && (severity === "down" ? "bg-fail/5" : "bg-warn/5"),
+                  blamed && cards && (severity === "down" ? "lg:border-fail" : "lg:border-warn"),
                   dimmed(hop.status) && "opacity-50",
                 )}
               >
-                <IconTile icon={hopIcon[hop.kind]} />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:w-56 sm:flex-none">
+                <div className={cn("flex items-start justify-between", !cards && "contents")}>
+                  <IconTile icon={hopIcon[hop.kind]} />
+                  {cards && <StatusIcon status={hop.status} className="hidden lg:block" />}
+                </div>
+                <div className={cn("flex min-w-0 flex-1 flex-col gap-0.5 sm:w-56 sm:flex-none", cards && "lg:w-auto")}>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium">
                     {hop.label}
                     {blamed && <CauseBadge severity={severity} />}
@@ -101,23 +136,28 @@ export function PathDiagram({
                     {hop.target ?? "—"}
                   </span>
                 </div>
-                {samples && now != null && hop.kind !== "host" ? <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} /> : <span className="hidden flex-1 sm:block" />}
+                {spark ? (
+                  <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 sm:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
+                ) : (
+                  <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
+                )}
                 <span
                   className={cn(
                     "max-w-[45%] shrink-0 truncate text-right text-sm font-medium tabular-nums sm:w-40 sm:max-w-none",
+                    cards && "lg:w-auto lg:text-left",
                     hop.status === "pass" ? "text-foreground" : dimmed(hop.status) ? "text-muted-foreground" : statusText[hop.status],
                   )}
                   title={hop.summary}
                 >
                   {keyMetric(hop)}
                 </span>
-                <StatusIcon status={hop.status} />
-                <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                <StatusIcon status={hop.status} className={cn(cards && "lg:hidden")} />
+                <ChevronRight aria-hidden className={cn("size-4 shrink-0 text-muted-foreground", cards && "lg:hidden")} />
               </button>
             </li>
           )
         })}
       </ol>
-    </Card>
+    </section>
   )
 }

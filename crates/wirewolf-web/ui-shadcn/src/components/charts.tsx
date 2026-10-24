@@ -133,7 +133,19 @@ const speedConfig: ChartConfig = {
 }
 
 /** Download and upload per completed speed test. Without `from`/`to` it spans the data. */
-export function SpeedChart({ runs, from, to, incidents = [] }: { runs: SpeedRun[]; from?: number; to?: number; incidents?: Incident[] }) {
+export function SpeedChart({
+  runs,
+  from,
+  to,
+  incidents = [],
+  className = "aspect-auto h-56 w-full",
+}: {
+  runs: SpeedRun[]
+  from?: number
+  to?: number
+  incidents?: Incident[]
+  className?: string
+}) {
   const data = runs
     .filter((r) => r.state === "complete")
     .map((r) => ({ t: new Date(r.started).getTime(), down: r.down_mbps, up: r.up_mbps }))
@@ -143,7 +155,7 @@ export function SpeedChart({ runs, from, to, incidents = [] }: { runs: SpeedRun[
   const lo = from ?? data[0].t
   const hi = to ?? data[data.length - 1].t
   return (
-    <ChartContainer config={speedConfig} className="aspect-auto h-56 w-full">
+    <ChartContainer config={speedConfig} className={className}>
       <LineChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
         <CartesianGrid vertical={false} />
         {timeAxis(from ?? "dataMin", to ?? "dataMax", hi - lo)}

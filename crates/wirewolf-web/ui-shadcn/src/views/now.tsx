@@ -2,6 +2,7 @@ import { ArrowRight, Siren } from "lucide-react"
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { SnapshotView } from "@/components/snapshot"
+import { SpeedChart } from "@/components/charts"
 import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
 import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
@@ -19,7 +20,7 @@ export function NowView() {
   return (
     <div className="flex flex-col gap-4">
       <SnapshotView snapshot={snapshot} since={open?.started} live samples={samples} now={now} />
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-2">
         <SpeedCard />
         <RecentIncidents />
       </div>
@@ -28,7 +29,8 @@ export function NowView() {
 }
 
 function SpeedCard() {
-  const { running, latest } = useSpeed()
+  const { runs, running, latest } = useSpeed()
+  const now = useNow(60_000)
   return (
     <Card>
       <CardHeader>
@@ -41,9 +43,12 @@ function SpeedCard() {
           <RunSpeedButton running={!!running} />
         </CardAction>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-1 flex-col gap-4">
         {running || latest ? (
-          <SpeedCompact run={running ?? latest} running={!!running} />
+          <>
+            <SpeedCompact run={running ?? latest} running={!!running} />
+            <SpeedChart runs={runs} from={now - 24 * 3600e3} to={now} className="aspect-auto min-h-28 w-full flex-1" />
+          </>
         ) : (
           <p className="py-4 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>
         )}

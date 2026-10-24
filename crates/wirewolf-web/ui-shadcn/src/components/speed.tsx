@@ -139,12 +139,12 @@ export function SpeedCompact({ run, running }: { run: SpeedRun | null; running: 
   ]
   return (
     <div className="flex flex-col gap-3">
-      <dl className="grid grid-cols-4 gap-3">
+      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         {stats.map(({ label, value, unit }) => (
           <div key={label} className="min-w-0">
             <dt className="text-xs text-muted-foreground">{label}</dt>
             <dd className="tabular-nums flex items-baseline gap-1">
-              <span className="text-xl font-semibold">{value}</span>
+              <span className="text-3xl font-semibold tracking-tight">{value}</span>
               <span className="text-xs text-muted-foreground">{unit}</span>
             </dd>
           </div>
