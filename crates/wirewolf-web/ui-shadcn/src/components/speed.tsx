@@ -66,10 +66,23 @@ export function RunSpeedButton({ running, primary }: { running: boolean; primary
   )
 }
 
+/**
+ * What a running test is measuring. The API reports only overall progress, but the phases fill
+ * in their numbers in order: latency, then download, then upload.
+ */
+export function speedPhase(run: SpeedRun): string {
+  if (run.up_mbps != null) return "Upload"
+  if (run.down_mbps != null) return "Download"
+  return "Latency"
+}
+
 export function SpeedProgress({ run }: { run: SpeedRun }) {
   const p = Math.round((run.progress ?? 0) * 100)
   return (
     <div className="flex items-center gap-3 text-sm">
+      <span className="w-20 text-muted-foreground" aria-live="polite">
+        {speedPhase(run)}
+      </span>
       <Progress value={p} aria-label="Speed test progress" className="flex-1" />
       <span className="w-10 text-right tabular-nums">{p}%</span>
     </div>
