@@ -1,0 +1,22 @@
+# docker compose up -d, then open http://<host>:7465
+services:
+  wirewolf:
+    image: ghcr.io/joshka/wirewolf:latest
+    build: .
+    restart: unless-stopped
+    # Host networking so the probes see the real LAN, router, and ISP path.
+    network_mode: host
+    volumes:
+      - wirewolf:/data
+    environment:
+      WIREWOLF_LISTEN: 0.0.0.0:7465
+      WIREWOLF_INTERVAL: 30s
+      # Every hour; 0 disables scheduled speed tests. Each run uses a few hundred MB on fiber.
+      WIREWOLF_SPEED_INTERVAL: 60m
+      # cloudflare (default) or ookla (needs the speedtest CLI in the image).
+      WIREWOLF_SPEED_BACKEND: cloudflare
+      WIREWOLF_RETENTION: 30d
+      # Shown in the UI; the container hostname is otherwise random.
+      WIREWOLF_HOSTNAME: wirewolf
+volumes:
+  wirewolf:

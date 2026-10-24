@@ -1,0 +1,5 @@
+target
+work
+**/node_modules
+*.db
+*.db-*
