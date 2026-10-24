@@ -1,11 +1,23 @@
 import { useRef, useState } from "react"
-import type { Hop, Snapshot } from "@/lib/api"
+import type { Hop, Sample, Snapshot } from "@/lib/api"
 import { HopSheet } from "./hop-sheet"
 import { PathDiagram } from "./path"
 import { VerdictBanner } from "./verdict"
 
 /** Verdict plus path, with the hop drawer. Shared by Now and the incident detail. */
-export function SnapshotView({ snapshot, since, live }: { snapshot: Snapshot; since?: string | null; live: boolean }) {
+export function SnapshotView({
+  snapshot,
+  since,
+  live,
+  samples,
+  now,
+}: {
+  snapshot: Snapshot
+  since?: string | null
+  live: boolean
+  samples?: Record<string, Sample[]>
+  now?: number
+}) {
   const [selected, setSelected] = useState<string | null>(null)
   const opener = useRef<HTMLElement | null>(null)
   // Look the hop up by id so the drawer shows fresh values as snapshots arrive.
@@ -17,6 +29,8 @@ export function SnapshotView({ snapshot, since, live }: { snapshot: Snapshot; si
         hops={snapshot.hops}
         blame={snapshot.verdict.blame}
         severity={snapshot.verdict.severity}
+        samples={samples}
+        now={now}
         onSelect={(h, el) => {
           opener.current = el
           setSelected(h.id)

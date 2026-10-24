@@ -1,7 +1,6 @@
 import { ArrowRight, Siren } from "lucide-react"
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { RecentPanel } from "@/components/recent"
 import { SnapshotView } from "@/components/snapshot"
 import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
 import { SeverityPill } from "@/components/status"
@@ -19,15 +18,10 @@ export function NowView() {
   const open = incidents.find((i) => i.id === snapshot.open_incident)
   return (
     <div className="flex flex-col gap-4">
-      <SnapshotView snapshot={snapshot} since={open?.started} live />
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="min-w-0 lg:col-span-3">
-          <RecentPanel hops={snapshot.hops} samples={samples} now={now} />
-        </div>
-        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
-          <SpeedCard />
-          <RecentIncidents />
-        </div>
+      <SnapshotView snapshot={snapshot} since={open?.started} live samples={samples} now={now} />
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <SpeedCard />
+        <RecentIncidents />
       </div>
     </div>
   )
@@ -110,11 +104,7 @@ function NowSkeleton() {
   return (
     <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading">
       <Skeleton className="h-36 w-full rounded-xl" />
-      <div className="grid gap-2 lg:grid-cols-6">
-        {Array.from({ length: 6 }, (_, i) => (
-          <Skeleton key={i} className="h-16 rounded-xl lg:h-32" />
-        ))}
-      </div>
+      <Skeleton className="h-80 w-full rounded-xl" />
     </div>
   )
 }
