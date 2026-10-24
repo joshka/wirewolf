@@ -8,6 +8,26 @@ every variant follows them exactly.
 Compare variants with `docs/compare/shots.cjs`. It takes identical screenshots of every
 variant against one demo server.
 
+## Implementation rule: shadcn defaults first
+
+wirewolf ships the shadcn variant. Express these rules in the framework's own terms, and only
+deviate where a default is clearly worse:
+
+- **Type and spacing use the Tailwind scale.** Snap to the nearest step: 11→`text-xs`,
+  13→`text-sm`, 15→`text-base` or `text-sm font-semibold`, 30→`text-3xl`, 40→`text-4xl`.
+  Fixed pixel sizes (`min-h-[132px]`, `max-w-[720px]`) become scale steps or are dropped. The
+  pixel values below are intent, not requirements.
+- **Accent is `--primary`.** Set `--primary`, `--ring`, and `--sidebar-primary` to violet.
+  Don't add a parallel `--brand` token. The default `Button` is then the primary button.
+- **Keep shadcn's neutral theme** (its oklch values). Don't override it with hex values that
+  are nearly identical.
+- **Status colors and the hop palette are extra theme tokens** (`--pass`/`--warn`/`--fail`,
+  `--chart-*` / `--hop-*`). That's how shadcn expects them to be added.
+- **Variants go in the copied component.** Badge tones (pass, warn, fail, muted, cause) are
+  `cva` variants in `components/ui/badge.tsx`, not a separate hand-rolled badge. The same goes
+  for card and table density: edit the component once, and don't override `className`
+  everywhere it's used.
+
 ## Principles
 
 1. **Calm by default, loud only when something's wrong.** A healthy page should be almost
