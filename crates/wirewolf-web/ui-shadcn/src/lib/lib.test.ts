@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Incident, Sample } from "./api"
-import { bucket } from "./bucket"
+import { bucket, sparkSeries } from "./bucket"
 import { duration, mbps, ms, pct, relative } from "./format"
 import { reportText } from "./report"
 import { href, parse } from "./router"
@@ -99,5 +99,25 @@ describe("reportText", () => {
     expect(text).toContain("Likely at: ISP")
     expect(text).toContain("[FAIL] ISP        100.64.0.1")
     expect(text).toContain("- First ISP hop: timed out")
+  })
+})
+
+describe("sparkSeries", () => {
+  it("breaks the line at a gap of more than 3× the usual interval", () => {
+    const s = [0, 1, 2, 3, 9, 10].map((m) => sample(m, "gateway", 2))
+    const { data, gaps } = sparkSeries(s)
+    expect(gaps).toEqual([[new Date(at(3)).getTime(), new Date(at(9)).getTime()]])
+    expect(data.filter((p) => p.rtt == null)).toHaveLength(1)
+  })
+
+  it("doesn't treat a change from coarse history to fine live samples as a gap", () => {
+    const s = [0, 5, 10, 15, 16, 17, 18].map((m) => sample(m, "gateway", 2))
+    expect(sparkSeries(s).gaps).toEqual([])
+  })
+
+  it("leaves an evenly spaced series alone", () => {
+    const { data, gaps } = sparkSeries([0, 1, 2].map((m) => sample(m, "gateway", 2)))
+    expect(gaps).toEqual([])
+    expect(data).toHaveLength(3)
   })
 })

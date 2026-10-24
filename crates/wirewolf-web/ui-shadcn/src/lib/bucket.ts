@@ -24,3 +24,27 @@ export function bucket(samples: Sample[], from: number, to: number, points = 300
       return p
     })
 }
+
+/**
+ * Splits samples at gaps (probes paused for a speed test, or the server down) so the line breaks
+ * there instead of drawing a straight segment across. A gap is a step over 3× the steps either
+ * side of it. Comparing with neighbours rather than one global interval matters because history
+ * can be coarser than live samples.
+ */
+export function sparkSeries(samples: Sample[]): { data: { t: number; rtt: number | null }[]; gaps: [number, number][] } {
+  const pts = samples.map((s) => ({ t: new Date(s.at).getTime(), rtt: s.rtt_ms }))
+  const step = (i: number) => (i >= 1 && i < pts.length ? pts[i].t - pts[i - 1].t : undefined)
+  const data: typeof pts = []
+  const gaps: [number, number][] = []
+  pts.forEach((p, i) => {
+    const around = [step(i - 1), step(i + 1)].filter((x): x is number => x != null)
+    const dt = step(i)
+    if (dt != null && around.length > 0 && dt > 3 * Math.max(...around)) {
+      const prev = pts[i - 1]
+      gaps.push([prev.t, p.t])
+      data.push({ t: prev.t + 1, rtt: null })
+    }
+    data.push(p)
+  })
+  return { data, gaps }
+}
