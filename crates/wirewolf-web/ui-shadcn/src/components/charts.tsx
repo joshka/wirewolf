@@ -150,16 +150,21 @@ export function SpeedChart({
   if (data.length === 0) return <p className="py-10 text-center text-sm text-muted-foreground">No completed speed tests in this range.</p>
   const lo = from ?? data[0].t
   const hi = to ?? data[data.length - 1].t
+  // Three round ticks, the same on every speed chart, so small and large charts read alike.
+  const peak = Math.max(...data.flatMap((p) => [p.down ?? 0, p.up ?? 0]))
+  const step = peak > 2000 ? 1000 : peak > 400 ? 250 : peak > 80 ? 50 : 10
+  const top = Math.max(step, Math.ceil(peak / step / 2) * step * 2)
   return (
     <ChartContainer config={speedConfig} className={className}>
-      <LineChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
+      <LineChart data={data} margin={{ left: 4, right: 12, top: 12 }} accessibilityLayer>
         <CartesianGrid vertical={false} />
         {timeAxis(from ?? "dataMin", to ?? "dataMax", hi - lo)}
-        <YAxis width={56} tickLine={false} axisLine={false} domain={[0, "auto"]} />
+        <YAxis width={84} tickLine={false} axisLine={false} domain={[0, top]} ticks={[0, top / 2, top]} interval={0} tickFormatter={(v: number) => `${v} Mbps`} />
         {incidentBands(incidents, lo, hi)}
         {tooltip(speedConfig)}
+        {/* Tests are separate measurements, so straight segments: a curve invents values between them. */}
         {(["down", "up"] as const).map((k) => (
-          <Line key={k} dataKey={k} type="monotone" stroke={`var(--color-${k})`} strokeWidth={2} dot={{ r: 2.5, fill: `var(--color-${k})`, strokeWidth: 0 }} isAnimationActive={false} />
+          <Line key={k} dataKey={k} type="linear" stroke={`var(--color-${k})`} strokeWidth={2} dot={{ r: 2.5, fill: `var(--color-${k})`, strokeWidth: 0 }} isAnimationActive={false} />
         ))}
         <ChartLegend content={<ChartLegendContent />} />
       </LineChart>
