@@ -21,6 +21,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { hopIcon } from "@/components/path"
 import { StatusIcon } from "@/components/status"
+import { statusLabel } from "@/lib/format"
 import { AccountControl, LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/components/chrome"
 import { loadSession, signIn, useSession } from "@/lib/session"
 import { Button } from "@/components/ui/button"
@@ -55,6 +56,12 @@ export default function App() {
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
       <TooltipProvider delay={300}>
         <SidebarProvider>
+          <a
+            href="#main"
+            className="sr-only z-50 rounded-md bg-background text-sm font-medium focus:not-sr-only focus:fixed focus:px-3 focus:py-2 focus:top-2 focus:left-2 focus:ring-2 focus:ring-ring"
+          >
+            Skip to content
+          </a>
           <AppSidebar />
           <Main />
         </SidebarProvider>
@@ -105,53 +112,62 @@ function AppSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            {NAV.map((n) => (
-              <SidebarMenuItem key={n.label}>
-                <SidebarMenuButton
-                  isActive={isActive(n.route, route)}
-                  tooltip={n.label}
-                  render={<a href={href(n.route)} onClick={go} aria-current={isActive(n.route, route) ? "page" : undefined} />}
-                >
-                  <n.icon aria-hidden />
-                  <span>{n.label}</span>
-                  {n.route.name === "incidents" && open > 0 && (
-                    <Badge variant="count" className="ml-auto" aria-label={`${open} open`}>
-                      {open}
-                    </Badge>
-                  )}
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-        {[["Path", hops], ["Targets", targets]].map(([label, list]) =>
-          list && list.length > 0 ? (
-            <SidebarGroup key={label as string}>
-              <SidebarGroupLabel>{label as string}</SidebarGroupLabel>
-              <SidebarMenu>
-                {(list as Hop[]).map((h) => {
-                  const active = route.name === "hop" && !route.incident && route.id === h.id
-                  const Icon = hopIcon[h.kind]
-                  return (
-                    <SidebarMenuItem key={h.id}>
-                      <SidebarMenuButton
-                        isActive={active}
-                        tooltip={h.label}
-                        render={<a href={href({ name: "hop", id: h.id })} onClick={go} aria-current={active ? "page" : undefined} />}
-                      >
-                        <Icon aria-hidden />
-                        <span>{h.label}</span>
-                        <StatusIcon status={h.status} className="ml-auto group-data-[collapsible=icon]:hidden" />
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  )
-                })}
-              </SidebarMenu>
-            </SidebarGroup>
-          ) : null,
-        )}
+        <nav aria-label="Primary" className="contents">
+          <SidebarGroup>
+            <SidebarMenu>
+              {NAV.map((n) => (
+                <SidebarMenuItem key={n.label}>
+                  <SidebarMenuButton
+                    isActive={isActive(n.route, route)}
+                    tooltip={n.label}
+                    render={<a href={href(n.route)} onClick={go} aria-current={isActive(n.route, route) ? "page" : undefined} />}
+                  >
+                    <n.icon aria-hidden />
+                    <span>{n.label}</span>
+                    {n.route.name === "incidents" && open > 0 && (
+                      <Badge variant="count" className="ml-auto" aria-label={`${open} open`}>
+                        {open}
+                      </Badge>
+                    )}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+          {[["Path", hops], ["Targets", targets]].map(([label, list]) =>
+            list && list.length > 0 ? (
+              <SidebarGroup key={label as string}>
+                <SidebarGroupLabel>{label as string}</SidebarGroupLabel>
+                <SidebarMenu>
+                  {(list as Hop[]).map((h) => {
+                    const active = route.name === "hop" && !route.incident && route.id === h.id
+                    const Icon = hopIcon[h.kind]
+                    return (
+                      <SidebarMenuItem key={h.id}>
+                        <SidebarMenuButton
+                          isActive={active}
+                          tooltip={h.label}
+                          render={
+                            <a
+                              href={href({ name: "hop", id: h.id })}
+                              onClick={go}
+                              aria-current={active ? "page" : undefined}
+                              aria-label={`${h.label}: ${statusLabel[h.status]}`}
+                            />
+                          }
+                        >
+                          <Icon aria-hidden />
+                          <span>{h.label}</span>
+                          <StatusIcon status={h.status} className="ml-auto group-data-[collapsible=icon]:hidden" />
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    )
+                  })}
+                </SidebarMenu>
+              </SidebarGroup>
+            ) : null,
+          )}
+        </nav>
       </SidebarContent>
       <SidebarFooter className="items-start gap-2 px-4 pb-4 group-data-[collapsible=icon]:hidden">
         <ScenarioSwitcher />
@@ -186,7 +202,7 @@ function Main() {
           <LiveIndicator />
         </div>
       </header>
-      <main id="main" className="mx-auto w-full max-w-7xl flex-1 p-4 sm:p-6">
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 p-4 outline-none sm:p-6">
         {locked ? (
           <div className="mx-auto mt-24 max-w-sm space-y-3 text-center">
             <h1 className="text-xl font-semibold">Sign in to see this network</h1>

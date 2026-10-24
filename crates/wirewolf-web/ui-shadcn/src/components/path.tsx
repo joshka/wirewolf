@@ -61,7 +61,7 @@ function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample
       className={cn("aspect-auto h-8 min-w-0", className)}
       aria-label={`${hop.label} round-trip time, last 15 minutes`}
     >
-      <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }}>
+      <AreaChart data={data} margin={{ top: 2, bottom: 0, left: 0, right: 0 }} accessibilityLayer={false}>
         <XAxis dataKey="t" type="number" domain={[now - SPARK_WINDOW_MS, now]} hide />
         <YAxis domain={[0, "auto"]} hide />
         {gaps.map(([x1, x2]) => (
