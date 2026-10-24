@@ -120,7 +120,8 @@ struct LiveArgs {
     retention: Option<String>,
 }
 
-/// Loads the config: defaults, then the file, then env vars and flags.
+/// Loads the config: defaults, then the file, then `WIREWOLF_*` env vars, then the older short
+/// env names and flags.
 ///
 /// `sub` is the subcommand's matches, which say whether each value came from the environment or
 /// a flag.
@@ -135,16 +136,17 @@ fn load_config_for_edit(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[
         Some(p) => (p.clone(), from_flag),
         None => (PathBuf::from("wirewolf.toml"), false),
     };
-    let overrides: Vec<Override> = overrides
-        .iter()
-        .filter_map(|(key, id, value)| {
-            let source = match sub.and_then(|m| m.value_source(id)) {
-                Some(ValueSource::CommandLine) => Source::Flag,
-                _ => Source::Env,
-            };
-            value.clone().map(|value| Override { key, value, source })
-        })
-        .collect();
+    // `WIREWOLF_<SECTION>_<KEY>` for every setting, then the older short names and flags, which
+    // win.
+    let mut all = config::env_overrides(std::env::vars());
+    all.extend(overrides.iter().filter_map(|(key, id, value)| {
+        let (source, name) = match sub.and_then(|m| m.value_source(id)) {
+            Some(ValueSource::CommandLine) => (Source::Flag, format!("--{}", id.replace('_', "-"))),
+            _ => (Source::Env, format!("WIREWOLF_{}", id.to_ascii_uppercase())),
+        };
+        value.clone().map(|value| Override { key: key.to_string(), value, source, name })
+    }));
+    let overrides = all;
     let loaded = config::load(Some(&path), required, &overrides).map_err(anyhow::Error::msg)?;
     wirewolf_probe::validate(&loaded.config)?;
     Ok((loaded, path, overrides))
@@ -189,7 +191,8 @@ pub fn run() -> anyhow::Result<()> {
             let loaded = load_config(config, sub, &[])?;
             match &loaded.path {
                 Some(p) => println!("# from {} (non-default: {})", p.display(), loaded.sources.keys().cloned().collect::<Vec<_>>().join(", ")),
-                None => println!("# no config file; all defaults"),
+                None if loaded.sources.is_empty() => println!("# no config file; all defaults"),
+                None => println!("# no config file (non-default: {})", loaded.sources.keys().cloned().collect::<Vec<_>>().join(", ")),
             }
             print!("{}", toml::to_string(&loaded.config.redacted())?);
             return Ok(());

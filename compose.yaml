@@ -16,8 +16,9 @@ services:
       - wirewolf:/data
     # Settings live in /data/wirewolf.toml (in the volume). Start one with:
     #   docker compose run --rm wirewolf config default > wirewolf.toml
-    # Environment variables override the file, e.g. WIREWOLF_INTERVAL: 30s or
-    # WIREWOLF_SPEED_INTERVAL: "0" to turn off scheduled speed tests.
+    # Or set any key as WIREWOLF_<SECTION>_<KEY>, which overrides the file, e.g.
+    # WIREWOLF_PROBE_INTERVAL: 30s or WIREWOLF_SPEED_INTERVAL: "0" to turn off scheduled speed
+    # tests. docs/deploy.md has an OIDC example configured entirely here.
     environment:
       # Shown in the UI; the container hostname is otherwise random.
       WIREWOLF_HOSTNAME: wirewolf

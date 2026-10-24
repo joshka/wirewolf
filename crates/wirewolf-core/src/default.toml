@@ -1,9 +1,14 @@
 # wirewolf configuration
 #
 # Every key is optional: anything you leave out keeps the default shown here, so a config can
-# be as short as one [[targets]] entry. Environment variables and command line flags (see
-# `wirewolf serve --help`) override this file. The Settings page shows where each value came
-# from.
+# be as short as one [[targets]] entry. The Settings page shows where each value came from.
+#
+# Every key can also be set with an environment variable named WIREWOLF_<SECTION>_<KEY>, which
+# overrides this file: WIREWOLF_AUTH_ISSUER, WIREWOLF_PROBE_INTERVAL,
+# WIREWOLF_AUTH_TRUSTED_HEADER_USER. Lists are comma-separated (WIREWOLF_AUTH_ALLOWED_GROUPS=a,b)
+# or a TOML array; lists of tables such as [[targets]] take the TOML form. Settings from the
+# environment can't be changed on the Settings page. The short names below (WIREWOLF_LISTEN …)
+# and command line flags (`wirewolf serve --help`) still work and win over both.
 #
 # Durations are written like "30s", "5m", "1h", or "30d".
 

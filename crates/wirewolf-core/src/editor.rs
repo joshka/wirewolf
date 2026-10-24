@@ -476,10 +476,25 @@ mod tests {
     }
 
     #[test]
+    fn env_set_lists_are_locked() {
+        let dir = TmpDir::new("env-locked");
+        let path = dir.file();
+        let o = config::env_overrides([("WIREWOLF_SERVER_ALLOWED_HOSTS".to_string(), "wirewolf.example.com".to_string())]);
+        let ed = Editor::new(path.clone(), o.clone(), no_extra, false);
+        let loaded = config::load(Some(&path), false, &o).unwrap();
+        assert_eq!(loaded.sources.get("server.allowed_hosts"), Some(&Source::Env));
+        let mut c = loaded.config;
+        c.server.allowed_hosts.push("other.example.com".into());
+        let errors = ed.apply(c).unwrap_err();
+        assert!(errors.iter().any(|e| e.key == "server.allowed_hosts" && e.message.contains("environment")), "{errors:?}");
+        assert!(!path.exists(), "nothing written");
+    }
+
+    #[test]
     fn rejects_invalid_and_locked_values() {
         let dir = TmpDir::new("invalid");
         let path = dir.file();
-        let o = vec![Override { key: "speed.backend", value: "ookla".into(), source: Source::Env }];
+        let o = vec![Override { key: "speed.backend".into(), value: "ookla".into(), source: Source::Env, name: "WIREWOLF_SPEED_BACKEND".into() }];
         let ed = Editor::new(path.clone(), o, |_| vec![FieldError::new("targets.0.check", "bad")], false);
         let mut c = config::load(Some(&path), false, &[]).unwrap().config;
         c.probe.interval = Dur::secs(1);
@@ -497,7 +512,7 @@ mod tests {
     fn env_values_are_not_written() {
         let dir = TmpDir::new("env");
         let path = dir.file();
-        let o = vec![Override { key: "probe.interval", value: "15s".into(), source: Source::Env }];
+        let o = vec![Override { key: "probe.interval".into(), value: "15s".into(), source: Source::Env, name: "WIREWOLF_PROBE_INTERVAL".into() }];
         let ed = Editor::new(path.clone(), o.clone(), no_extra, false);
         let mut c = config::load(Some(&path), false, &o).unwrap().config;
         c.incidents.open_after = 5;

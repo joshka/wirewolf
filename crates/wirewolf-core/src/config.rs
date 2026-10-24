@@ -504,9 +504,81 @@ impl Loaded {
 /// One override from the environment or a flag, for example `("probe.interval", "10s")`.
 #[derive(Debug, Clone)]
 pub struct Override {
-    pub key: &'static str,
+    /// Dotted path, for example `probe.interval`.
+    pub key: String,
     pub value: String,
     pub source: Source,
+    /// The variable or flag it came from, for errors: `WIREWOLF_PROBE_INTERVAL`, `--interval`.
+    pub name: String,
+}
+
+/// The environment variable for a setting: `auth.trusted_header.user` is
+/// `WIREWOLF_AUTH_TRUSTED_HEADER_USER`.
+pub fn env_name(key: &str) -> String {
+    format!("WIREWOLF_{}", key.replace('.', "_").to_ascii_uppercase())
+}
+
+/// Every setting that can be set on its own, as dotted paths. Lists (including lists of tables
+/// such as `targets`) are one setting each.
+pub fn keys() -> Vec<String> {
+    fn walk(value: &Value, path: &mut String, out: &mut Vec<String>) {
+        match value {
+            Value::Object(map) => {
+                for (k, v) in map {
+                    let len = path.len();
+                    if !path.is_empty() {
+                        path.push('.');
+                    }
+                    path.push_str(k);
+                    walk(v, path, out);
+                    path.truncate(len);
+                }
+            }
+            _ => out.push(path.clone()),
+        }
+    }
+    let mut out = vec![];
+    walk(&serde_json::to_value(Config::default()).expect("config serializes"), &mut String::new(), &mut out);
+    out
+}
+
+/// Overrides from `WIREWOLF_<SECTION>_<KEY>` variables, for example `WIREWOLF_AUTH_ISSUER` or
+/// `WIREWOLF_SERVER_ALLOWED_HOSTS`. Variables that aren't settings (`WIREWOLF_CONFIG`, …) are
+/// ignored.
+pub fn env_overrides(vars: impl IntoIterator<Item = (String, String)>) -> Vec<Override> {
+    let by_name: BTreeMap<String, String> = keys().into_iter().map(|k| (env_name(&k), k)).collect();
+    let mut out: Vec<Override> = vars
+        .into_iter()
+        .filter_map(|(name, value)| by_name.get(&name).map(|key| Override { key: key.clone(), value, source: Source::Env, name }))
+        .collect();
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
+}
+
+/// Lists of tables, which only take the TOML array form.
+const TABLE_LISTS: &[&str] = &["targets", "internet.targets", "dns.resolvers", "dns.queries"];
+
+/// Turns an override's text into a value shaped like `slot`: lists are comma-separated or a TOML
+/// array, booleans are true/false (or 1/0, yes/no, on/off).
+fn override_value(slot: &Value, o: &Override) -> Result<Value, String> {
+    let text = o.value.trim();
+    let bad = |what: &str| format!("{}={:?}: {what}", o.name, o.value);
+    let toml_literal = |text: &str| -> Result<Value, String> {
+        let table: toml::Table = toml::from_str(&format!("v = {text}")).map_err(|e| bad(&format!("not a TOML value: {}", e.message())))?;
+        serde_json::to_value(&table["v"]).map_err(|e| bad(&e.to_string()))
+    };
+    Ok(match slot {
+        Value::Array(_) if text.starts_with('[') => toml_literal(text)?,
+        Value::Array(_) if TABLE_LISTS.contains(&o.key.as_str()) => return Err(bad("write this list as a TOML array, for example [{ name = \"NAS\", check = \"tcp://nas.lan:445\" }]")),
+        Value::Array(_) => Value::Array(text.split(',').map(str::trim).filter(|x| !x.is_empty()).map(|x| Value::String(x.into())).collect()),
+        Value::Number(_) => toml_literal(text).ok().filter(Value::is_number).ok_or_else(|| bad("not a number"))?,
+        Value::Bool(_) => match text.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => Value::Bool(true),
+            "0" | "false" | "no" | "off" => Value::Bool(false),
+            _ => return Err(bad("expected true or false")),
+        },
+        _ => Value::String(o.value.clone()),
+    })
 }
 
 /// Merges defaults, the file at `path` (if it exists), and `overrides`, in that order.
@@ -532,12 +604,12 @@ pub fn load(path: Option<&Path>, required: bool, overrides: &[Override]) -> Resu
         for part in o.key.split('.') {
             slot = slot.get_mut(part).unwrap_or_else(|| panic!("override for unknown key {}", o.key));
         }
-        *slot = match slot {
-            Value::Number(_) => o.value.parse::<serde_json::Number>().map(Value::Number).map_err(|_| format!("{}: not a number: {:?}", o.key, o.value))?,
-            Value::Bool(_) => Value::Bool(matches!(o.value.as_str(), "1" | "true" | "yes" | "on")),
-            _ => Value::String(o.value.clone()),
-        };
-        sources.insert(o.key.to_string(), o.source);
+        *slot = override_value(slot, o)?;
+        // Check each one as it lands, so a bad value is blamed on the variable that set it.
+        if let Err(e) = serde_json::from_value::<Config>(merged.clone()) {
+            return Err(format!("{}={:?}: {e}", o.name, o.value));
+        }
+        sources.insert(o.key.clone(), o.source);
     }
     let config: Config = serde_json::from_value(merged).map_err(|e| format!("invalid config: {e}"))?;
     // Values set to their default still count as set: the user wrote them down.
@@ -607,7 +679,7 @@ critical = true
 "#,
         )
         .unwrap();
-        let o = [Override { key: "probe.interval", value: "15s".into(), source: Source::Env }];
+        let o = [Override { key: "probe.interval".into(), value: "15s".into(), source: Source::Env, name: "WIREWOLF_INTERVAL".into() }];
         let loaded = load(Some(&path), true, &o).unwrap();
         assert_eq!(loaded.config.probe.interval, Dur::secs(15));
         assert_eq!(loaded.config.thresholds.gateway.rtt_warn_ms, 50.0);
@@ -651,5 +723,79 @@ critical = true
         let mut c = Config::default();
         c.auth.client_secret = "s3cret".into();
         assert_eq!(c.redacted().auth.client_secret, "***");
+    }
+
+    fn env(vars: &[(&str, &str)]) -> Vec<Override> {
+        env_overrides(vars.iter().map(|(k, v)| (k.to_string(), v.to_string())))
+    }
+
+    #[test]
+    fn every_key_has_its_own_variable() {
+        let keys = keys();
+        let names: std::collections::BTreeSet<String> = keys.iter().map(|k| env_name(k)).collect();
+        assert_eq!(names.len(), keys.len(), "two settings share a variable name");
+        for k in ["auth.issuer", "auth.trusted_header.user", "server.allowed_hosts", "thresholds.gateway.rtt_warn_ms", "targets"] {
+            assert!(keys.iter().any(|x| x == k), "{k}");
+        }
+        for k in TABLE_LISTS {
+            assert!(keys.iter().any(|x| x == k), "{k}");
+        }
+        assert_eq!(env_name("auth.trusted_header.proxies"), "WIREWOLF_AUTH_TRUSTED_HEADER_PROXIES");
+    }
+
+    #[test]
+    fn env_beats_file_beats_default() {
+        let dir = std::env::temp_dir().join(format!("wirewolf-config-env-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wirewolf.toml");
+        std::fs::write(&path, "[auth]\nissuer = \"https://file.example\"\nclient_id = \"from-file\"\n").unwrap();
+        let o = env(&[("WIREWOLF_AUTH_ISSUER", "https://id.example.com"), ("WIREWOLF_CONFIG", "/ignored"), ("PATH", "/bin")]);
+        assert_eq!(o.len(), 1);
+        let loaded = load(Some(&path), true, &o).unwrap();
+        assert_eq!(loaded.config.auth.issuer, "https://id.example.com");
+        assert_eq!(loaded.config.auth.client_id, "from-file");
+        assert_eq!(loaded.config.auth.scopes, Config::default().auth.scopes);
+        assert_eq!(loaded.sources.get("auth.issuer"), Some(&Source::Env));
+        assert_eq!(loaded.sources.get("auth.client_id"), Some(&Source::File));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn env_values_parse_like_the_file() {
+        let o = env(&[
+            ("WIREWOLF_SERVER_ALLOWED_HOSTS", "wirewolf.home.example.com, *.lan"),
+            ("WIREWOLF_AUTH_ALLOWED_GROUPS", "[\"wirewolf-admins\", \"ops\"]"),
+            ("WIREWOLF_AUTH_SCOPES", ""),
+            ("WIREWOLF_AUTH_REQUIRE_FOR_READS", "yes"),
+            ("WIREWOLF_PROBE_INTERVAL", "45s"),
+            ("WIREWOLF_INCIDENTS_OPEN_AFTER", "3"),
+            ("WIREWOLF_THRESHOLDS_GATEWAY_RTT_WARN_MS", "12.5"),
+            ("WIREWOLF_TARGETS", "[{ name = \"NAS\", check = \"tcp://nas.lan:445\", critical = true }]"),
+        ]);
+        let c = load(None, false, &o).unwrap().config;
+        assert_eq!(c.server.allowed_hosts, ["wirewolf.home.example.com", "*.lan"]);
+        assert_eq!(c.auth.allowed_groups, ["wirewolf-admins", "ops"]);
+        assert!(c.auth.scopes.is_empty());
+        assert!(c.auth.require_for_reads);
+        assert_eq!(c.probe.interval, Dur::secs(45));
+        assert_eq!(c.incidents.open_after, 3);
+        assert_eq!(c.thresholds.gateway.rtt_warn_ms, 12.5);
+        assert_eq!(c.targets[0].name, "NAS");
+        assert!(c.targets[0].critical && c.targets[0].verify_tls);
+    }
+
+    #[test]
+    fn bad_env_values_name_the_variable() {
+        for (name, value, needle) in [
+            ("WIREWOLF_PROBE_INTERVAL", "soon", "invalid duration"),
+            ("WIREWOLF_AUTH_REQUIRE_FOR_READS", "maybe", "expected true or false"),
+            ("WIREWOLF_INCIDENTS_OPEN_AFTER", "two", "not a number"),
+            ("WIREWOLF_PROBE_IPV6", "sometimes", "unknown variant"),
+            ("WIREWOLF_TARGETS", "nas", "TOML array"),
+            ("WIREWOLF_DNS_RESOLVERS", "[{ name = \"x\" }]", "address"),
+        ] {
+            let err = load(None, false, &env(&[(name, value)])).unwrap_err();
+            assert!(err.starts_with(name) && err.contains(needle), "{name}: {err}");
+        }
     }
 }

@@ -18,6 +18,62 @@ of measured.
 on every interface the host has (`server.listen = "0.0.0.0:7465"`). On a shared or guest
 network, set `auth.require_for_reads` or listen on one address.
 
+## Configuring with environment variables
+
+Every key in `wirewolf.toml` can also be set as `WIREWOLF_<SECTION>_<KEY>`, so a deployment can
+live entirely in `compose.yaml` and the image stays generic:
+
+| Setting | Variable |
+|---|---|
+| `auth.issuer` | `WIREWOLF_AUTH_ISSUER` |
+| `auth.trusted_header.user` | `WIREWOLF_AUTH_TRUSTED_HEADER_USER` |
+| `server.allowed_hosts` | `WIREWOLF_SERVER_ALLOWED_HOSTS` |
+| `probe.interval` | `WIREWOLF_PROBE_INTERVAL` |
+
+- **Precedence:** defaults, then `wirewolf.toml`, then `WIREWOLF_<SECTION>_<KEY>`, then the older
+  short names (`WIREWOLF_LISTEN`, `WIREWOLF_INTERVAL`, `WIREWOLF_DB`, …) and command line flags.
+- **Values** parse like the file: durations such as `30s`, booleans `true`/`false` (or `1`/`0`,
+  `yes`/`no`, `on`/`off`). Lists are comma-separated (`a,b`) or a TOML array (`["a", "b"]`);
+  lists of tables (`targets`, `dns.resolvers`, …) take only the TOML form. A bad value stops
+  startup with an error naming the variable.
+- **Locked in Settings:** values from the environment show as `env` on the Settings page and
+  can't be changed there.
+
+OIDC with [Pocket ID](https://pocket-id.org) behind a reverse proxy, with no config file at all:
+
+```yaml
+services:
+  wirewolf:
+    image: ghcr.io/joshka/wirewolf:latest
+    restart: unless-stopped
+    network_mode: host
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - wirewolf:/data
+    secrets: [wirewolf_oidc]
+    environment:
+      WIREWOLF_HOSTNAME: wirewolf
+      WIREWOLF_SERVER_ALLOWED_HOSTS: wirewolf.example.com
+      WIREWOLF_AUTH_ISSUER: https://id.example.com
+      WIREWOLF_AUTH_CLIENT_ID: wirewolf
+      WIREWOLF_AUTH_CLIENT_SECRET_FILE: /run/secrets/wirewolf_oidc
+      WIREWOLF_AUTH_REDIRECT_URL: https://wirewolf.example.com/auth/callback
+      WIREWOLF_AUTH_SCOPES: email,profile,groups
+      WIREWOLF_AUTH_ALLOWED_GROUPS: wirewolf-admins
+      WIREWOLF_AUTH_SESSION_KEY_FILE: /data/wirewolf-session.key
+secrets:
+  wirewolf_oidc:
+    file: ./wirewolf_oidc_secret.txt   # the client secret from the issuer, mode 600
+volumes:
+  wirewolf:
+```
+
+Keep the client secret out of `environment:` where you can: `WIREWOLF_AUTH_CLIENT_SECRET` works,
+but `docker inspect` shows it, while a secret file doesn't.
+
 ## Who can see and change what
 
 - **Reads** are open to anyone who can reach the port unless `auth.require_for_reads`. Readers who
