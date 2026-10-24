@@ -6,7 +6,7 @@ The losing variants were deleted. Their code and notes remain in jj/git history 
 the comparison live outside the repo in `artifacts/compare/`.
 
 
-These are the three web UI variants built from `docs/ui-brief.md` against the same demo data.
+These are the three web UI variants built from a shared brief (`docs/ui-brief.md`, now removed; see history) against the same demo data.
 Each variant's notes and screenshots are in `docs/compare/<variant>/`. To try all three in one
 binary, run `cargo run --features ui-shadcn -- serve --demo` (the shadcn variant needs Node and
 pnpm), then open http://127.0.0.1:7465.
@@ -51,7 +51,7 @@ back to 1.88 unless Topcoat wins.
 
 ## Assessment after converging (2026-10-24)
 
-This was measured on main after all three implemented `docs/ui-spec.md`. HTMX and Topcoat had
+This was measured on main after all three implemented a converged spec (`docs/ui-spec.md`, now replaced by `docs/ui.md`). HTMX and Topcoat had
 also applied `docs/design-language.md`; shadcn's design-language pass was still pending.
 "Own code" counts code lines only and excludes vendored and copied-in component code.
 

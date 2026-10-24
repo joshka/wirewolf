@@ -1,6 +1,6 @@
 # wirewolf design language
 
-`docs/ui-spec.md` says *what* is on each page. This file says *how it looks*: spacing, frames,
+`docs/ui.md` says *what* is on each page. This file says *how it looks*: spacing, frames,
 type, color use, badges, and icons. After the three variants converged on the spec, the
 remaining differences were almost all at this level. These rules are the tie-breakers, and
 every variant follows them exactly.
@@ -97,7 +97,7 @@ Avoid all-caps, except for the `LIKELY CAUSE` badge.
 - **Accent violet** is used for the logo tile, the active nav item (icon + 10% tint
   background), focus rings, and **one** primary button per page. That's "Run now" on the
   Speed page. On Now, "Run now" is an outline button.
-- **Hop palette** (see the spec) is only for chart series and the legend dots, never for
+- **Hop palette** (see `docs/ui.md`) is only for chart series and the legend dots, never for
   text.
 - **Muted text** is about 60% of the foreground. Don't stack two muted levels.
 
