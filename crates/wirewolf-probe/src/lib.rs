@@ -20,6 +20,7 @@ use wirewolf_core::{Command, Hub};
 pub mod assess;
 pub mod icmp;
 pub mod measure;
+pub mod ports;
 pub mod speed;
 pub mod store;
 pub mod targets;

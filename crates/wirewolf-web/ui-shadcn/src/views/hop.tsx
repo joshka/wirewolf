@@ -8,9 +8,10 @@ import { bucket, TimeChart } from "@/components/charts"
 import { hopIcon, IconTile } from "@/components/path"
 import { CauseBadge, SeverityPill, StatusPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
-import { api, type Hop, type Incident, type Sample, type Severity } from "@/lib/api"
+import { api, type Hop, type Incident, type Interface, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { findHop } from "@/lib/targets"
+import { linkSpeed, portStatus, total } from "@/lib/ports"
 import { duration, ms, pct } from "@/lib/format"
 import { href, onLinkClick, type Route } from "@/lib/router"
 import { RANGES, type Range } from "./history"
@@ -75,6 +76,7 @@ export function HopView({ id, incident: incidentId }: { id: string; incident?: s
       {breadcrumb}
       <Header hop={hop} blamed={blamed} severity={source.verdict.severity} at={incident ? source.at : undefined} />
       <HopCharts hop={hop} at={incident ? source.at : undefined} />
+      {hop.interfaces && hop.interfaces.length > 0 && <Ports hop={hop} ports={hop.interfaces} />}
       <div className="grid gap-4 lg:grid-cols-2">
         <Checks hop={hop} />
         <HopIncidents hop={hop} />
@@ -248,6 +250,60 @@ function Checks({ hop }: { hop: Hop }) {
           </TableBody>
         </Table>
         {!lead && evidence}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** The host's physical ports, one row each; unplugged ports are dimmed, never warned about. */
+function Ports({ hop, ports }: { hop: Hop; ports: Interface[] }) {
+  const linked = ports.filter((p) => p.link).length
+  const count = (v: number | null) => (v == null ? "—" : v.toLocaleString())
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Network ports</CardTitle>
+        <CardDescription>
+          {linked} of {ports.length} connected. Counters are totals since the host booted.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Port</TableHead>
+              <TableHead>Link</TableHead>
+              <TableHead>Speed</TableHead>
+              <TableHead>Addresses</TableHead>
+              <TableHead className="text-right">Errors</TableHead>
+              <TableHead className="text-right">Drops</TableHead>
+              <TableHead className="text-right">Link changes</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {ports.map((p) => {
+              const status = portStatus(hop, p)
+              return (
+                <TableRow key={p.name} className={p.link ? undefined : "text-muted-foreground"}>
+                  <TableCell>
+                    <div className="font-mono font-medium">{p.name}</div>
+                    <div className="text-xs text-muted-foreground">{[p.default_route && "default route", p.via && `via ${p.via}`, p.wireless && "Wi-Fi"].filter(Boolean).join(" · ")}</div>
+                  </TableCell>
+                  <TableCell>
+                    <StatusPill status={status} label={status === "not_applicable" ? "No cable" : status === "warn" ? "Check" : "Up"} />
+                  </TableCell>
+                  <TableCell className="tabular-nums">{linkSpeed(p)}</TableCell>
+                  <TableCell className="font-mono text-xs whitespace-normal">
+                    {p.addresses.length === 0 ? "—" : p.addresses.map((a) => <div key={a}>{a}</div>)}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{count(total(p.rx_errors, p.tx_errors))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(total(p.rx_dropped, p.tx_dropped))}</TableCell>
+                  <TableCell className="text-right tabular-nums">{count(p.carrier_changes)}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
       </CardContent>
     </Card>
   )

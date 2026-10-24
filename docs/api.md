@@ -88,7 +88,11 @@ Verdict   { severity: healthy|degraded|down|unknown, headline, detail, blame: ho
             confidence: low|medium|high, fix_hint?, method }
 Hop       { id, kind: host|gateway|isp|internet|dns|web, label, target?, status, summary,
             metrics: { rtt_ms?, jitter_ms?, loss_pct? },
-            evidence: [{ key, value }], checks: [{ name, status, detail, rtt_ms? }] }
+            evidence: [{ key, value }], checks: [{ name, status, detail, rtt_ms? }],
+            interfaces: [Interface] }                                  (interfaces: 1.6)
+Interface { name, via?, default_route, link, wireless, speed_mbps?, duplex: full|half?,
+            addresses: [cidr], rx_errors?, tx_errors?, rx_dropped?, tx_dropped?,
+            carrier_changes? }                                                    (1.6)
 status    = pass | warn | fail | skip | not_applicable | pending
 Sample    { at, hop, status, rtt_ms?, jitter_ms?, loss_pct? }
 SpeedRun  { id, started, state: running|complete|failed, backend, server?, down_mbps?,
@@ -121,13 +125,24 @@ Incidents open after `incidents.open_after` unhealthy snapshots in a row, and cl
 `incidents.close_after` healthy ones. Both default to 2. The open is backdated to the first
 bad snapshot, and the close is dated at the first good one.
 
+`interfaces` (1.6) lists the host's physical network ports on the `host` hop, connected or
+not, with the default-route port first; it's empty on every other hop. Virtual interfaces
+(loopback, bridges, `docker0`, `veth*`, VPN tunnels) are left out. When a bridge holds the
+addresses, as with Synology's `ovs_eth0`, the port is listed as `eth0` with `via: "ovs_eth0"`.
+`link` is false for an unplugged port. Counters are totals since boot, and `null` where the OS
+doesn't expose them (macOS reports no counters or duplex). The host hop warns, with one check
+each, when a connected wired port negotiates below 1 Gbps (`eth0 speed`) or half duplex
+(`eth0 duplex`), when its error counters rise between cycles (`eth0 errors`), when it loses
+its link and reconnects (`eth0 flapping`), and when two connected ports share an IPv4 subnet
+(`eth0 eth1 subnet`). Unplugged ports never warn.
+
 Hops always come in path order: `host`, `gateway`, `isp`, `internet`, `dns`, `web`. A
 `skip` hop is collateral damage from an earlier failure. Show it, but de-emphasize it.
 
 ## Demo scenarios
 
-`healthy`, `wifi_loss`, `isp_outage`, `dns_down`, `captive_portal`, `bufferbloat`, and
-`flapping` (healthy and ISP outage alternate every 40s, which exercises the live incident
+`healthy`, `wifi_loss`, `isp_outage`, `dns_down`, `captive_portal`, `bufferbloat`,
+`slow_link` (the host's port negotiated 100 Mbps; 1.6), and `flapping` (healthy and ISP outage alternate every 40s, which exercises the live incident
 open/close).
 
 ## The brief (1.5)

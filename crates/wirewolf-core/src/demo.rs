@@ -28,6 +28,7 @@ pub fn scenarios() -> Vec<Scenario> {
         s("dns_down", "DNS down", "The internet answers by IP but the resolver times out."),
         s("captive_portal", "Captive portal", "HTTP is intercepted by a login page."),
         s("bufferbloat", "Bufferbloat", "Latency spikes under load; speed tests grade poorly."),
+        s("slow_link", "Slow link", "The host's Ethernet port negotiated 100 Mbps instead of gigabit."),
         s("flapping", "Flapping", "Alternates between healthy and an ISP outage every 40s."),
     ]
 }
@@ -40,6 +41,7 @@ enum Kind {
     DnsDown,
     CaptivePortal,
     Bufferbloat,
+    SlowLink,
 }
 
 fn kind_at(scenario: &str, elapsed: Duration) -> Kind {
@@ -49,6 +51,7 @@ fn kind_at(scenario: &str, elapsed: Duration) -> Kind {
         "dns_down" => Kind::DnsDown,
         "captive_portal" => Kind::CaptivePortal,
         "bufferbloat" => Kind::Bufferbloat,
+        "slow_link" => Kind::SlowLink,
         "flapping" if (elapsed.as_secs() / 40) % 2 == 1 => Kind::IspOutage,
         _ => Kind::Healthy,
     }
@@ -214,14 +217,38 @@ fn hops(kind: Kind) -> Vec<Hop> {
     let bloat = kind == Kind::Bufferbloat;
     let wifi_loss = if kind == Kind::WifiLoss { round1(jitter(11.5, 3.5)) } else { 0.0 };
 
-    // Host
+    // Host: a four-port machine with one cable plugged in.
+    let slow = kind == Kind::SlowLink;
+    let port = |name: &str, link: bool| Interface {
+        name: name.into(),
+        via: None,
+        default_route: false,
+        link,
+        wireless: false,
+        speed_mbps: link.then_some(if slow { 100 } else { 1000 }),
+        duplex: link.then(|| "full".into()),
+        addresses: vec![],
+        rx_errors: Some(0),
+        tx_errors: Some(0),
+        rx_dropped: Some(if link { 112 } else { 0 }),
+        tx_dropped: Some(0),
+        carrier_changes: Some(if link { 2 } else { 0 }),
+    };
+    let mut checks = vec![
+        check("Interface up", Status::Pass, if slow { "eth0, 100 Mbps" } else { "eth0, 1 Gbps" }, None),
+        check("IPv4 address", Status::Pass, "192.168.1.42/24 via DHCP", None),
+        check("IPv6 address", Status::Pass, "2001:db8:4f2a::42/64", None),
+    ];
+    if slow {
+        checks.push(check("eth0 speed", Status::Warn, "eth0 linked at 100 Mbps", None));
+    }
     let host = Hop {
         id: "host".into(),
         kind: HopKind::Host,
         label: "This host".into(),
         target: Some("eth0 · 192.168.1.42/24".into()),
-        status: Status::Pass,
-        summary: "eth0 up, 192.168.1.42".into(),
+        status: if slow { Status::Warn } else { Status::Pass },
+        summary: if slow { "eth0 linked at 100 Mbps".into() } else { "eth0 up, 192.168.1.42".into() },
         metrics: HopMetrics::default(),
         evidence: vec![
             ev("interface", "eth0"),
@@ -231,10 +258,12 @@ fn hops(kind: Kind) -> Vec<Hop> {
             ev("public ip", "203.0.113.77"),
             ev("cgnat", "no"),
         ],
-        checks: vec![
-            check("Interface up", Status::Pass, "eth0, 1 Gbps", None),
-            check("IPv4 address", Status::Pass, "192.168.1.42/24 via DHCP", None),
-            check("IPv6 address", Status::Pass, "2001:db8:4f2a::42/64", None),
+        checks,
+        interfaces: vec![
+            Interface { default_route: true, addresses: vec!["192.168.1.42/24".into(), "2001:db8:4f2a::42/64".into()], ..port("eth0", true) },
+            port("eth1", false),
+            port("eth2", false),
+            port("eth3", false),
         ],
     };
 
@@ -259,6 +288,7 @@ fn hops(kind: Kind) -> Vec<Hop> {
             ev("method", "ICMP echo × 20"),
         ],
         checks: vec![check("ICMP echo", if wifi_loss >= 2.0 { Status::Warn } else { Status::Pass }, format!("20 sent, {:.0}% lost", wifi_loss), Some(gw_rtt))],
+        interfaces: vec![],
     };
 
     let isp_down = kind == Kind::IspOutage;
@@ -297,6 +327,7 @@ fn hops(kind: Kind) -> Vec<Hop> {
             if isp_down { "no reply from hop 2 within 4s" } else { "100.64.0.1 answers" },
             isp_metrics.rtt_ms,
         )],
+        interfaces: vec![],
     };
 
     // Internet
@@ -342,6 +373,7 @@ fn hops(kind: Kind) -> Vec<Hop> {
         metrics: inet_metrics,
         evidence: vec![ev("method", "TCP :443 handshake × 5 per target"), ev("families", "IPv4 + IPv6")],
         checks: inet_checks,
+        interfaces: vec![],
     };
 
     // DNS
@@ -387,6 +419,7 @@ fn hops(kind: Kind) -> Vec<Hop> {
         metrics: dns_metrics,
         evidence: vec![ev("resolvers", "192.168.1.1 (from /etc/resolv.conf)"), ev("query", "example.com A/AAAA")],
         checks: dns_checks,
+        interfaces: vec![],
     };
 
     // Web
@@ -426,6 +459,7 @@ fn hops(kind: Kind) -> Vec<Hop> {
                 check("TLS handshake", Status::Pass, "TLS 1.3 to www.cloudflare.com", Some(round1(web_rtt * 0.7)))
             },
         ],
+        interfaces: vec![],
     };
 
     vec![host, gateway, isp, internet, dns, web]
@@ -435,8 +469,9 @@ fn speed_result(kind: Kind, id: String, started: Timestamp) -> SpeedRun {
     let bloat = kind == Kind::Bufferbloat;
     let idle = round1(jitter(9.0, 1.0));
     let loaded = round1(idle + if bloat { jitter(240.0, 60.0) } else { jitter(6.0, 3.0) });
-    let down = round1(jitter(if bloat { 310.0 } else { 920.0 }, 30.0));
-    let up = round1(jitter(if bloat { 45.0 } else { 880.0 }, 25.0));
+    let slow = kind == Kind::SlowLink;
+    let down = round1(jitter(if slow { 93.0 } else if bloat { 310.0 } else { 920.0 }, if slow { 2.0 } else { 30.0 }));
+    let up = round1(jitter(if slow { 91.0 } else if bloat { 45.0 } else { 880.0 }, if slow { 2.0 } else { 25.0 }));
     SpeedRun {
         id,
         started,

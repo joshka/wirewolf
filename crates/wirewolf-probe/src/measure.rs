@@ -39,6 +39,8 @@ pub struct Prober {
     tls: tokio_rustls::TlsConnector,
     public_ip: (Option<String>, Option<String>),
     public_ip_at: Option<Instant>,
+    /// Ports from the previous cycle, so counters can be compared.
+    ports: Vec<wirewolf_core::model::Interface>,
 }
 
 impl Prober {
@@ -66,6 +68,7 @@ impl Prober {
             tls: tokio_rustls::TlsConnector::from(Arc::new(config)),
             public_ip: (None, None),
             public_ip_at: None,
+            ports: vec![],
         })
     }
 
@@ -125,6 +128,7 @@ impl Prober {
         host.public_v4 = self.public_ip.0.clone();
         host.public_v6 = self.public_ip.1.clone();
         host.path_mtu = self.path_mtu.clone();
+        host.previous_ports = std::mem::replace(&mut self.ports, host.ports.clone());
         (Measurements { host, gateway, isp, internet, dns, web, thresholds: c.thresholds.clone() }, user)
     }
 }
@@ -143,6 +147,9 @@ pub fn host_info(icmp: Option<Icmp>) -> HostInfo {
     let gateway = iface.gateway.as_ref().and_then(|g| g.ipv4.first().map(|a| IpAddr::V4(*a)).or(g.ipv6.first().map(|a| IpAddr::V6(*a))));
     let container_bridge = std::path::Path::new("/.dockerenv").exists()
         && matches!(gateway, Some(IpAddr::V4(a)) if a.octets()[0] == 172 && (16..32).contains(&a.octets()[1]));
+    let ports = crate::ports::read(Some(&iface.name));
+    // A bridge in front of the port (Synology's ovs_eth0) reports no speed; the port does.
+    let port_mbps = ports.iter().find(|p| p.default_route).and_then(|p| p.speed_mbps);
     HostInfo {
         interface: Some(iface.name.clone()),
         up: iface.is_up(),
@@ -150,16 +157,18 @@ pub fn host_info(icmp: Option<Icmp>) -> HostInfo {
         ipv6: iface.ipv6.iter().filter(|n| is_global_v6(&n.addr())).map(|n| n.to_string()).collect(),
         mtu: iface.mtu,
         gateway,
-        link_mbps: iface.transmit_speed.filter(|s| *s > 0).map(|s| s / 1_000_000),
+        link_mbps: iface.transmit_speed.filter(|s| *s > 0).map(|s| s / 1_000_000).or(port_mbps),
         public_v4: None,
         public_v6: None,
         container_bridge,
         icmp,
         path_mtu: None,
+        ports,
+        previous_ports: vec![],
     }
 }
 
-fn is_global_v6(a: &Ipv6Addr) -> bool {
+pub(crate) fn is_global_v6(a: &Ipv6Addr) -> bool {
     let first = a.segments()[0];
     // 2000::/3 global unicast.
     (0x2000..0x4000).contains(&first)

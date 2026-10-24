@@ -239,7 +239,7 @@ default), and serves the dashboard and API on `0.0.0.0:7465`. Useful flags:
 
 - `--demo [--scenario <id>]` serves scripted data instead of probing: a day of history with past
   incidents, and a scenario switcher in the sidebar. Scenarios are `healthy`, `wifi_loss`,
-  `isp_outage`, `dns_down`, `captive_portal`, `bufferbloat`, and `flapping`.
+  `isp_outage`, `dns_down`, `captive_portal`, `bufferbloat`, `slow_link`, and `flapping`.
 - `--read-only-settings` shows settings without letting the dashboard change them.
 - `--listen`, `--interval`, `--speed-interval`, `--speed-backend`, `--db`, `--retention`
   override the config file.

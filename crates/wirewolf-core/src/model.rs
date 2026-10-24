@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.5";
+pub const API_VERSION: &str = "1.6";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +65,38 @@ pub struct Hop {
     pub evidence: Vec<Evidence>,
     /// Individual sub-checks (for example each anycast target, or each resolver).
     pub checks: Vec<Check>,
+    /// The host's physical network ports, on the `host` hop only (API 1.6). Empty elsewhere,
+    /// and in snapshots saved before 1.6.
+    #[serde(default)]
+    pub interfaces: Vec<Interface>,
+}
+
+/// One physical network port on the host, connected or not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Interface {
+    /// The physical port name, for example `eth1` or `en0`.
+    pub name: String,
+    /// The device that holds the addresses when it isn't the port itself, for example a
+    /// Synology `ovs_eth0` bridge in front of `eth0`.
+    pub via: Option<String>,
+    /// Carries the default route.
+    pub default_route: bool,
+    /// A link partner is connected (carrier). False for an unplugged port.
+    pub link: bool,
+    pub wireless: bool,
+    /// The negotiated speed, when the link is up and the OS reports it.
+    pub speed_mbps: Option<u64>,
+    /// `full` or `half`, when reported.
+    pub duplex: Option<String>,
+    /// CIDR strings, IPv4 then IPv6.
+    pub addresses: Vec<String>,
+    /// Counters since boot, when the OS exposes them.
+    pub rx_errors: Option<u64>,
+    pub tx_errors: Option<u64>,
+    pub rx_dropped: Option<u64>,
+    pub tx_dropped: Option<u64>,
+    /// Link up/down transitions since boot.
+    pub carrier_changes: Option<u64>,
 }
 
 /// Latency and loss for a hop. `None` means not measured.

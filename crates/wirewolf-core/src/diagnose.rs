@@ -107,8 +107,40 @@ fn explain_failure(hop: &Hop, status_of: &dyn Fn(HopKind) -> Option<Status>) -> 
     }
 }
 
+/// A warning about one of the host's ports, from its check name (`eth0 speed`, `eth0 errors`, …).
+fn explain_port(hop: &Hop) -> Option<Explanation> {
+    let check = hop.checks.iter().find(|c| c.status == Status::Warn)?;
+    let (detail, hint) = match check.name.rsplit(' ').next()? {
+        "speed" => (
+            "The port negotiated below gigabit, which caps every transfer from this host.",
+            "Check the cable: a damaged or old cable (or one with a broken pair) drops to 100 Mbps. Try another cable and switch port.",
+        ),
+        "duplex" => (
+            "Half duplex means collisions and slow, lossy transfers. It usually comes from a failed autonegotiation.",
+            "Set both ends to autonegotiate, then replace the cable if it persists.",
+        ),
+        "errors" => (
+            "The port is receiving or sending corrupted frames, which get retransmitted or lost.",
+            "Replace the cable or try another switch port; a bad patch lead is the usual cause.",
+        ),
+        "flapping" => (
+            "The link went down and came back, interrupting everything on this host for a moment each time.",
+            "Reseat or replace the cable, check the switch port, and turn off Energy-Efficient Ethernet if the switch offers it.",
+        ),
+        "subnet" => (
+            "Two connected ports have addresses on the same network, so replies can leave by the wrong port.",
+            "Bond the ports, or unplug or disable the one you don't use.",
+        ),
+        _ => return None,
+    };
+    Some((check.detail.clone(), detail.into(), Some(hint.into())))
+}
+
 fn explain_degraded(hop: &Hop) -> Explanation {
     let s = |x: &str| x.to_string();
+    if let Some(e) = (hop.kind == HopKind::Host).then(|| explain_port(hop)).flatten() {
+        return e;
+    }
     let loss = hop.metrics.loss_pct.unwrap_or(0.0);
     let lossy = loss >= 1.0;
     let side = match hop.kind {

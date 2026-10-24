@@ -25,6 +25,27 @@ export interface Hop {
   metrics: Metrics
   evidence: { key: string; value: string }[]
   checks: { name: string; status: Status; detail: string; rtt_ms: number | null }[]
+  /** Physical ports, on the host hop only (API 1.6; missing from older servers). */
+  interfaces?: Interface[]
+}
+
+/** A physical network port on the host (API 1.6). */
+export interface Interface {
+  name: string
+  /** The bridge holding the addresses, for example Synology's `ovs_eth0`. */
+  via: string | null
+  default_route: boolean
+  /** A cable (or Wi-Fi association) is connected. */
+  link: boolean
+  wireless: boolean
+  speed_mbps: number | null
+  duplex: "full" | "half" | null
+  addresses: string[]
+  rx_errors: number | null
+  tx_errors: number | null
+  rx_dropped: number | null
+  tx_dropped: number | null
+  carrier_changes: number | null
 }
 
 export interface Verdict {

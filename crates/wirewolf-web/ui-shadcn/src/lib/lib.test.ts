@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest"
-import type { Incident, Sample } from "./api"
+import type { Hop, Incident, Interface, Sample } from "./api"
 import { bucket, sparkSeries } from "./bucket"
 import { duration, mbps, ms, pct, relative } from "./format"
+import { linkSpeed, portStatus, total } from "./ports"
 import { reportText } from "./report"
 import { href, parse } from "./router"
 
@@ -119,5 +120,31 @@ describe("sparkSeries", () => {
     const { data, gaps } = sparkSeries([0, 1, 2].map((m) => sample(m, "gateway", 2)))
     expect(gaps).toEqual([])
     expect(data).toHaveLength(3)
+  })
+})
+
+describe("ports", () => {
+  const port = (name: string, link: boolean, speed: number | null = link ? 1000 : null): Interface => ({
+    name, via: null, default_route: false, link, wireless: false, speed_mbps: speed, duplex: link ? "full" : null,
+    addresses: [], rx_errors: 0, tx_errors: 0, rx_dropped: 0, tx_dropped: 0, carrier_changes: 0,
+  })
+  const hop = (checks: [string, "pass" | "warn"][]): Hop => ({
+    id: "host", kind: "host", label: "This host", target: null, status: "pass", summary: "",
+    metrics: { rtt_ms: null, jitter_ms: null, loss_pct: null }, evidence: [],
+    checks: checks.map(([name, status]) => ({ name, status, detail: "", rtt_ms: null })),
+  })
+  it("marks the port a warning names", () => {
+    const h = hop([["eth0 speed", "warn"], ["Interface up", "pass"]])
+    expect(portStatus(h, port("eth0", true))).toBe("warn")
+    expect(portStatus(h, port("eth1", true))).toBe("pass")
+    expect(portStatus(h, port("eth2", false))).toBe("not_applicable")
+    expect(portStatus(hop([["eth0 eth1 subnet", "warn"]]), port("eth1", true))).toBe("warn")
+  })
+  it("formats speed", () => {
+    expect(linkSpeed(port("eth0", true))).toBe("1 Gbps full")
+    expect(linkSpeed(port("eth0", true, 100))).toBe("100 Mbps full")
+    expect(linkSpeed(port("eth0", false))).toBe("—")
+    expect(total(null, null)).toBeNull()
+    expect(total(2, null)).toBe(2)
   })
 })

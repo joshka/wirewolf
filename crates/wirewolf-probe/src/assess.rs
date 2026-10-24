@@ -4,7 +4,7 @@
 use std::net::IpAddr;
 
 use wirewolf_core::config::{Limits, Thresholds};
-use wirewolf_core::model::{Check, Evidence, Hop, HopKind, HopMetrics, Status};
+use wirewolf_core::model::{Check, Evidence, Hop, HopKind, HopMetrics, Interface, Status};
 
 /// Everything one probe cycle measured.
 #[derive(Debug, Clone, Default)]
@@ -37,6 +37,10 @@ pub struct HostInfo {
     pub icmp: String,
     /// The largest packet that reached the internet with don't-fragment set, if measured.
     pub path_mtu: Option<PathMtu>,
+    /// Physical ports, the default-route one first.
+    pub ports: Vec<Interface>,
+    /// The same ports one cycle earlier, to spot rising counters. Empty on the first cycle.
+    pub previous_ports: Vec<Interface>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -342,21 +346,84 @@ pub fn host(h: &HostInfo) -> Hop {
         };
         checks.push(check("Path MTU", status, note, None));
     }
+    let warnings = port_checks(&h.ports, &h.previous_ports);
+    let status = if status == Status::Pass && !warnings.is_empty() { Status::Warn } else { status };
+    let summary = match (&first, status) {
+        (Some(_), Status::Warn) => warnings[0].detail.clone(),
+        (Some(a), _) if status != Status::Fail => format!("{iface} up, {}", a.split('/').next().unwrap_or(a)),
+        _ if h.interface.is_none() => "no default route".into(),
+        _ => format!("{iface} has no usable address"),
+    };
+    checks.extend(warnings);
     Hop {
         id: "host".into(),
         kind: HopKind::Host,
         label: "This host".into(),
         target: first.as_ref().map(|a| format!("{iface} · {a}")),
         status,
-        summary: match (&first, status) {
-            (Some(a), Status::Pass) => format!("{iface} up, {}", a.split('/').next().unwrap_or(a)),
-            _ if h.interface.is_none() => "no default route".into(),
-            _ => format!("{iface} has no usable address"),
-        },
+        summary,
         metrics: HopMetrics::default(),
         evidence,
         checks,
+        interfaces: h.ports.clone(),
     }
+}
+
+/// Warnings about the physical ports, one check each. Only ports with a link count: an unplugged
+/// port never warns. Check names end in a rule word (`speed`, `duplex`, `errors`, `flapping`,
+/// `subnet`) that the verdict uses to pick a fix hint.
+pub fn port_checks(ports: &[Interface], previous: &[Interface]) -> Vec<Check> {
+    let mut checks = vec![];
+    for p in ports.iter().filter(|p| p.link) {
+        let name = &p.name;
+        // Wired ports have been gigabit for twenty years; below that is almost always a bad
+        // cable (a broken pair drops it to 100 Mbps) or an old switch.
+        if let Some(mbps) = p.speed_mbps.filter(|m| !p.wireless && *m < 1000) {
+            checks.push(check(&format!("{name} speed"), Status::Warn, format!("{name} linked at {mbps} Mbps"), None));
+        }
+        if p.duplex.as_deref() == Some("half") {
+            checks.push(check(&format!("{name} duplex"), Status::Warn, format!("{name} is running half duplex"), None));
+        }
+        let Some(before) = previous.iter().find(|b| b.name == p.name) else { continue };
+        // Counters only go up; a drop means a driver reset, so skip that cycle.
+        let delta = |now: Option<u64>, then: Option<u64>| now.zip(then).and_then(|(n, t)| n.checked_sub(t)).unwrap_or(0);
+        let errors = delta(p.rx_errors, before.rx_errors) + delta(p.tx_errors, before.tx_errors);
+        if errors > 0 {
+            checks.push(check(&format!("{name} errors"), Status::Warn, format!("{name} had {errors} new {} since the last check", plural(errors, "frame error", "frame errors")), None));
+        }
+        // Plugging a cable in is one change; a flap (down, then up) is two.
+        let flaps = delta(p.carrier_changes, before.carrier_changes) / 2;
+        if flaps > 0 {
+            checks.push(check(&format!("{name} flapping"), Status::Warn, format!("{name} lost its link and reconnected {}", plural(flaps, "once", &format!("{flaps} times"))), None));
+        }
+    }
+    // Two linked ports with addresses in the same IPv4 subnet: replies can leave by the wrong one.
+    let nets: Vec<(&str, std::net::Ipv4Addr, u8)> = ports
+        .iter()
+        .filter(|p| p.link)
+        .flat_map(|p| p.addresses.iter().filter_map(move |a| subnet(a).map(|(net, len)| (p.name.as_str(), net, len))))
+        .collect();
+    for (i, (a, net, len)) in nets.iter().enumerate() {
+        if let Some((b, ..)) = nets[i + 1..].iter().find(|(b, n, l)| b != a && n == net && l == len) {
+            checks.push(check(&format!("{a} {b} subnet"), Status::Warn, format!("{a} and {b} are both on {net}/{len}"), None));
+        }
+    }
+    checks
+}
+
+fn plural<'a>(n: u64, one: &'a str, many: &'a str) -> &'a str {
+    if n == 1 { one } else { many }
+}
+
+/// The network of an IPv4 CIDR string, ignoring link-local (169.254/16) self-assigned addresses.
+fn subnet(cidr: &str) -> Option<(std::net::Ipv4Addr, u8)> {
+    let (addr, len) = cidr.split_once('/')?;
+    let (addr, len): (std::net::Ipv4Addr, u8) = (addr.parse().ok()?, len.parse().ok()?);
+    if addr.is_link_local() || len > 32 {
+        return None;
+    }
+    let mask = u32::MAX.checked_shl(32 - u32::from(len)).unwrap_or(0);
+    Some(((u32::from(addr) & mask).into(), len))
 }
 
 fn cgnat(h: &HostInfo) -> String {
@@ -380,6 +447,7 @@ pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt
         metrics,
         evidence,
         checks,
+        interfaces: vec![],
     };
     let Some(addr) = h.gateway else {
         return base(Status::Fail, "no default gateway".into(), HopMetrics::default(), vec![], vec![check("Default route", Status::Fail, "no default gateway", None)]);
@@ -449,6 +517,7 @@ pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop, limits: &Thresholds)
         metrics: HopMetrics::default(),
         evidence,
         checks: vec![check("First ISP hop", status, detail, None)],
+        interfaces: vec![],
     };
     if !p.traceable {
         evidence.insert(0, ev("method", "inferred from internet reachability (TTL probes need a raw socket)"));
@@ -487,6 +556,7 @@ pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop, limits: &Thresholds)
         metrics: m,
         evidence,
         checks: vec![check("First ISP hop", status, format!("{} answers", p.edge.map(|a| a.to_string()).unwrap_or_else(|| "edge".into())), m.rtt_ms)],
+        interfaces: vec![],
     }
 }
 
@@ -586,6 +656,7 @@ pub fn internet(targets: &[TcpTarget], limits: &Limits) -> Hop {
         metrics: m,
         evidence: vec![ev("method", format!("TCP :{port} handshake × {} per target", per.unwrap_or(0))), ev("families", families)],
         checks,
+        interfaces: vec![],
     }
 }
 
@@ -650,6 +721,7 @@ pub fn dns(results: &[DnsResult], limits: &Limits) -> Hop {
         metrics: HopMetrics { rtt_ms: sys_rtt.map(round1), jitter_ms: None, loss_pct: sys_loss },
         evidence: vec![ev("resolvers", if servers.is_empty() { "none".into() } else { servers.join(", ") }), ev("queries", queries(results))],
         checks,
+        interfaces: vec![],
     }
 }
 
@@ -741,6 +813,7 @@ pub fn web(w: &WebResult) -> Hop {
         metrics: HopMetrics { rtt_ms: portal.rtt_ms, jitter_ms: None, loss_pct: None },
         evidence,
         checks: [portal, tls].into_iter().chain(sites).collect(),
+        interfaces: vec![],
     }
 }
 
@@ -1043,5 +1116,103 @@ mod tests {
         assert_eq!(median(&[1.0, 2.0]), Some(1.5));
         assert_eq!(jitter(&[Some(1.0), None, Some(3.0), Some(2.0)]), Some(1.5));
         assert_eq!(loss(&[Some(1.0), None]), Some(50.0));
+    }
+
+    fn port(name: &str, link: bool, mbps: Option<u64>, addrs: &[&str]) -> Interface {
+        Interface {
+            name: name.into(),
+            via: None,
+            default_route: false,
+            link,
+            wireless: false,
+            speed_mbps: mbps,
+            duplex: link.then(|| "full".into()),
+            addresses: addrs.iter().map(|a| a.to_string()).collect(),
+            rx_errors: Some(0),
+            tx_errors: Some(0),
+            rx_dropped: Some(40),
+            tx_dropped: Some(0),
+            carrier_changes: Some(2),
+        }
+    }
+
+    fn nas() -> Vec<Interface> {
+        vec![
+            Interface { default_route: true, via: Some("ovs_eth0".into()), ..port("eth0", true, Some(1000), &["192.0.2.20/24"]) },
+            port("eth1", false, None, &[]),
+            port("eth2", false, None, &[]),
+            port("eth3", false, None, &[]),
+        ]
+    }
+
+    #[test]
+    fn healthy_ports_and_unplugged_ports_are_quiet() {
+        let now = nas();
+        let mut later = nas();
+        // Unplugged ports never warn, whatever their counters do.
+        later[1].carrier_changes = Some(9);
+        later[1].rx_errors = Some(5);
+        // Drops alone are routine (frames for protocols nothing listens to).
+        later[0].rx_dropped = Some(400);
+        assert!(port_checks(&later, &now).is_empty());
+        let mut m = healthy();
+        m.host.ports = later;
+        m.host.previous_ports = now;
+        let h = super::host(&m.host);
+        assert_eq!(h.status, Status::Pass);
+        assert_eq!(h.interfaces.len(), 4);
+    }
+
+    #[test]
+    fn slow_link_warns_and_explains() {
+        let mut m = healthy();
+        m.host.ports = vec![port("eth0", true, Some(100), &["192.0.2.20/24"])];
+        let hops = hops(&m);
+        assert_eq!(hops[0].status, Status::Warn);
+        assert_eq!(hops[0].summary, "eth0 linked at 100 Mbps");
+        let v = diagnose(&hops);
+        assert_eq!(v.blame.as_deref(), Some("host"));
+        assert_eq!(v.headline, "eth0 linked at 100 Mbps");
+        assert!(v.fix_hint.unwrap().contains("cable"));
+    }
+
+    #[test]
+    fn wifi_speed_and_half_duplex() {
+        let wifi = Interface { wireless: true, ..port("wlan0", true, Some(300), &[]) };
+        assert!(port_checks(&[wifi], &[]).is_empty());
+        let half = Interface { duplex: Some("half".into()), ..port("eth0", true, Some(1000), &[]) };
+        let c = port_checks(&[half], &[]);
+        assert_eq!(c[0].name, "eth0 duplex");
+    }
+
+    #[test]
+    fn rising_errors_and_flaps_warn() {
+        let before = nas();
+        let mut now = nas();
+        now[0].rx_errors = Some(3);
+        now[0].carrier_changes = Some(6);
+        let details: Vec<_> = port_checks(&now, &before).into_iter().map(|c| c.detail).collect();
+        assert_eq!(details, ["eth0 had 3 new frame errors since the last check", "eth0 lost its link and reconnected 2 times"]);
+        // One change is a cable plugged in, not a flap; a counter reset isn't errors.
+        now[0].carrier_changes = Some(3);
+        now[0].rx_errors = Some(0);
+        let mut before = before;
+        before[0].rx_errors = Some(50);
+        assert!(port_checks(&now, &before).is_empty());
+        // No previous cycle: nothing to compare.
+        now[0].rx_errors = Some(3);
+        assert!(port_checks(&now, &[]).is_empty());
+    }
+
+    #[test]
+    fn two_ports_on_one_subnet() {
+        let ports = [port("eth0", true, Some(1000), &["192.0.2.20/24", "169.254.1.1/16"]), port("eth1", true, Some(1000), &["192.0.2.21/24", "169.254.1.2/16"])];
+        let c = port_checks(&ports, &[]);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].detail, "eth0 and eth1 are both on 192.0.2.0/24");
+        let ports = [port("eth0", true, Some(1000), &["192.0.2.20/24"]), port("eth1", true, Some(1000), &["198.51.100.4/24"])];
+        assert!(port_checks(&ports, &[]).is_empty());
+        let ports = [port("eth0", true, Some(1000), &["192.0.2.20/24"]), port("eth1", false, None, &["192.0.2.21/24"])];
+        assert!(port_checks(&ports, &[]).is_empty());
     }
 }
