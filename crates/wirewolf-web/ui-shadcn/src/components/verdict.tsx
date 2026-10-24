@@ -46,7 +46,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
-            <SeverityPill severity={v.severity} />
+            <SeverityPill severity={v.severity} icon={false} />
             {blamed && <span> · at {blamed.label}</span>}
             {since && (
               <span>

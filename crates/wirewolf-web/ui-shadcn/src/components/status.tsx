@@ -44,20 +44,33 @@ export function StatusIcon({ status, className }: { status: Status; className?: 
   return <Icon aria-hidden className={cn("size-4 shrink-0", statusText[status], className)} />
 }
 
-/** Icon plus label, so status never relies on color alone. */
-export function StatusPill({ status, label, className }: { status: Status; label?: string; className?: string }) {
+/**
+ * Icon plus label, so status never relies on color alone. Pass `icon={false}` where a status
+ * icon is already shown right next to it.
+ */
+export function StatusPill({
+  status,
+  label,
+  icon = true,
+  className,
+}: {
+  status: Status
+  label?: string
+  icon?: boolean
+  className?: string
+}) {
   const Icon = label && status === "pending" ? CircleHelp : statusIcon[status]
   const variant = status === "pass" || status === "warn" || status === "fail" ? status : "muted"
   return (
     <Badge variant={variant} className={className}>
-      <Icon aria-hidden />
+      {icon && <Icon aria-hidden />}
       {label ?? statusLabel[status]}
     </Badge>
   )
 }
 
-export const SeverityPill = ({ severity, className }: { severity: Severity; className?: string }) => (
-  <StatusPill status={severityStatus[severity]} label={severityLabel[severity]} className={className} />
+export const SeverityPill = ({ severity, icon, className }: { severity: Severity; icon?: boolean; className?: string }) => (
+  <StatusPill status={severityStatus[severity]} label={severityLabel[severity]} icon={icon} className={className} />
 )
 
 /** The LIKELY CAUSE badge, always on its own line under the hop label. */
