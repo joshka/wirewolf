@@ -80,27 +80,29 @@ export function HopView({ id, incident: incidentId }: { id: string; incident?: s
 function Header({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; severity: Severity; at?: string }) {
   const m = hop.metrics
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-3">
-        <IconTile icon={hopIcon[hop.kind]} />
-        <div className="min-w-0">
-          <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">
-            {hop.label} <StatusPill status={hop.status} />
-            {blamed && <CauseBadge severity={severity} />}
-          </h1>
-          <p className="truncate font-mono text-xs text-muted-foreground">
-            {hop.target ?? hop.kind}
-            {at && (
-              <>
-                {" · evidence from "}
-                <RelTime at={at} />
-              </>
-            )}
-          </p>
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex min-w-0 flex-col gap-4">
+        <div className="flex items-center gap-3">
+          <IconTile icon={hopIcon[hop.kind]} />
+          <div className="min-w-0">
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold tracking-tight">
+              {hop.label} <StatusPill status={hop.status} />
+              {blamed && <CauseBadge severity={severity} />}
+            </h1>
+            <p className="truncate font-mono text-xs text-muted-foreground">
+              {hop.target ?? hop.kind}
+              {at && (
+                <>
+                  {" · evidence from "}
+                  <RelTime at={at} />
+                </>
+              )}
+            </p>
+          </div>
         </div>
+        <p className="text-sm">{hop.summary}</p>
       </div>
-      <p className="text-sm">{hop.summary}</p>
-      <dl className="grid grid-cols-3 gap-2 sm:max-w-md">
+      <dl className="grid shrink-0 grid-cols-3 gap-2 lg:w-md">
         {[
           ["RTT", ms(m.rtt_ms)],
           ["Jitter", ms(m.jitter_ms)],
