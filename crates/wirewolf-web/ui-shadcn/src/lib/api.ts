@@ -221,5 +221,13 @@ export const api = {
   incidents: () => get<Incident[]>("/incidents").then((x) => x ?? []),
   incident: (id: string) => get<Incident>(`/incidents/${encodeURIComponent(id)}`),
   setScenario: (id: string) => post("/demo/scenario", { id }),
+  /** `GET /brief/prompt`: the AI prompt plus brief, as text (1.5). */
+  briefPrompt: async (q: { incident?: string; redact?: boolean } = {}) => {
+    const p = new URLSearchParams({ redact: String(q.redact ?? true) })
+    if (q.incident) p.set("incident", q.incident)
+    const res = await fetch(`${BASE}/brief/prompt?${p}`)
+    if (!res.ok || res.status === 204) throw new Error(`GET /brief/prompt: ${res.status}`)
+    return res.text()
+  },
   eventsUrl: `${BASE}/events`,
 }

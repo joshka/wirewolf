@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { AskAi } from "@/components/ask-ai"
 import { SnapshotView } from "@/components/snapshot"
 import { SeverityPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { api, type Incident, type Meta } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { absolute, duration } from "@/lib/format"
+import { copyText } from "@/lib/clipboard"
 import { reportText } from "@/lib/report"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
@@ -109,7 +111,10 @@ export function IncidentView({ id }: { id: string }) {
             {blamed && ` · ${blamed.label}`}
           </p>
         </div>
-        <CopyReport incident={incident} meta={meta} />
+        <div className="flex flex-wrap gap-2">
+          <CopyReport incident={incident} meta={meta} />
+          <AskAi incident={incident.id} />
+        </div>
       </div>
       <div>
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
@@ -124,21 +129,7 @@ export function IncidentView({ id }: { id: string }) {
 function CopyReport({ incident, meta }: { incident: Incident; meta: Meta | null }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    const text = reportText(incident, meta)
-    try {
-      await navigator.clipboard.writeText(text)
-    } catch {
-      // Plain HTTP on a LAN address isn't a secure context, so the async clipboard API is
-      // missing. Fall back to a hidden textarea.
-      const ta = document.createElement("textarea")
-      ta.value = text
-      ta.style.position = "fixed"
-      ta.style.opacity = "0"
-      document.body.append(ta)
-      ta.select()
-      document.execCommand("copy")
-      ta.remove()
-    }
+    await copyText(reportText(incident, meta))
     setCopied(true)
     toast.success("Report copied", { description: "Paste it into your ISP's support chat or email." })
     setTimeout(() => setCopied(false), 2000)

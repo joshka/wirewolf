@@ -1,6 +1,7 @@
 import { ArrowRight, Siren } from "lucide-react"
 import { Card, CardAction, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AskAi } from "@/components/ask-ai"
 import { SnapshotView } from "@/components/snapshot"
 import { SpeedChart } from "@/components/charts"
 import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
@@ -24,7 +25,7 @@ export function NowView() {
   const open = incidents.find((i) => i.id === snapshot.open_incident)
   return (
     <div className="flex flex-col gap-4">
-      <SnapshotView snapshot={snapshot} since={open?.started} samples={samples} now={now} />
+      <SnapshotView snapshot={snapshot} since={open?.started} samples={samples} now={now} action={<AskAi size="sm" />} />
       <TargetsCard targets={snapshot.targets ?? []} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SpeedCard />

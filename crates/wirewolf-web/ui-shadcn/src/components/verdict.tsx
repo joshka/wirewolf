@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Lightbulb } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Snapshot } from "@/lib/api"
@@ -8,7 +9,7 @@ import { SeverityPill } from "./status"
  * The answer to "is it broken, where, and since when?". Loud when something is wrong, compact
  * when healthy.
  */
-export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?: string | null }) {
+export function VerdictBanner({ snapshot, since, action }: { snapshot: Snapshot; since?: string | null; action?: ReactNode }) {
   const v = snapshot.verdict
   const blamed = snapshot.hops.find((h) => h.id === v.blame)
   const healthy = v.severity === "healthy"
@@ -30,6 +31,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
           v.severity === "down" ? "bg-fail" : v.severity === "degraded" ? "bg-warn" : v.severity === "healthy" ? "bg-pass" : "bg-skip",
         )}
       />
+      {action && <div className="float-right ml-3">{action}</div>}
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
           <SeverityPill severity={v.severity} />
