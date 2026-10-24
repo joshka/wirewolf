@@ -215,6 +215,9 @@ async fn oidc_issuer_down_does_not_stop_startup() {
         session_key_file: dir.join("k"),
         ..config::Auth::default()
     };
+    let err = AuthState::from_config(&config).err().expect("no allowlist is refused");
+    assert!(err.contains("allow_any_user"), "{err}");
+    let config = config::Auth { allow_any_user: true, ..config };
     let app = app(AuthState::from_config(&config).unwrap(), ELSEWHERE);
     assert_eq!(send(&app, Request::get("/auth/login").body(Body::empty()).unwrap()).await.0, StatusCode::BAD_GATEWAY);
     std::fs::remove_dir_all(dir).unwrap();

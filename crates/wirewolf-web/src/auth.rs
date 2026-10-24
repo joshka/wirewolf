@@ -92,6 +92,9 @@ impl AuthState {
                 let path = &config.client_secret_file;
                 config.client_secret = std::fs::read_to_string(path).map_err(|e| format!("auth.client_secret_file {path}: {e}"))?.trim().to_owned();
             }
+            if config.allowed_emails.is_empty() && config.allowed_groups.is_empty() && !config.allow_any_user {
+                return Err("auth.issuer is set but auth.allowed_emails and auth.allowed_groups are empty, so anyone with an account at the issuer could change settings. List who may sign in, or set auth.allow_any_user = true".into());
+            }
             for (key, value) in [("client_id", &config.client_id), ("redirect_url", &config.redirect_url)] {
                 if value.is_empty() {
                     return Err(format!("auth.issuer is set, so auth.{key} is required"));

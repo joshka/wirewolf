@@ -214,6 +214,10 @@ pub struct Auth {
     pub allowed_emails: Vec<String>,
     /// If set, only members of one of these groups (the `groups` claim) may sign in.
     pub allowed_groups: Vec<String>,
+    /// Let anyone the issuer signs in use wirewolf when both lists above are empty. Without
+    /// this, OIDC with no allowlist is refused at startup: with a public issuer such as Google
+    /// it would let any account change settings.
+    pub allow_any_user: bool,
     /// Sign-in lifetime.
     pub session_ttl: Dur,
     /// Key that signs and encrypts session cookies. Created on first start; keep it so restarts
@@ -264,6 +268,7 @@ impl Default for Auth {
             scopes: vec!["email".into(), "profile".into()],
             allowed_emails: vec![],
             allowed_groups: vec![],
+            allow_any_user: false,
             session_ttl: Dur::secs(7 * 24 * 60 * 60),
             session_key_file: "wirewolf-session.key".into(),
             require_for_reads: false,

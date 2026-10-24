@@ -154,9 +154,11 @@ client_secret = ""
 client_secret_file = ""
 redirect_url = ""
 scopes = ["email", "profile"]
-# Empty allows anyone the issuer signs in.
+# Who may sign in. With both empty, OIDC refuses to start unless allow_any_user = true, which
+# lets in anyone the issuer signs in (any Google account, for a Google issuer).
 allowed_emails = []
 allowed_groups = []
+allow_any_user = false
 session_ttl = "7d"
 session_key_file = "wirewolf-session.key"
 require_for_reads = false
