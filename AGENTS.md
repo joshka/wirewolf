@@ -14,3 +14,12 @@ Network diagnostics you can point a browser at. Rust workspace in `crates/`.
 - Site raster images (ones the UI actually ships) go through Git LFS (`.gitattributes`). jj does not
   run LFS filters, so add or change those files with `git add` / `git commit` (the repo is colocated),
   not with jj. SVGs stay as plain text.
+
+## Commit messages
+
+Tim Pope / Chris Beams style, not conventional commits:
+
+- A capitalized, imperative subject of 50 characters or fewer, with no trailing period
+  ("Add live probes", not "feat(probe): added live probes.").
+- A blank line, then a body wrapped at 72 columns that explains what changed and why.
+  Small, self-explanatory changes may omit the body.

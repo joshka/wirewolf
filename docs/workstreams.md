@@ -37,8 +37,8 @@ jj bookmark set main -r @-                           # or @ if @ is the finished
 ```
 
 `main` only moves forward. If `jj bookmark set` refuses because `main` moved, rebase again.
-Don't rewrite commits already on `main`. Write commit messages in a conventional style
-(`feat(web): …`, `fix(core): …`).
+Don't rewrite commits already on `main`. Commit messages follow AGENTS.md (no conventional
+commits).
 
 ## Talking to each other
 
