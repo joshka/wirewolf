@@ -76,7 +76,7 @@ pub fn snapshot(snapshot: &Snapshot) -> String {
     let target_width = snapshot
         .hops
         .iter()
-        .map(|h| h.target.as_deref().unwrap_or("-").chars().count())
+        .map(|h| target(h).chars().count())
         .max()
         .unwrap_or(0);
     for hop in &snapshot.hops {
@@ -86,7 +86,7 @@ pub fn snapshot(snapshot: &Snapshot) -> String {
             "  [{:<4}] {:<label_width$}  {:<target_width$}  {}{}",
             format::status_word(hop.status).to_uppercase(),
             hop.label,
-            hop.target.as_deref().unwrap_or("-"),
+            target(hop),
             hop.summary,
             if blamed { "   <-- problem here" } else { "" }
         );
@@ -123,4 +123,9 @@ fn hop_detail(out: &mut String, hop: &Hop) {
             let _ = writeln!(out, "  {} = {}", evidence.key, evidence.value);
         }
     }
+}
+
+/// The target column: collapsed and capped so the summaries stay aligned and readable.
+fn target(hop: &Hop) -> String {
+    hop.target.as_deref().map(|t| format::target(t, 40)).unwrap_or_else(|| "-".into())
 }

@@ -324,7 +324,7 @@ pub fn render_hop_detail(app: &App, frame: &mut Frame, area: Rect) {
     if let Some(target) = &hop.target {
         title.extend([
             Span::styled(" · ", theme::muted()),
-            Span::styled(target.as_str(), theme::muted()),
+            Span::styled(format::target(target, 60), theme::muted()),
         ]);
     }
     title.push(Span::raw(" "));

@@ -230,7 +230,11 @@ fn render_card(chain: &PathChain, hop: &Hop, selected: bool, area: Rect, buf: &m
     };
     let lines = vec![
         Line::from(Span::styled(
-            hop.target.as_deref().unwrap_or("—"),
+            // Card width minus borders and padding.
+            hop.target
+                .as_deref()
+                .map(|t| format::target(t, area.width.saturating_sub(4) as usize))
+                .unwrap_or_else(|| "—".into()),
             if collateral {
                 Style::new().fg(theme::FAINT)
             } else {

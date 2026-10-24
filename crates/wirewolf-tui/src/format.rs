@@ -92,6 +92,43 @@ pub fn datetime(at: Timestamp) -> String {
         .to_string()
 }
 
+/// A hop target, short enough for a column.
+///
+/// Lists collapse to the first entry plus a count, and entries that share a label collapse
+/// under it: `100.100.100.100 (Tailscale MagicDNS), fd7a::53 (Tailscale MagicDNS)` becomes
+/// `Tailscale MagicDNS (100.100.100.100 +1)`. The result is cut to `max` characters with `…`.
+pub fn target(target: &str, max: usize) -> String {
+    let entries: Vec<(&str, Option<&str>)> = target
+        .split(", ")
+        .map(|entry| match entry.strip_suffix(')').and_then(|e| e.split_once(" (")) {
+            Some((address, label)) => (address, Some(label)),
+            None => (entry, None),
+        })
+        .collect();
+    let more = |n: usize| if n > 1 { format!(" +{}", n - 1) } else { String::new() };
+    let short = match entries.as_slice() {
+        [] | [_] => target.to_string(),
+        [(address, Some(label)), rest @ ..] if rest.iter().all(|(_, l)| *l == Some(*label)) => {
+            format!("{label} ({address}{})", more(entries.len()))
+        }
+        [(address, label), ..] => {
+            let label = label.map(|l| format!(" ({l})")).unwrap_or_default();
+            format!("{address}{label}{}", more(entries.len()))
+        }
+    };
+    truncate(&short, max)
+}
+
+/// Cuts `text` to at most `max` characters, ending with `…` when cut.
+pub fn truncate(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    let mut out: String = text.chars().take(max.saturating_sub(1)).collect();
+    out.push('…');
+    out
+}
+
 pub fn status_icon(status: Status) -> &'static str {
     match status {
         Status::Pass => "✔",
@@ -155,5 +192,15 @@ mod tests {
         assert_eq!(loss(0.0), "0% loss");
         assert_eq!(loss(2.5), "2.5% loss");
         assert_eq!(duration(SignedDuration::from_secs(4800)), "1 h 20 min");
+    }
+
+    #[test]
+    fn targets() {
+        let dns = "100.100.100.100 (Tailscale MagicDNS), fd7a:115c:a1e0::53 (Tailscale MagicDNS)";
+        assert_eq!(target(dns, 40), "Tailscale MagicDNS (100.100.100.100 +1)");
+        assert_eq!(target("192.168.1.1, 1.1.1.1 (Cloudflare)", 40), "192.168.1.1 +1");
+        assert_eq!(target("Cloudflare · Google · Quad9", 40), "Cloudflare · Google · Quad9");
+        assert_eq!(target("100.64.0.1 (AS64500 Example Fiber)", 40), "100.64.0.1 (AS64500 Example Fiber)");
+        assert_eq!(target("abcdef", 4), "abc…");
     }
 }
