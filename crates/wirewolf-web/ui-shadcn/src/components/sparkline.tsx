@@ -21,7 +21,8 @@ export function Sparkline({
   const W = 120
   const H = 32
   const pts = samples.filter((s) => s.rtt_ms != null)
-  if (samples.length === 0) {
+  // Live mode samples every 30s; a line from one or two points just looks like a glitch.
+  if (pts.length < 3) {
     return <div className={className} aria-hidden />
   }
   const t0 = now - SPARK_WINDOW_MS

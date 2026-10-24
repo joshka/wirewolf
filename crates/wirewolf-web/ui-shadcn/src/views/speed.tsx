@@ -78,6 +78,11 @@ export function SpeedView() {
           <CardDescription>{done.length} completed tests</CardDescription>
         </CardHeader>
         <CardContent className="px-2 sm:px-4">
+          {data.length === 0 ? (
+            <p className="grid h-40 place-items-center rounded-lg border border-dashed text-sm text-muted-foreground">
+              Completed tests will chart here.
+            </p>
+          ) : (
           <ChartContainer config={config} className="aspect-auto h-64 w-full">
             <AreaChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
               <defs>
@@ -111,11 +116,12 @@ export function SpeedView() {
                   />
                 }
               />
-              <Area dataKey="down" type="monotone" stroke="var(--color-down)" fill="url(#fill-down)" strokeWidth={2} isAnimationActive={false} />
-              <Area dataKey="up" type="monotone" stroke="var(--color-up)" fill="url(#fill-up)" strokeWidth={2} isAnimationActive={false} />
+              <Area dataKey="down" type="monotone" stroke="var(--color-down)" fill="url(#fill-down)" strokeWidth={2} dot={data.length < 3} isAnimationActive={false} />
+              <Area dataKey="up" type="monotone" stroke="var(--color-up)" fill="url(#fill-up)" strokeWidth={2} dot={data.length < 3} isAnimationActive={false} />
               <ChartLegend content={<ChartLegendContent />} />
             </AreaChart>
           </ChartContainer>
+          )}
         </CardContent>
       </Card>
 
