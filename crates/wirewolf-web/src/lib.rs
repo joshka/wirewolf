@@ -41,7 +41,18 @@ pub fn router_with_auth(hub: Hub, auth: Arc<AuthState>) -> Router {
     let router = Router::new().nest("/api/v1", api).merge(auth::routes());
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
-    router.layer(Extension(auth)).with_state(hub)
+    router.layer(Extension(auth)).layer(axum::middleware::map_response(security_headers)).with_state(hub)
+}
+
+/// Headers for every response: no MIME sniffing, no framing (clickjacking the settings page), and
+/// no referrer leaking a dashboard URL to other sites.
+async fn security_headers(mut res: Response) -> Response {
+    use axum::http::{HeaderValue, header};
+    let h = res.headers_mut();
+    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
+    res
 }
 
 /// The JSON + SSE API. Mount under `/api/v1`.
@@ -317,6 +328,14 @@ mod tests {
         assert!(prompt.starts_with(brief::PROMPT) && prompt.contains("<brief>\n# wirewolf brief"), "{prompt}");
         assert_eq!(get("/api/v1/brief?incident=nope").await.0, StatusCode::NOT_FOUND);
         assert_eq!(get("/api/v1/brief?window=soon").await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn responses_carry_security_headers() {
+        let hub = Hub::new(wirewolf_core::demo::meta("dns_down"));
+        let res = router(hub).oneshot(Request::get("/api/v1/meta").body(Body::empty()).unwrap()).await.unwrap();
+        assert_eq!(res.headers()["x-content-type-options"], "nosniff");
+        assert_eq!(res.headers()["x-frame-options"], "DENY");
     }
 
     #[tokio::test]
