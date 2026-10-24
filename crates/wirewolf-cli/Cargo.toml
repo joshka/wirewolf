@@ -21,3 +21,4 @@ wirewolf-web = { version = "0.0.0", path = "../wirewolf-web" }
 
 [features]
 ui-shadcn = ["wirewolf-web/ui-shadcn"]
+ui-htmx = ["wirewolf-web/ui-htmx"]

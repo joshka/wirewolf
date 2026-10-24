@@ -22,12 +22,16 @@ use wirewolf_core::{Command, Hub};
 
 #[cfg(feature = "ui-shadcn")]
 mod ui_shadcn;
+#[cfg(feature = "ui-htmx")]
+mod ui_htmx;
 
 /// The full app: the API under `/api/v1` plus the UI.
 pub fn router(hub: Hub) -> Router {
     let router = Router::new().nest("/api/v1", api_router()).route("/", get(index));
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
+    #[cfg(feature = "ui-htmx")]
+    let router = ui_htmx::mount(router);
     router.with_state(hub)
 }
 
