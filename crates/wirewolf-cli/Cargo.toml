@@ -22,5 +22,3 @@ wirewolf-tui = { version = "0.0.0", path = "../wirewolf-tui" }
 
 [features]
 ui-shadcn = ["wirewolf-web/ui-shadcn"]
-ui-htmx = ["wirewolf-web/ui-htmx"]
-ui-topcoat = ["wirewolf-web/ui-topcoat"]

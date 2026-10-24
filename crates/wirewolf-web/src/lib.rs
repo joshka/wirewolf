@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::Stream;
@@ -22,18 +22,12 @@ use wirewolf_core::{Command, Hub};
 
 #[cfg(feature = "ui-shadcn")]
 mod ui_shadcn;
-#[cfg(feature = "ui-htmx")]
-mod ui_htmx;
 
 /// The full app: the API under `/api/v1` plus the UI.
 pub fn router(hub: Hub) -> Router {
     let router = Router::new().nest("/api/v1", api_router()).route("/", get(index));
     #[cfg(feature = "ui-shadcn")]
     let router = router.merge(ui_shadcn::router());
-    #[cfg(feature = "ui-htmx")]
-    let router = ui_htmx::mount(router);
-    #[cfg(feature = "ui-topcoat")]
-    let router = wirewolf_ui_topcoat::mount(router, hub.clone());
     router.with_state(hub)
 }
 
@@ -57,8 +51,9 @@ pub async fn serve(hub: Hub, addr: SocketAddr) -> std::io::Result<()> {
     axum::serve(listener, router(hub)).await
 }
 
-async fn index() -> Html<&'static str> {
-    Html(include_str!("placeholder.html"))
+/// The dashboard lives at `/ui/shadcn/` until it moves to the root.
+async fn index() -> axum::response::Redirect {
+    axum::response::Redirect::temporary("/ui/shadcn/")
 }
 
 async fn meta(State(hub): State<Hub>) -> impl IntoResponse {
