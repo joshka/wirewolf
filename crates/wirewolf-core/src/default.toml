@@ -155,6 +155,20 @@ db = "wirewolf.db"
 # How long to keep history. WIREWOLF_RETENTION, --retention.
 retention = "30d"
 
+[notify]
+# Where to send a message when an incident opens, gets worse, or closes. Each channel is off while
+# its URL is empty. Settings has a "Send test" button.
+# An ntfy topic URL, such as "https://ntfy.sh/my-wirewolf", and an access token if it's protected.
+ntfy = ""
+ntfy_token = ""
+# A URL to POST JSON to: { event, text, content, host, incident }. Slack and Discord webhooks read
+# `text` and `content`; Home Assistant can use the whole body.
+webhook = ""
+# The least severe incident that notifies: "degraded" or "down".
+min_severity = "degraded"
+# Also notify when an incident closes.
+resolved = true
+
 [log]
 # Which log lines to keep: a level (error, warn, info, debug, trace), optionally per module, as
 # in RUST_LOG. For example "info,wirewolf_probe=debug". The Logs page can change it without a

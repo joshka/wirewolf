@@ -97,7 +97,7 @@ pub async fn run(hub: Hub, scenario: String) {
                     let kind = kind_at(&scenario, started.elapsed());
                     tokio::spawn(speed_test(hub.clone(), kind));
                 }
-                Command::RunSpeedTest | Command::ApplyConfig(_) => {}
+                Command::RunSpeedTest | Command::ApplyConfig(_) | Command::TestNotification(_) => {}
             }
         }
     }

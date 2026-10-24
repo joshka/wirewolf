@@ -261,6 +261,8 @@ pub fn run() -> anyhow::Result<()> {
         }
         let auth_config = &loaded.config.auth;
         logs.add_secret(&auth_config.client_secret);
+        logs.add_secret(&loaded.config.notify.ntfy_token);
+        logs.add_secret(&loaded.config.notify.webhook);
         if !auth_config.client_secret_file.is_empty()
             && let Ok(secret) = std::fs::read_to_string(&auth_config.client_secret_file)
         {

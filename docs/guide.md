@@ -334,6 +334,28 @@ A poor grade means your router's queues fill up when the line is busy, so calls 
 while anything big is downloading or uploading. Smart queue management (SQM, such as `cake` or
 `fq_codel`) on the router usually fixes it.
 
+## Notifications
+
+wirewolf can send a message when an incident opens, gets worse, or closes. Set it up in Settings →
+Notifications, or under `[notify]` in `wirewolf.toml`:
+
+```toml
+[notify]
+ntfy = "https://ntfy.sh/my-wirewolf"   # an ntfy topic URL; empty is off
+ntfy_token = ""                        # for a protected topic
+webhook = ""                           # a URL to POST JSON to; empty is off
+min_severity = "degraded"              # or "down" for outages only
+resolved = true                        # also notify when an incident closes
+```
+
+The webhook body is `{ event, text, content, host, incident }`, where `event` is `opened`, `worse`,
+`resolved`, or `test`. Slack reads `text` and Discord reads `content`, so their incoming-webhook URLs
+work as they are; a Home Assistant webhook automation gets the whole body. **Send test** in
+Settings sends one with the saved settings, and Logs → Activity says whether it went through.
+
+The token and webhook URL are secrets: visitors who can't change settings don't see them, and
+they're never logged.
+
 ## The connection report
 
 Incidents → **Connection report** (`/report`) summarizes the last 7 or 30 days for your ISP:

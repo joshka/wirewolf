@@ -109,6 +109,7 @@ export interface Config {
   web: { captive_portal: string; tls_host: string; sites: string[] }
   thresholds: Record<"gateway" | "isp" | "internet" | "dns" | "targets", Limits>
   incidents: { open_after: number; close_after: number }
+  notify?: { ntfy: string; ntfy_token: string; webhook: string; min_severity: "degraded" | "down"; resolved: boolean }
   speed: { backend: string; interval: string; server: string; streams: number; duration: string; plan_down_mbps?: number; plan_up_mbps?: number }
   storage: { db: string; retention: string }
   /** Server log filter (1.6). */
@@ -277,6 +278,8 @@ export const api = {
   incidents: () => get<Incident[]>("/incidents").then((x) => x ?? []),
   incident: (id: string) => get<Incident>(`/incidents/${encodeURIComponent(id)}`),
   setScenario: (id: string) => post("/demo/scenario", { id }),
+  /** Sends a test notification with the saved `[notify]` settings (API 1.7). */
+  testNotification: () => post("/notify/test"),
   /** `GET /brief/prompt`: the AI prompt plus brief, as text (1.5). */
   briefPrompt: async (q: { incident?: string; redact?: boolean } = {}) => {
     const p = new URLSearchParams({ redact: String(q.redact ?? true) })

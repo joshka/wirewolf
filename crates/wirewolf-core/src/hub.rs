@@ -34,6 +34,9 @@ pub enum Command {
     SetScenario(String),
     /// A saved config to use from the next probe cycle on. Live mode only.
     ApplyConfig(Arc<crate::config::Config>),
+    /// Send a test notification with the current `[notify]` settings, recording who asked.
+    /// Live mode only.
+    TestNotification(Option<String>),
 }
 
 #[derive(Debug, Clone)]

@@ -89,9 +89,20 @@ pub fn api_router() -> Router<Hub> {
         .route("/brief/prompt", get(brief_prompt))
         .route("/demo/scenario", post(set_scenario))
         .route("/metrics", get(metrics))
+        .route("/notify/test", post(test_notification))
         .route("/export/history.csv", get(export_history))
         .route("/export/incidents.csv", get(export_incidents))
         .route("/export/speed.csv", get(export_speed))
+}
+
+/// Sends a test notification with the saved `[notify]` settings. The outcome lands in the
+/// activity timeline. `404` in demo mode, which never notifies.
+async fn test_notification(State(hub): State<Hub>, access: Option<Extension<auth::Access>>) -> StatusCode {
+    if hub.meta().mode == "demo" {
+        return StatusCode::NOT_FOUND;
+    }
+    hub.send(Command::TestNotification(access.and_then(|a| a.0.user.clone())));
+    StatusCode::ACCEPTED
 }
 
 /// The current state for Prometheus to scrape.
@@ -164,6 +175,9 @@ async fn config(State(hub): State<Hub>, access: Option<Extension<auth::Access>>)
         Some(mut view) => {
             if !access.is_some_and(|a| a.can_write) {
                 view.config.auth = Default::default();
+                // Webhook URLs and tokens grant access to the user's channels.
+                view.config.notify.ntfy_token = String::new();
+                view.config.notify.webhook = String::new();
                 view.save_path = None;
             }
             Json(view).into_response()

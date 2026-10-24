@@ -39,6 +39,7 @@ publishes a live snapshot every 2s.
 | GET | `/api/v1/logs/events?level=&target=&q=` | SSE: each new `LogLine` as a `log` event, same filters (1.6). Needs a user who can write |
 | PUT | `/api/v1/logs/filter` | Body `{"filter":"info,wirewolf_probe=debug"}`. Changes the log filter now and saves it as `log.filter` when it can (1.6). `200` `{ filter, saved }`, `422` `{ errors: [FieldError] }` |
 | POST | `/api/v1/demo/scenario` | Body `{"id":"dns_down"}`. Returns `202`, `422` for an unknown id, or `404` in live mode |
+| POST | `/api/v1/notify/test` | Sends a test notification with the saved `[notify]` settings (1.7). `202`; the outcome is recorded as a `config` activity. `404` in demo mode |
 | GET | `/api/v1/metrics` | `text/plain`: the current state in the Prometheus text format (1.7). See below |
 | GET | `/api/v1/export/history.csv?hop=&since=&until=` | `text/csv` download of samples, same filters as `/history` (1.7). Columns: `at, hop, status, rtt_ms, jitter_ms, loss_pct` |
 | GET | `/api/v1/export/incidents.csv` | `text/csv` download of incidents, newest first (1.7). Columns: `id, started, ended, duration_s, severity, blame, headline` |

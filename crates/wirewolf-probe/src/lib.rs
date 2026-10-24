@@ -20,6 +20,7 @@ use wirewolf_core::{Command, Hub};
 pub mod assess;
 pub mod icmp;
 pub mod measure;
+pub mod notify;
 pub mod ports;
 pub mod speed;
 pub mod store;
@@ -148,6 +149,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
     if !hub.activity().iter().find(|a| a.kind == ActivityKind::Probe).is_some_and(|a| a.message == capability) {
         hub.record(ActivityKind::Probe, capability, None, None);
     }
+    tokio::spawn(notify::run(hub.clone()));
     let mut ticker = probe_ticker(&config);
     let mut speed_ticker = speed_ticker_for(&hub, &config);
     let mut upstream_fault = false;
@@ -211,6 +213,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
             Some(command) = commands.recv() => match command {
                 Command::RunSpeedTest => start_speed(&hub, &config),
                 Command::SetScenario(_) => {}
+                Command::TestNotification(actor) => drop(tokio::spawn(notify::test(hub.clone(), actor))),
                 Command::ApplyConfig(new) => match measure::Prober::new(new.clone()) {
                     Ok(p) => {
                         tracing::info!("applying saved settings from the next cycle");

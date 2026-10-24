@@ -242,6 +242,33 @@ export function SettingsView() {
           </Field>
         </Rows>
       </Section>
+      {draft.notify && (
+        <Section
+          ctx={ctx}
+          keys={KEYS.notify}
+          title="Notifications"
+          description="A message when an incident opens, gets worse, or closes. Each channel is off while its URL is empty."
+        >
+          <Rows>
+            <Field ctx={ctx} k="notify.ntfy" label="ntfy topic" hint="A topic URL, like https://ntfy.sh/my-wirewolf">
+              <Text ctx={ctx} k="notify.ntfy" width="long" placeholder="off" />
+            </Field>
+            <Field ctx={ctx} k="notify.ntfy_token" label="ntfy token" hint="For a protected topic">
+              <Text ctx={ctx} k="notify.ntfy_token" width="medium" placeholder="none" secret />
+            </Field>
+            <Field ctx={ctx} k="notify.webhook" label="Webhook" hint="POSTs JSON; Slack and Discord read its text, Home Assistant the whole body">
+              <Text ctx={ctx} k="notify.webhook" width="long" placeholder="off" secret />
+            </Field>
+            <Field ctx={ctx} k="notify.min_severity" label="Notify from">
+              <Choice ctx={ctx} k="notify.min_severity" options={{ degraded: "Degraded", down: "Down only" }} />
+            </Field>
+            <Field ctx={ctx} k="notify.resolved" label="When resolved" hint="Also notify when an incident closes">
+              <Toggle ctx={ctx} k="notify.resolved" />
+            </Field>
+          </Rows>
+          <TestNotification canEdit={canEdit} unsaved={dirty} />
+        </Section>
+      )}
       <Section ctx={ctx} keys={KEYS.log} title="Logging" description="Which server log lines to keep. Applies at once, without a restart. The Logs page shows them.">
         <Rows>
           <Field ctx={ctx} k="log.filter" label="Filter" hint='A level, optionally per module: "info,wirewolf_probe=debug"'>
@@ -460,10 +487,12 @@ const WIDTH = { short: "sm:w-28", medium: "sm:w-56", long: "sm:w-96" } as const
 /** Hides the browser's number spinners; the values are typed, not nudged. */
 const NO_SPIN = "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
 
-function Text({ ctx, k, placeholder, width }: { ctx: Ctx; k: string; placeholder?: string; width: keyof typeof WIDTH }) {
+function Text({ ctx, k, placeholder, width, secret }: { ctx: Ctx; k: string; placeholder?: string; width: keyof typeof WIDTH; secret?: boolean }) {
   return (
     <Input
       id={k}
+      type={secret ? "password" : undefined}
+      autoComplete={secret ? "off" : undefined}
       value={String(getPath(ctx.draft, k) ?? "")}
       placeholder={placeholder}
       disabled={!editable(ctx, k)}
@@ -850,9 +879,31 @@ const KEYS = {
   dns: ["dns.system", "dns.record_types", "dns.resolvers", "dns.queries"],
   internet: ["internet.port", "internet.icmp", "internet.targets"],
   web: ["web.captive_portal", "web.tls_host", "web.sites"],
+  notify: ["notify.ntfy", "notify.ntfy_token", "notify.webhook", "notify.min_severity", "notify.resolved"],
   server: ["server.listen", "server.allowed_hosts", "storage.db", "storage.retention"],
 }
 const ALL_KEYS = ["targets", ...Object.values(KEYS).flat()]
+
+/** Sends a test message with the saved settings; the outcome lands in the activity log. */
+function TestNotification({ canEdit, unsaved }: { canEdit: boolean; unsaved: boolean }) {
+  const [busy, setBusy] = useState(false)
+  const send = async () => {
+    setBusy(true)
+    const status = await api.testNotification().catch(() => 0)
+    setBusy(false)
+    if (status === 202) toast.success("Test notification sent", { description: "Whether it arrived is on the Logs page, under Activity." })
+    else if (status === 404) toast.info("The demo doesn't send notifications")
+    else toast.error(`Couldn't send a test notification (HTTP ${status})`)
+  }
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <Button variant="outline" size="sm" onClick={send} disabled={!canEdit || unsaved || busy}>
+        Send test
+      </Button>
+      {unsaved && <span className="text-xs text-muted-foreground">Save first: the test uses the saved settings.</span>}
+    </div>
+  )
+}
 
 function differs(a: unknown, b: unknown, key: string) {
   return JSON.stringify(getPath(a, key)) !== JSON.stringify(getPath(b, key))

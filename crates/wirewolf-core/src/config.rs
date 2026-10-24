@@ -31,6 +31,8 @@ pub struct Config {
     pub incidents: Incidents,
     pub speed: Speed,
     pub storage: Storage,
+    /// Where to send a message when an incident opens, gets worse, or closes.
+    pub notify: Notify,
     /// Server log verbosity.
     pub log: Log,
     /// Who may sign in, and what anonymous visitors may do.
@@ -393,6 +395,30 @@ impl Default for Thresholds {
 impl Default for Speed {
     fn default() -> Self {
         Self { backend: "cloudflare".into(), interval: Dur::secs(60 * 60), server: String::new(), streams: 8, duration: Dur::secs(10), plan_down_mbps: 0.0, plan_up_mbps: 0.0 }
+    }
+}
+
+/// Notifications. Each channel is off while its URL is empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Notify {
+    /// An ntfy topic URL, such as `https://ntfy.sh/my-wirewolf`.
+    pub ntfy: String,
+    /// An ntfy access token, for a protected topic. A secret.
+    pub ntfy_token: String,
+    /// A URL to POST a JSON message to. The body's `text` and `content` fields suit Slack and
+    /// Discord webhooks; Home Assistant can use the whole body. Treated as a secret, since
+    /// webhook URLs usually embed one.
+    pub webhook: String,
+    /// The least severe incident that notifies: `degraded` or `down`.
+    pub min_severity: String,
+    /// Also notify when an incident closes.
+    pub resolved: bool,
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Self { ntfy: String::new(), ntfy_token: String::new(), webhook: String::new(), min_severity: "degraded".into(), resolved: true }
     }
 }
 
