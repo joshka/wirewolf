@@ -65,7 +65,7 @@ impl Prober {
             gateway_probe(self.icmp, gw),
             isp_probe(self.icmp, trace),
             internet_probe(has_v6),
-            dns_probe(),
+            dns_probe(gw),
             web_probe(&self.http, &self.tls),
             async {
                 if refresh { Some(public_ips(&self.http, has_v6).await) } else { None }
@@ -215,23 +215,74 @@ async fn tcp_attempts(addr: SocketAddr) -> TcpOutcome {
     TcpOutcome::Attempts { rtts, error }
 }
 
-async fn dns_probe() -> Vec<DnsResult> {
+async fn dns_probe(gateway: Option<IpAddr>) -> Vec<DnsResult> {
     let mut futures = Vec::new();
     let system = hickory_resolver::system_conf::read_system_conf().map(|(c, _)| c.name_servers().iter().map(|n| n.ip).collect::<Vec<_>>()).unwrap_or_default();
     let mut seen = Vec::new();
     for ip in system.into_iter().filter(|ip| !seen.contains(ip) && { seen.push(*ip); true }).take(2) {
-        futures.push(resolve("System resolver".to_string(), ip, true));
+        futures.push(resolve("System resolver".to_string(), ip, true, gateway));
     }
     for (name, ip) in PUBLIC_RESOLVERS {
-        futures.push(resolve(name.to_string(), ip, false));
+        futures.push(resolve(name.to_string(), ip, false, gateway));
     }
     futures_util::future::join_all(futures).await
 }
 
-async fn resolve(name: String, ip: IpAddr, system: bool) -> DnsResult {
-    let outcome = lookup(ip).await;
-    DnsResult { name, server: ip.to_string(), system, outcome }
+async fn resolve(name: String, ip: IpAddr, system: bool, gateway: Option<IpAddr>) -> DnsResult {
+    let known = known_resolver(ip, gateway);
+    // Ask local resolvers what software they run; Pi-hole and dnsmasq say so in `version.bind`.
+    // Well-known addresses are labeled by address (Tailscale forwards CHAOS queries upstream).
+    let local = match ip {
+        IpAddr::V4(v4) => v4.is_private(),
+        IpAddr::V6(v6) => v6.is_unique_local(),
+    };
+    let (outcome, software) = tokio::join!(lookup(ip), async {
+        if system && local && known.is_none_or(|k| k == "your router") { version_bind(ip).await } else { None }
+    });
+    let label = match (known, software.as_deref().and_then(resolver_software)) {
+        (Some("your router"), Some(sw)) => Some(format!("your router, {sw}")),
+        (Some(k), _) => Some(k.to_string()),
+        (None, sw) => sw,
+    };
+    DnsResult { name, server: ip.to_string(), system, label, outcome }
 }
+
+/// A CHAOS-class TXT query for `version.bind`, which many resolvers answer with their software.
+async fn version_bind(ip: IpAddr) -> Option<String> {
+    let socket = tokio::net::UdpSocket::bind(if ip.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" }).await.ok()?;
+    let id = fastrand::u16(..);
+    let mut q = id.to_be_bytes().to_vec();
+    q.extend([0x01, 0x00, 0, 1, 0, 0, 0, 0, 0, 0]);
+    q.extend(b"\x07version\x04bind\x00");
+    q.extend([0, 16, 0, 3]); // TXT, CH
+    socket.send_to(&q, (ip, 53)).await.ok()?;
+    let mut buf = [0u8; 512];
+    let len = tokio::time::timeout(Duration::from_secs(1), socket.recv(&mut buf)).await.ok()?.ok()?;
+    parse_txt_answer(&buf[..len], id)
+}
+
+/// Returns the first TXT string from a response to the query built in [`version_bind`].
+fn parse_txt_answer(msg: &[u8], id: u16) -> Option<String> {
+    if msg.len() < 12 || u16::from_be_bytes([msg[0], msg[1]]) != id || u16::from_be_bytes([msg[6], msg[7]]) == 0 {
+        return None;
+    }
+    // Skip the question: our qname is 14 bytes, then type and class.
+    let mut i = 12 + 14 + 4;
+    // Answer name: a pointer (2 bytes) or labels.
+    if *msg.get(i)? & 0xc0 == 0xc0 {
+        i += 2;
+    } else {
+        while *msg.get(i)? != 0 {
+            i += usize::from(msg[i]) + 1;
+        }
+        i += 1;
+    }
+    i += 10; // type, class, ttl, rdlength
+    let n = usize::from(*msg.get(i)?);
+    let txt = msg.get(i + 1..i + 1 + n)?;
+    Some(String::from_utf8_lossy(txt).into_owned())
+}
+
 
 async fn lookup(ip: IpAddr) -> Result<DnsAnswer, String> {
     let config = ResolverConfig::from_name_servers(vec![NameServerConfig::udp_and_tcp(ip)]);
@@ -310,4 +361,19 @@ fn ms(d: Duration) -> f64 {
 
 fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_version_bind_answer() {
+        let mut m = vec![0x12, 0x34, 0x85, 0x80, 0, 1, 0, 1, 0, 0, 0, 0];
+        m.extend(b"\x07version\x04bind\x00\x00\x10\x00\x03");
+        m.extend([0xc0, 0x0c, 0, 16, 0, 3, 0, 0, 0, 0, 0, 13, 12]);
+        m.extend(b"dnsmasq-2.85");
+        assert_eq!(parse_txt_answer(&m, 0x1234).as_deref(), Some("dnsmasq-2.85"));
+        assert_eq!(parse_txt_answer(&m, 0x9999), None);
+    }
 }

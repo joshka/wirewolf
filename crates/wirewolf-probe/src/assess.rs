@@ -8,8 +8,10 @@ use wirewolf_core::model::{Check, Evidence, Hop, HopKind, HopMetrics, Status};
 /// Thresholds for "degraded". Loss is percent, times are milliseconds.
 pub mod limits {
     pub const GATEWAY_LOSS_WARN: f64 = 10.0;
-    pub const GATEWAY_RTT_WARN: f64 = 50.0;
-    pub const GATEWAY_JITTER_WARN: f64 = 20.0;
+    /// Wi-Fi to the router is routinely 5–20 ms, and routers answer ICMP at low priority, so only
+    /// a clearly slow median counts.
+    pub const GATEWAY_RTT_WARN: f64 = 30.0;
+    pub const GATEWAY_JITTER_WARN: f64 = 30.0;
     pub const INTERNET_LOSS_WARN: f64 = 10.0;
     pub const INTERNET_RTT_WARN: f64 = 150.0;
     pub const INTERNET_JITTER_WARN: f64 = 40.0;
@@ -102,7 +104,47 @@ pub struct DnsResult {
     pub name: String,
     pub server: String,
     pub system: bool,
+    /// What the resolver is, if known, for example "Tailscale MagicDNS" or "Pi-hole".
+    pub label: Option<String>,
     pub outcome: Result<DnsAnswer, String>,
+}
+
+/// Names a resolver from its address alone. `gateway` is the default gateway.
+pub fn known_resolver(ip: IpAddr, gateway: Option<IpAddr>) -> Option<&'static str> {
+    let s = ip.to_string();
+    Some(match s.as_str() {
+        "100.100.100.100" | "fd7a:115c:a1e0::53" => "Tailscale MagicDNS",
+        "1.1.1.1" | "1.0.0.1" | "2606:4700:4700::1111" | "2606:4700:4700::1001" => "Cloudflare",
+        "1.1.1.2" | "1.0.0.2" | "1.1.1.3" | "1.0.0.3" => "Cloudflare for Families",
+        "8.8.8.8" | "8.8.4.4" | "2001:4860:4860::8888" | "2001:4860:4860::8844" => "Google Public DNS",
+        "9.9.9.9" | "149.112.112.112" | "2620:fe::fe" | "2620:fe::9" => "Quad9",
+        "94.140.14.14" | "94.140.15.15" => "AdGuard DNS",
+        "208.67.222.222" | "208.67.220.220" => "OpenDNS",
+        _ if s.starts_with("45.90.28.") || s.starts_with("45.90.30.") => "NextDNS",
+        _ if Some(ip) == gateway => "your router",
+        _ => return None,
+    })
+}
+
+/// Names DNS software from its `version.bind` CHAOS TXT answer.
+pub fn resolver_software(version: &str) -> Option<String> {
+    let v = version.to_ascii_lowercase();
+    let name = if v.contains("pi-hole") {
+        "Pi-hole"
+    } else if v.contains("adguard") {
+        "AdGuard Home"
+    } else if v.contains("dnsmasq") {
+        "dnsmasq"
+    } else if v.contains("unbound") {
+        "Unbound"
+    } else if v.contains("powerdns") {
+        "PowerDNS"
+    } else if v.contains("bind") || v.starts_with('9') {
+        "BIND"
+    } else {
+        return None;
+    };
+    Some(format!("{name} ({})", sanitize(version)))
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +250,11 @@ fn worst(statuses: impl IntoIterator<Item = Status>) -> Status {
 pub fn hops(m: &Measurements) -> Vec<Hop> {
     let internet = internet(&m.internet);
     let internet_ok = matches!(internet.status, Status::Pass | Status::Warn);
-    let mut hops = vec![host(&m.host), gateway(&m.gateway, &m.host, internet_ok), isp(&m.isp, internet_ok, &internet), internet, dns(&m.dns), web(&m.web)];
+    // The fastest reply from beyond the gateway. Traffic through the router can't be faster than
+    // the router itself, so if this beats the gateway's RTT, the router is just slow to answer
+    // probes.
+    let downstream = [median(&ok(&m.isp.rtts)), internet.metrics.rtt_ms].into_iter().flatten().reduce(f64::min);
+    let mut hops = vec![host(&m.host), gateway(&m.gateway, &m.host, internet_ok, downstream), isp(&m.isp, internet_ok, &internet), internet, dns(&m.dns), web(&m.web)];
     // Hard breaks on the path itself (host → internet) make later failures collateral.
     if let Some(broken) = hops.iter().take(4).position(|h| h.status == Status::Fail) {
         let label = hops[broken].label.clone();
@@ -290,7 +336,7 @@ fn cgnat(h: &HostInfo) -> String {
     }
 }
 
-pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool) -> Hop {
+pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt: Option<f64>) -> Hop {
     let target = h.gateway.map(|g| g.to_string());
     let base = |status, summary: String, metrics, evidence: Vec<Evidence>, checks| Hop {
         id: "gateway".into(),
@@ -311,7 +357,7 @@ pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool) -> Hop {
         PingMethod::Tcp => format!("TCP connect × {} (ICMP unavailable)", g.rtts.len()),
         PingMethod::None => "none".into(),
     };
-    let evidence = vec![ev("address", addr), ev("method", &method)];
+    let mut evidence = vec![ev("address", addr), ev("method", &method)];
     let m = metrics(&g.rtts);
     let lost = m.loss_pct.unwrap_or(100.0);
     if g.method == PingMethod::None || lost >= 100.0 {
@@ -328,9 +374,13 @@ pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool) -> Hop {
         }
         return base(Status::Fail, "no response".into(), m, evidence, vec![check(&method_name(g.method), Status::Fail, format!("{} sent, all lost", g.rtts.len()), None)]);
     }
-    let degraded = lost >= limits::GATEWAY_LOSS_WARN
-        || m.rtt_ms.is_some_and(|r| r > limits::GATEWAY_RTT_WARN)
-        || m.jitter_ms.is_some_and(|j| j > limits::GATEWAY_JITTER_WARN);
+    let deprioritized = matches!((m.rtt_ms, downstream_rtt), (Some(gw), Some(down)) if down < gw);
+    if deprioritized {
+        evidence.push(ev("note", format!("hops beyond answer faster ({:.1} ms), so the router deprioritizes probes; its RTT isn't the bottleneck", downstream_rtt.unwrap_or_default())));
+    }
+    let slow = !deprioritized
+        && (m.rtt_ms.is_some_and(|r| r > limits::GATEWAY_RTT_WARN) || m.jitter_ms.is_some_and(|j| j > limits::GATEWAY_JITTER_WARN));
+    let degraded = lost >= limits::GATEWAY_LOSS_WARN || slow;
     let status = if degraded { Status::Warn } else { Status::Pass };
     let detail = format!("{} sent, {:.0}% lost", g.rtts.len(), lost);
     base(status, summary(&m), m, evidence, vec![check(&method_name(g.method), status, detail, m.rtt_ms)])
@@ -494,7 +544,11 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
 pub fn dns(results: &[DnsResult]) -> Hop {
     let mut checks = Vec::new();
     for r in results {
-        let label = if r.system { format!("{} — ", r.server) } else { String::new() };
+        let label = match (&r.label, r.system) {
+            (Some(l), true) => format!("{} ({l}) — ", r.server),
+            (None, true) => format!("{} — ", r.server),
+            _ => String::new(),
+        };
         checks.push(match &r.outcome {
             Ok(a) if a.expected => check(&r.name, Status::Pass, format!("{label}{} → {}", QUERY_NAME, list(&a.addrs)), Some(a.rtt_ms)),
             Ok(a) => check(&r.name, Status::Warn, format!("{label}unexpected answer {} (filtered or hijacked?)", list(&a.addrs)), Some(a.rtt_ms)),
@@ -506,7 +560,11 @@ pub fn dns(results: &[DnsResult]) -> Hop {
     let sys_ok: Vec<&DnsAnswer> = system.iter().filter_map(|r| r.outcome.as_ref().ok()).collect();
     let pub_ok = public.iter().any(|r| r.outcome.is_ok());
     let sys_rtt = sys_ok.iter().map(|a| a.rtt_ms).fold(None, |m: Option<f64>, r| Some(m.map_or(r, |m| m.min(r))));
-    let servers: Vec<&str> = system.iter().map(|r| r.server.as_str()).collect();
+    let servers: Vec<String> = system.iter().map(|r| match &r.label {
+        Some(l) => format!("{} ({l})", r.server),
+        None => r.server.clone(),
+    }).collect();
+    let via = system.iter().find_map(|r| r.label.as_deref()).map_or("system resolver".to_string(), |l| l.to_string());
     let (status, summary) = if system.is_empty() {
         (Status::Fail, "no system resolver configured".to_string())
     } else if sys_ok.is_empty() && pub_ok {
@@ -516,11 +574,11 @@ pub fn dns(results: &[DnsResult]) -> Hop {
     } else if sys_ok.iter().any(|a| !a.expected) {
         (Status::Warn, "system resolver gives unexpected answers".into())
     } else if sys_rtt.is_some_and(|r| r > limits::DNS_RTT_WARN) {
-        (Status::Warn, format!("slow: {:.1} ms via system resolver", sys_rtt.unwrap()))
+        (Status::Warn, format!("slow: {:.1} ms via {via}", sys_rtt.unwrap()))
     } else if !public.is_empty() && !pub_ok {
-        (Status::Warn, format!("{:.1} ms via system resolver; public resolvers blocked", sys_rtt.unwrap()))
+        (Status::Warn, format!("{:.1} ms via {via}; public resolvers blocked", sys_rtt.unwrap()))
     } else {
-        (Status::Pass, format!("{:.1} ms via system resolver", sys_rtt.unwrap()))
+        (Status::Pass, format!("{:.1} ms via {via}", sys_rtt.unwrap()))
     };
     let sys_loss = (!system.is_empty()).then(|| round1((system.len() - sys_ok.len()) as f64 * 100.0 / system.len() as f64));
     Hop {
@@ -642,6 +700,7 @@ mod tests {
             name: name.into(),
             server: "192.168.1.1".into(),
             system,
+            label: None,
             outcome: Ok(DnsAnswer { rtt_ms: rtt, addrs: QUERY_EXPECT.to_vec(), expected: true }),
         }
     }
@@ -734,6 +793,22 @@ mod tests {
     }
 
     #[test]
+    fn labels_known_resolvers() {
+        let gw = Some(gw());
+        assert_eq!(known_resolver("100.100.100.100".parse().unwrap(), gw), Some("Tailscale MagicDNS"));
+        assert_eq!(known_resolver("192.168.1.1".parse().unwrap(), gw), Some("your router"));
+        assert_eq!(known_resolver("192.168.1.5".parse().unwrap(), gw), None);
+        assert_eq!(resolver_software("dnsmasq-pi-hole-v2.90+1").as_deref(), Some("Pi-hole (dnsmasq-pi-hole-v2.90+1)"));
+        assert_eq!(resolver_software("dnsmasq-2.85").as_deref(), Some("dnsmasq (dnsmasq-2.85)"));
+        let mut m = healthy();
+        m.dns[0].server = "100.100.100.100".into();
+        m.dns[0].label = Some("Tailscale MagicDNS".into());
+        let hop = &hops(&m)[4];
+        assert_eq!(hop.summary, "12.0 ms via Tailscale MagicDNS");
+        assert_eq!(hop.target.as_deref(), Some("100.100.100.100 (Tailscale MagicDNS)"));
+    }
+
+    #[test]
     fn hijacked_dns_answer_warns() {
         let mut m = healthy();
         m.dns[0].outcome = Ok(DnsAnswer { rtt_ms: 5.0, addrs: vec!["10.0.0.1".parse().unwrap()], expected: false });
@@ -785,6 +860,35 @@ mod tests {
         let hop = &hops(&m)[3];
         assert_eq!(hop.status, Status::Warn);
         assert!(hop.summary.starts_with("IPv6 broken"), "{}", hop.summary);
+    }
+
+    #[test]
+    fn wifi_normal_gateway_rtt_does_not_warn() {
+        // Real reading: 9.7 ms median with spiky Wi-Fi jitter, no loss; ISP edge at 6.7 ms.
+        let mut m = healthy();
+        m.gateway.rtts = [3.1, 25.0, 4.2, 9.7, 31.0, 6.0, 9.9, 2.8, 12.0, 9.7].map(Some).to_vec();
+        m.isp.rtts = vec![Some(6.7); 5];
+        let hop = &hops(&m)[1];
+        assert_eq!(hop.status, Status::Pass, "{hop:#?}");
+        assert!(hop.evidence.iter().any(|e| e.key == "note"));
+    }
+
+    #[test]
+    fn slow_gateway_warns_when_nothing_beyond_is_faster() {
+        let mut m = healthy();
+        m.gateway.rtts = vec![Some(45.0); 20];
+        m.isp.rtts = vec![Some(52.0); 5];
+        for t in &mut m.internet {
+            t.outcome = TcpOutcome::Attempts { rtts: vec![Some(60.0); 5], error: None };
+        }
+        assert_eq!(hops(&m)[1].status, Status::Warn);
+    }
+
+    #[test]
+    fn gateway_loss_warns_even_if_downstream_is_faster() {
+        let mut m = healthy();
+        m.gateway.rtts = rtts(20.0, 20, 4);
+        assert_eq!(hops(&m)[1].status, Status::Warn);
     }
 
     #[test]
