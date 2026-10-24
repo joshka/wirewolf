@@ -18,11 +18,14 @@ tokio = { version = "1.54.1", features = ["net", "rt-multi-thread", "macros", "s
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tracing = "0.1.44"
 wirewolf-core = { version = "0.0.0", path = "../wirewolf-core" }
+wirewolf-ui-topcoat = { version = "0.0.0", path = "../wirewolf-ui-topcoat", optional = true }
 rust-embed = { version = "8.13.0", optional = true, features = ["mime-guess"] }
 
 [features]
-default = ["ui-htmx"]
+default = ["ui-htmx", "ui-topcoat"]
 # The React + Vite + shadcn/ui variant at /ui/shadcn/. Needs Node + pnpm at build time (see build.rs).
 ui-shadcn = ["dep:rust-embed"]
 # Server-rendered HTMX + Basecoat dashboard at /ui/htmx. No build step.
 ui-htmx = ["dep:maud"]
+# Server-rendered Topcoat + Topcoat UI variant at /ui/topcoat. No Node; build.rs fetches the standalone Tailwind CLI.
+ui-topcoat = ["dep:wirewolf-ui-topcoat"]

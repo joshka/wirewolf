@@ -14,3 +14,4 @@ wirewolf-cli = { version = "0.0.0", path = "../wirewolf-cli" }
 [features]
 ui-shadcn = ["wirewolf-cli/ui-shadcn"]
 ui-htmx = ["wirewolf-cli/ui-htmx"]
+ui-topcoat = ["wirewolf-cli/ui-topcoat"]

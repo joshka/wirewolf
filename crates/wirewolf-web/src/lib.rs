@@ -32,6 +32,8 @@ pub fn router(hub: Hub) -> Router {
     let router = router.merge(ui_shadcn::router());
     #[cfg(feature = "ui-htmx")]
     let router = ui_htmx::mount(router);
+    #[cfg(feature = "ui-topcoat")]
+    let router = wirewolf_ui_topcoat::mount(router, hub.clone());
     router.with_state(hub)
 }
 
