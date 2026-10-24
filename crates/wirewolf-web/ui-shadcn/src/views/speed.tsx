@@ -7,7 +7,7 @@ import { useLive } from "@/lib/live"
 import { bytes, mbps, ms } from "@/lib/format"
 
 export function SpeedView() {
-  const { runs, running, latest } = useSpeed()
+  const { runs, running, latest, failed } = useSpeed()
   const incidents = useLive((s) => s.incidents)
   const done = runs.filter((r) => r.state === "complete").length
   return (
@@ -22,9 +22,9 @@ export function SpeedView() {
           </CardAction>
         </CardHeader>
         <CardContent>
-          {running || latest ? (
+          {running || latest || failed ? (
             <div className="max-w-3xl">
-              <SpeedSummary run={running ?? latest} running={!!running} />
+              <SpeedSummary run={running ?? latest} running={!!running} failed={failed} />
             </div>
           ) : (
             <p className="py-6 text-sm text-muted-foreground">No tests yet. Run one to measure throughput and bufferbloat.</p>

@@ -82,7 +82,7 @@ function TargetsCard({ targets }: { targets: Target[] }) {
 }
 
 function SpeedCard() {
-  const { runs, running, latest } = useSpeed()
+  const { runs, running, latest, failed } = useSpeed()
   const now = useNow(60_000)
   return (
     <Card>
@@ -97,9 +97,9 @@ function SpeedCard() {
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-4">
-        {running || latest ? (
+        {running || latest || failed ? (
           <>
-            <SpeedCompact run={running ?? latest} running={!!running} />
+            <SpeedCompact run={running ?? latest} running={!!running} failed={failed} />
             <SpeedChart runs={runs} from={now - 24 * 3600e3} to={now} className="aspect-auto min-h-28 w-full flex-1" />
           </>
         ) : (

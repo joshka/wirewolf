@@ -15,8 +15,12 @@ import { Badge } from "@/components/ui/badge"
 export function useSpeed() {
   const runs = useLive((s) => s.speedRuns)
   const running = runs.find((r) => r.state === "running") ?? null
-  const latest = runs.find((r) => r.state !== "running") ?? null
-  return { runs, running, latest }
+  // A failed test has no numbers, so it mustn't hide the last good result. It's reported
+  // separately, and only while it's newer than that result.
+  const latest = runs.find((r) => r.state === "complete") ?? null
+  const finished = runs.find((r) => r.state !== "running") ?? null
+  const failed = finished?.state === "failed" ? finished : null
+  return { runs, running, latest, failed }
 }
 
 const gradeTone = (g: BloatGrade | null) =>
@@ -47,11 +51,14 @@ export function RunSpeedButton({ running, primary }: { running: boolean; primary
       setBusy(false)
     }
   }
+  const down = useLive((s) => s.snapshot?.verdict.severity === "down")
+  const confirmed = () =>
+    !down || window.confirm("The connection is down, so a speed test will almost certainly fail. Run it anyway?")
   const active = running || busy
   const blocked = writeBlocked(useSession(), "run a speed test")
   return (
     <Gated reason={blocked}>
-      <Button variant={primary ? "default" : "outline"} onClick={start} disabled={active || !!blocked}>
+      <Button variant={primary ? "default" : "outline"} onClick={() => confirmed() && start()} disabled={active || !!blocked}>
         {active ? <Loader2 className="animate-spin" aria-hidden /> : <Play aria-hidden />}
         {running ? "Running…" : "Run now"}
       </Button>
@@ -69,11 +76,20 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
   )
 }
 
+/** A note for a test that failed after `run` (the last good result) was measured. */
+function FailedNote({ failed }: { failed: SpeedRun }) {
+  return (
+    <p role="status" className="text-sm text-fail">
+      Last attempt failed: {failed.error ?? "unknown error"} · <RelTime at={failed.started} />
+    </p>
+  )
+}
+
 /**
  * The speed result body (spec: big down/up, then Idle / Loaded / Bufferbloat tiles, then a meta
  * line). Shows whatever a running test has measured so far.
  */
-export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: boolean }) {
+export function SpeedSummary({ run, running, failed }: { run: SpeedRun | null; running: boolean; failed?: SpeedRun | null }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
   const big = "text-3xl sm:text-4xl"
   return (
@@ -125,9 +141,7 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
           </p>
         )
       )}
-      {run?.state === "failed" && !running && (
-        <p className="rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">Last test failed: {run.error ?? "unknown error"}</p>
-      )}
+      {failed && !running && <FailedNote failed={failed} />}
     </div>
   )
 }
@@ -136,7 +150,7 @@ export function SpeedSummary({ run, running }: { run: SpeedRun | null; running: 
  * One row of numbers for the Now page: down, up, loaded latency, and grade. The Speed page has
  * the full breakdown.
  */
-export function SpeedCompact({ run, running }: { run: SpeedRun | null; running: boolean }) {
+export function SpeedCompact({ run, running, failed }: { run: SpeedRun | null; running: boolean; failed?: SpeedRun | null }) {
   const num = (v: number | null | undefined, digits = 0) => (v == null ? "—" : v.toFixed(digits))
   const stats = [
     { label: "Down", value: num(run?.down_mbps), unit: "Mbps" },
@@ -167,11 +181,11 @@ export function SpeedCompact({ run, running }: { run: SpeedRun | null; running: 
       ) : (
         run && (
           <p className="text-xs text-muted-foreground">
-            {run.state === "failed" ? `Last test failed: ${run.error ?? "unknown error"} · ` : `${run.server ?? run.backend} · `}
-            <RelTime at={run.started} />
+            {run.server ?? run.backend} · <RelTime at={run.started} />
           </p>
         )
       )}
+      {failed && !running && <FailedNote failed={failed} />}
     </div>
   )
 }
