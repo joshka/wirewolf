@@ -119,14 +119,6 @@ pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig, server: Optio
             SpeedRun { state: SpeedState::Failed, progress: None, bloat: None, error: Some(error), ..partial }
         }
     };
-    if finished.state == SpeedState::Complete {
-        tracing::info!(
-            backend = backend.name(),
-            down_mbps = finished.down_mbps,
-            up_mbps = finished.up_mbps,
-            "speed test finished"
-        );
-    }
     hub.upsert_speed(finished);
 }
 

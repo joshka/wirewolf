@@ -6,6 +6,25 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
+### Fixed
+
+- A speed test that never finishes no longer stops all probing. Tests are capped at about
+  twice their duration plus 90 seconds; one that runs over or crashes is marked failed with
+  the reason, and probing resumes.
+- Reloading the dashboard shows the last known page straight away instead of a blank frame.
+- The release workflow pins pnpm, and the Docker build no longer races on the cargo cache
+  when building several platforms.
+
+### Changed
+
+- Logging records state changes (a check starting to fail, and recovering) rather than every
+  probe cycle, so the default `info` level stays quiet when the network is healthy. A
+  finished speed test logs its result.
+- The Logs page gains filter presets, colored console-style lines, and shows when it's
+  streaming.
+
 ## [0.1.0] - 2026-10-24
 
 The first release.
@@ -44,5 +63,6 @@ The first release.
 - A user guide, a deployment guide, and a CLI reference generated from `--help`.
 
 
-[Unreleased]: https://github.com/joshka/wirewolf/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/joshka/wirewolf/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/joshka/wirewolf/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/joshka/wirewolf/releases/tag/v0.1.0
