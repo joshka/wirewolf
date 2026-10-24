@@ -249,3 +249,25 @@ async fn unknown_host_names_are_refused() {
         assert_eq!(status(bad).await, StatusCode::MISDIRECTED_REQUEST, "{bad}");
     }
 }
+
+/// Like Pocket ID can: the ID token has no `groups`, so they come from userinfo.
+#[tokio::test]
+async fn oidc_groups_from_userinfo() {
+    let issuer = start_issuer("127.0.0.1:0", "alice@example.com").await;
+    let dir = temp_dir("userinfo");
+    let config = config::Auth {
+        allowed_emails: vec![],
+        allowed_groups: vec!["wirewolf-admins".into()],
+        redirect_url: "https://wirewolf.lan/auth/callback".into(),
+        ..oidc_config(&issuer, &dir)
+    };
+    let app = app(AuthState::from_config(&config).unwrap(), ELSEWHERE);
+    *issuer.groups.lock().unwrap() = vec!["users".into()];
+    assert_eq!(sign_in(&app, &issuer, "good-code").await.0, StatusCode::FORBIDDEN, "not in the group");
+    *issuer.groups.lock().unwrap() = vec!["users".into(), "wirewolf-admins".into()];
+    let (status, headers, body) = sign_in(&app, &issuer, "good-code").await;
+    assert_eq!(status, StatusCode::SEE_OTHER, "{body}");
+    let set_cookie = headers.get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|c| c.starts_with("wirewolf_session=")).unwrap();
+    assert!(set_cookie.contains("Secure"), "https redirect_url makes cookies Secure behind a plain-HTTP proxy hop: {set_cookie}");
+    std::fs::remove_dir_all(dir).unwrap();
+}

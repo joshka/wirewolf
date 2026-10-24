@@ -30,7 +30,7 @@ use base64::Engine;
 use ipnet::IpNet;
 use openidconnect::core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata};
 use openidconnect::{
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
+    AuthorizationCode, OAuth2TokenResponse, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -361,6 +361,20 @@ impl Oidc {
         Ok(CoreClient::from_provider_metadata(metadata.clone(), ClientId::new(self.client_id.clone()), Some(ClientSecret::new(self.client_secret.clone())))
             .set_redirect_uri(self.redirect_url.clone()))
     }
+
+    /// Groups from the userinfo endpoint, for issuers that leave them out of the ID token. The
+    /// answer must be about the same subject as the ID token.
+    async fn userinfo_groups(&self, access_token: &str, subject: &str) -> Result<Vec<String>, String> {
+        let metadata = self.metadata.get().ok_or("no discovery yet")?;
+        let Some(url) = metadata.userinfo_endpoint() else { return Ok(vec![]) };
+        let res = self.http.get(url.url().clone()).bearer_auth(access_token).send().await.map_err(|e| e.to_string())?;
+        let res = res.error_for_status().map_err(|e| e.to_string())?;
+        let value: serde_json::Value = serde_json::from_slice(&res.bytes().await.map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        if value.get("sub").and_then(|s| s.as_str()) != Some(subject) {
+            return Err("userinfo is about a different subject".into());
+        }
+        Ok(groups_in(&value))
+    }
 }
 
 #[derive(Deserialize)]
@@ -429,7 +443,13 @@ async fn callback(Extension(auth): Extension<Arc<AuthState>>, headers: HeaderMap
     // Only an email the issuer says it verified. Some issuers leave the claim out and let users
     // set any address, which would let them claim one in auth.allowed_emails.
     let email = claims.email().filter(|_| claims.email_verified() == Some(true)).map(|e| e.as_str().to_owned());
-    let groups = groups_claim(&id_token.to_string());
+    let mut groups = groups_claim(&id_token.to_string());
+    if groups.is_empty() && !auth.config.allowed_groups.is_empty() {
+        groups = oidc.userinfo_groups(token.access_token().secret(), claims.subject().as_str()).await.unwrap_or_else(|e| {
+            tracing::warn!("couldn't read groups from userinfo: {e}");
+            vec![]
+        });
+    }
     if !auth.allowed(email.as_deref(), &groups) {
         return fail(StatusCode::FORBIDDEN, format!("{} is not in auth.allowed_emails or auth.allowed_groups", email.as_deref().unwrap_or(claims.subject().as_str())));
     }
@@ -460,6 +480,11 @@ fn groups_claim(jwt: &str) -> Vec<String> {
     let payload = jwt.split('.').nth(1).unwrap_or("");
     let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload) else { return vec![] };
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return vec![] };
+    groups_in(&value)
+}
+
+/// The `groups` claim of an ID token payload or userinfo response: a list, or a single name.
+fn groups_in(value: &serde_json::Value) -> Vec<String> {
     match value.get("groups") {
         Some(serde_json::Value::Array(a)) => a.iter().filter_map(|g| g.as_str().map(Into::into)).collect(),
         Some(serde_json::Value::String(s)) => vec![s.clone()],

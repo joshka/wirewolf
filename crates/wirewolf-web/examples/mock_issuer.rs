@@ -37,6 +37,8 @@ pub struct Issuer {
     /// The nonce and PKCE challenge from the authorize URL wirewolf built.
     pub expect: Arc<Mutex<Option<(String, String)>>>,
     pub email: String,
+    /// Groups the userinfo endpoint reports; the ID token never carries them, like some issuers.
+    pub groups: Arc<Mutex<Vec<String>>>,
 }
 
 pub async fn start_issuer(addr: &str, email: &str) -> Issuer {
@@ -44,12 +46,13 @@ pub async fn start_issuer(addr: &str, email: &str) -> Issuer {
     let url = format!("http://{}", listener.local_addr().unwrap());
     let pem = include_str!("../tests/fixtures/test-issuer-key.pem");
     let key = CoreRsaPrivateSigningKey::from_pem(pem, Some(JsonWebKeyId::new("k1".into()))).unwrap();
-    let issuer = Issuer { url, key: Arc::new(key), expect: Arc::default(), email: email.into() };
+    let issuer = Issuer { url, key: Arc::new(key), expect: Arc::default(), email: email.into(), groups: Arc::default() };
     let app = Router::new()
         .route("/.well-known/openid-configuration", get(discovery))
         .route("/jwks", get(|State(i): State<Issuer>| async move { axum::Json(serde_json::json!({ "keys": [i.key.as_verification_key()] })) }))
         .route("/authorize", get(authorize))
         .route("/token", post(token))
+        .route("/userinfo", get(userinfo))
         .with_state(issuer.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     issuer
@@ -62,6 +65,7 @@ async fn discovery(State(i): State<Issuer>) -> axum::Json<serde_json::Value> {
         "authorization_endpoint": format!("{u}/authorize"),
         "token_endpoint": format!("{u}/token"),
         "jwks_uri": format!("{u}/jwks"),
+        "userinfo_endpoint": format!("{u}/userinfo"),
         "response_types_supported": ["code"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
@@ -74,6 +78,15 @@ async fn authorize(State(i): State<Issuer>, Query(q): Query<HashMap<String, Stri
     *i.expect.lock().unwrap() = Some((get("nonce"), get("code_challenge")));
     let back = format!("{}?code=good-code&state={}", get("redirect_uri"), get("state"));
     axum::response::Redirect::to(&back)
+}
+
+async fn userinfo(State(i): State<Issuer>, headers: axum::http::HeaderMap) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    if headers.get("authorization").and_then(|v| v.to_str().ok()) != Some("Bearer at") {
+        return StatusCode::UNAUTHORIZED.into_response();
+    }
+    let groups = i.groups.lock().unwrap().clone();
+    axum::Json(serde_json::json!({ "sub": "alice-sub", "email": i.email, "groups": groups })).into_response()
 }
 
 async fn token(State(i): State<Issuer>, Form(form): Form<HashMap<String, String>>) -> axum::response::Response {
