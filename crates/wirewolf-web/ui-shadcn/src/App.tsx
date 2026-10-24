@@ -74,26 +74,23 @@ function AppSidebar() {
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="gap-3 p-4 group-data-[collapsible=icon]:p-2">
-        <div className="flex justify-end gap-0.5 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:items-center">
-          <ThemeToggle />
-          <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
-        </div>
-        <a
-          href={href({ name: "now" })}
-          onClick={go}
-          aria-label="wirewolf home"
-          className="flex items-center gap-3 rounded-md py-2 outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
-        >
-          <svg
-            viewBox="0 0 32 32"
-            fill="currentColor"
-            aria-hidden="true"
-            className="size-12 shrink-0 text-violet-500 group-data-[collapsible=icon]:size-6"
+        <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col">
+          <a
+            href={href({ name: "now" })}
+            onClick={go}
+            aria-label="wirewolf home"
+            className="flex min-w-0 flex-1 items-center gap-2 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:flex-none"
           >
-            <path fillRule="evenodd" d="M4 3 12 9H20L28 3 26 13H30L27 22 16 30 5 22 2 13H6ZM8 14 10 19 14 17ZM24 14 18 17 22 19Z" />
-          </svg>
-          <span className="text-2xl font-semibold tracking-tight group-data-[collapsible=icon]:hidden">wirewolf</span>
-        </a>
+            <svg viewBox="0 0 32 32" fill="currentColor" aria-hidden="true" className="size-8 shrink-0 text-violet-500 group-data-[collapsible=icon]:size-6">
+              <path fillRule="evenodd" d="M4 3 12 9H20L28 3 26 13H30L27 22 16 30 5 22 2 13H6ZM8 14 10 19 14 17ZM24 14 18 17 22 19Z" />
+            </svg>
+            <span className="truncate text-xl font-semibold tracking-tight group-data-[collapsible=icon]:hidden">wirewolf</span>
+          </a>
+          <div className="flex items-center gap-0.5 group-data-[collapsible=icon]:flex-col">
+            <ThemeToggle />
+            <SidebarTrigger aria-label="Toggle navigation" className="hidden md:inline-flex" />
+          </div>
+        </div>
         <div className="flex min-w-0 items-center gap-2 group-data-[collapsible=icon]:hidden">
           <LiveIndicator />
           {meta && <span className="truncate font-mono text-[11px] text-muted-foreground" title={meta.host}>{meta.host}</span>}
