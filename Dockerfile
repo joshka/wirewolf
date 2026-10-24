@@ -29,8 +29,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # distroless/cc has glibc, libgcc, and CA certificates, and nothing else.
 FROM gcr.io/distroless/cc-debian12
 COPY --from=build /wirewolf /usr/local/bin/wirewolf
-ENV WIREWOLF_LISTEN=0.0.0.0:7465 \
-    WIREWOLF_DB=/data/wirewolf.db
+ENV WIREWOLF_DB=/data/wirewolf.db \
+    WIREWOLF_CONFIG=/data/wirewolf.toml
 VOLUME /data
 EXPOSE 7465
 # Root inside the container so ICMP can use a raw socket (Docker grants CAP_NET_RAW by default),

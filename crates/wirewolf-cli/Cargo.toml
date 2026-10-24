@@ -19,6 +19,7 @@ wirewolf-core = { version = "0.0.0", path = "../wirewolf-core", features = ["dem
 wirewolf-probe = { version = "0.0.0", path = "../wirewolf-probe" }
 wirewolf-web = { version = "0.0.0", path = "../wirewolf-web" }
 wirewolf-tui = { version = "0.0.0", path = "../wirewolf-tui" }
+toml = "0.9"
 
 [features]
 ui-shadcn = ["wirewolf-web/ui-shadcn"]

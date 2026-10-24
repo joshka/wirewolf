@@ -5,7 +5,7 @@
 //! a more specific explanation (DNS failing while the internet answers by IP, HTTP intercepted
 //! while DNS and TCP work).
 
-use crate::model::{Confidence, Hop, HopKind, Severity, Status, Verdict};
+use crate::model::{Confidence, Hop, HopKind, Severity, Status, Target, Verdict};
 
 /// Diagnoses a path. `hops` must be in path order.
 pub fn diagnose(hops: &[Hop]) -> Verdict {
@@ -132,5 +132,75 @@ fn explain_degraded(hop: &Hop) -> Explanation {
             format!("{} is responding slowly ({}).", hop.label, hop.summary),
             None,
         )
+    }
+}
+
+/// Folds user targets into a verdict. A failing `critical` target degrades an otherwise healthy
+/// verdict and is blamed by its id. A broken path stays the headline, since it explains the
+/// target too.
+pub fn with_targets(verdict: Verdict, targets: &[Target]) -> Verdict {
+    if verdict.severity != Severity::Healthy {
+        return verdict;
+    }
+    let bad = targets.iter().filter(|t| t.critical && matches!(t.status, Status::Fail | Status::Warn));
+    let Some(target) = bad.clone().find(|t| t.status == Status::Fail).or_else(|| bad.clone().next()) else {
+        return verdict;
+    };
+    let others = bad.count() - 1;
+    let more = match others {
+        0 => String::new(),
+        1 => " (and 1 more target)".into(),
+        n => format!(" (and {n} more targets)"),
+    };
+    let failed = target.status == Status::Fail;
+    Verdict {
+        severity: Severity::Degraded,
+        headline: if failed { format!("{} is unreachable{more}", target.name) } else { format!("{} is slow{more}", target.name) },
+        detail: format!("The path to the internet is fine, but {} ({}) {}: {}.", target.name, target.check, if failed { "fails" } else { "is degraded" }, target.detail),
+        blame: Some(target.id.clone()),
+        confidence: Confidence::Medium,
+        fix_hint: Some(format!("Check {} itself: power, network cable, or the service on it.", target.name)),
+        method: format!("{}, plus {} targets", verdict.method, targets.len()),
+    }
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::*;
+
+    fn target(name: &str, critical: bool, status: Status) -> Target {
+        Target {
+            id: format!("target:{}", name.to_lowercase()),
+            name: name.into(),
+            check: "tcp://nas.local:445".into(),
+            kind: "tcp".into(),
+            critical,
+            status,
+            detail: "connection refused".into(),
+            rtt_ms: None,
+            loss_pct: None,
+        }
+    }
+
+    fn healthy() -> Verdict {
+        Verdict {
+            severity: Severity::Healthy,
+            headline: "Everything looks good".into(),
+            detail: String::new(),
+            blame: None,
+            confidence: Confidence::High,
+            fix_hint: None,
+            method: "m".into(),
+        }
+    }
+
+    #[test]
+    fn only_critical_targets_degrade() {
+        let v = with_targets(healthy(), &[target("Printer", false, Status::Fail)]);
+        assert_eq!(v.severity, Severity::Healthy);
+        let v = with_targets(healthy(), &[target("Printer", false, Status::Fail), target("NAS", true, Status::Fail)]);
+        assert_eq!(v.severity, Severity::Degraded);
+        assert_eq!(v.blame.as_deref(), Some("target:nas"));
+        assert_eq!(v.headline, "NAS is unreachable");
     }
 }

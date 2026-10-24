@@ -12,10 +12,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use jiff::Timestamp;
 use tokio::sync::{broadcast, mpsc};
 
-use crate::model::{Event, Incident, Meta, Sample, Severity, Snapshot, SpeedRun, SpeedState};
+use crate::config::Incidents;
+use crate::model::{ConfigView, Event, Incident, Meta, Sample, Severity, Snapshot, SpeedRun, SpeedState};
 
-/// How many samples to keep in memory (about 48h at one sample per hop per 30s).
-const SAMPLE_CAPACITY: usize = 6 * 2 * 60 * 48;
+/// How many samples to keep in memory (about 48h of 20 hops and targets at one sample per 30s).
+const SAMPLE_CAPACITY: usize = 20 * 2 * 60 * 48;
 const SPEED_CAPACITY: usize = 500;
 const INCIDENT_CAPACITY: usize = 500;
 
@@ -48,6 +49,13 @@ struct State {
     speed: VecDeque<SpeedRun>,
     incidents: VecDeque<Incident>,
     next_incident: u64,
+    config: Option<ConfigView>,
+    policy: Incidents,
+    /// Unhealthy snapshots in a row while no incident is open: the first one's time, and the
+    /// worst one.
+    pending: Option<(u32, Timestamp, Snapshot)>,
+    /// Healthy snapshots in a row while an incident is open, and the first one's time.
+    recovering: Option<(u32, Timestamp)>,
 }
 
 impl Hub {
@@ -63,6 +71,10 @@ impl Hub {
                     speed: VecDeque::new(),
                     incidents: VecDeque::new(),
                     next_incident: 1,
+                    config: None,
+                    policy: Incidents::default(),
+                    pending: None,
+                    recovering: None,
                 }),
                 events,
                 commands,
@@ -103,6 +115,11 @@ impl Hub {
         self.read().incidents.iter().rev().cloned().collect()
     }
 
+    /// The effective configuration, if the driver published one.
+    pub fn config(&self) -> Option<ConfigView> {
+        self.read().config.clone()
+    }
+
     pub fn incident(&self, id: &str) -> Option<Incident> {
         self.read().incidents.iter().find(|i| i.id == id).cloned()
     }
@@ -126,16 +143,34 @@ impl Hub {
         f(&mut self.write().meta);
     }
 
+    /// Publishes the effective configuration for `GET /config` and applies its incident rules.
+    pub fn set_config(&self, view: ConfigView) {
+        let mut state = self.write();
+        state.policy = view.config.incidents;
+        state.config = Some(view);
+    }
+
+    /// Sets how many cycles in a row open and close an incident.
+    pub fn set_incident_policy(&self, policy: Incidents) {
+        self.write().policy = policy;
+    }
+
     /// Publishes a new snapshot, opening, escalating, or closing incidents as the verdict changes.
+    ///
+    /// An incident opens after `open_after` unhealthy snapshots in a row, backdated to the
+    /// first, with the worst of them as evidence. It closes after `close_after` healthy ones,
+    /// dated at the first. Shorter blips never become incidents.
     pub fn publish_snapshot(&self, mut snapshot: Snapshot) {
         let mut events = Vec::new();
         {
-            let mut state = self.write();
+            let mut guard = self.write();
+            let state = &mut *guard;
             let severity = snapshot.verdict.severity;
             let bad = matches!(severity, Severity::Degraded | Severity::Down);
             let open = state.incidents.back_mut().filter(|i| i.ended.is_none());
             match (open, bad) {
                 (Some(incident), true) => {
+                    state.recovering = None;
                     if severity > incident.severity {
                         incident.severity = severity;
                         incident.headline = snapshot.verdict.headline.clone();
@@ -146,27 +181,47 @@ impl Hub {
                     snapshot.open_incident = Some(incident.id.clone());
                 }
                 (Some(incident), false) => {
-                    incident.ended = Some(snapshot.at);
-                    events.push(Event::Incident(incident.clone()));
-                    snapshot.open_incident = None;
+                    let (n, since) = state.recovering.map_or((1, snapshot.at), |(n, t)| (n + 1, t));
+                    if n < state.policy.close_after.max(1) {
+                        state.recovering = Some((n, since));
+                        snapshot.open_incident = Some(incident.id.clone());
+                    } else {
+                        state.recovering = None;
+                        incident.ended = Some(since);
+                        events.push(Event::Incident(incident.clone()));
+                        snapshot.open_incident = None;
+                    }
                 }
                 (None, true) => {
-                    let id = format!("inc-{}", state.next_incident);
-                    state.next_incident += 1;
-                    snapshot.open_incident = Some(id.clone());
-                    let incident = Incident {
-                        id,
-                        started: snapshot.at,
-                        ended: None,
-                        severity,
-                        headline: snapshot.verdict.headline.clone(),
-                        blame: snapshot.verdict.blame.clone(),
-                        evidence: snapshot.clone(),
+                    let (n, start, worst) = match state.pending.take() {
+                        Some((n, start, worst)) if worst.verdict.severity >= severity => (n + 1, start, worst),
+                        Some((n, start, _)) => (n + 1, start, snapshot.clone()),
+                        None => (1, snapshot.at, snapshot.clone()),
                     };
-                    push_bounded(&mut state.incidents, incident.clone(), INCIDENT_CAPACITY);
-                    events.push(Event::Incident(incident));
+                    if n < state.policy.open_after.max(1) {
+                        state.pending = Some((n, start, worst));
+                        snapshot.open_incident = None;
+                    } else {
+                        let id = format!("inc-{}", state.next_incident);
+                        state.next_incident += 1;
+                        snapshot.open_incident = Some(id.clone());
+                        let incident = Incident {
+                            id: id.clone(),
+                            started: start,
+                            ended: None,
+                            severity: worst.verdict.severity,
+                            headline: worst.verdict.headline.clone(),
+                            blame: worst.verdict.blame.clone(),
+                            evidence: Snapshot { open_incident: Some(id), ..worst },
+                        };
+                        push_bounded(&mut state.incidents, incident.clone(), INCIDENT_CAPACITY);
+                        events.push(Event::Incident(incident));
+                    }
                 }
-                (None, false) => snapshot.open_incident = None,
+                (None, false) => {
+                    state.pending = None;
+                    snapshot.open_incident = None;
+                }
             }
             state.snapshot = Some(snapshot.clone());
         }
@@ -240,4 +295,80 @@ fn push_bounded<T>(queue: &mut VecDeque<T>, item: T, capacity: usize) {
         queue.pop_front();
     }
     queue.push_back(item);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Confidence, Verdict};
+
+    fn snap(at: i64, severity: Severity) -> Snapshot {
+        Snapshot {
+            at: Timestamp::from_second(at).unwrap(),
+            verdict: Verdict {
+                severity,
+                headline: format!("{severity:?}"),
+                detail: String::new(),
+                blame: None,
+                confidence: Confidence::High,
+                fix_hint: None,
+                method: String::new(),
+            },
+            hops: vec![],
+            open_incident: None,
+            targets: vec![],
+        }
+    }
+
+    fn hub(open_after: u32, close_after: u32) -> Hub {
+        let hub = Hub::new(crate::model::Meta {
+            version: String::new(),
+            api_version: String::new(),
+            mode: "live".into(),
+            host: String::new(),
+            scenarios: vec![],
+            scenario: None,
+        });
+        hub.set_incident_policy(Incidents { open_after, close_after });
+        hub
+    }
+
+    #[test]
+    fn one_bad_cycle_is_not_an_incident() {
+        let hub = hub(2, 2);
+        hub.publish_snapshot(snap(0, Severity::Down));
+        hub.publish_snapshot(snap(30, Severity::Healthy));
+        assert!(hub.incidents().is_empty());
+    }
+
+    #[test]
+    fn opens_backdated_and_closes_at_first_good_cycle() {
+        let hub = hub(2, 2);
+        hub.publish_snapshot(snap(0, Severity::Degraded));
+        hub.publish_snapshot(snap(30, Severity::Down));
+        let open = hub.incidents();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].started.as_second(), 0);
+        assert_eq!(open[0].severity, Severity::Down);
+        hub.publish_snapshot(snap(60, Severity::Healthy));
+        assert_eq!(hub.incidents()[0].ended, None);
+        assert!(hub.snapshot().unwrap().open_incident.is_some());
+        // A relapse while recovering keeps the same incident.
+        hub.publish_snapshot(snap(90, Severity::Degraded));
+        hub.publish_snapshot(snap(120, Severity::Healthy));
+        hub.publish_snapshot(snap(150, Severity::Healthy));
+        let closed = hub.incidents();
+        assert_eq!(closed.len(), 1);
+        assert_eq!(closed[0].ended.unwrap().as_second(), 120);
+        assert_eq!(hub.snapshot().unwrap().open_incident, None);
+    }
+
+    #[test]
+    fn open_after_one_opens_immediately() {
+        let hub = hub(1, 1);
+        hub.publish_snapshot(snap(0, Severity::Down));
+        assert_eq!(hub.incidents().len(), 1);
+        hub.publish_snapshot(snap(30, Severity::Healthy));
+        assert_eq!(hub.incidents()[0].ended.unwrap().as_second(), 30);
+    }
 }

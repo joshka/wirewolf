@@ -6,7 +6,10 @@
 use std::io::IsTerminal;
 
 use jiff::Timestamp;
-use wirewolf_core::diagnose::diagnose;
+use std::sync::Arc;
+
+use wirewolf_core::config::Config;
+use wirewolf_core::diagnose::{diagnose, with_targets};
 use wirewolf_core::model::{Severity, Snapshot};
 use wirewolf_probe::{assess, measure::Prober};
 use wirewolf_tui::{Client, format, report};
@@ -14,9 +17,9 @@ use wirewolf_tui::{Client, format, report};
 const UNREACHABLE: i32 = 3;
 
 /// Prints the verdict and returns the process exit code.
-pub async fn run(url: Option<&str>, json: bool) -> i32 {
+pub async fn run(url: Option<&str>, json: bool, config: Option<Config>) -> i32 {
     let Some(url) = url else {
-        return match probe().await {
+        return match probe(config.unwrap_or_default()).await {
             Ok(snapshot) => print(&snapshot, json),
             Err(error) => {
                 eprintln!("wirewolf check: can't run probes: {error:#}");
@@ -57,16 +60,17 @@ fn print(snapshot: &Snapshot, json: bool) -> i32 {
 ///
 /// This skips the TTL sweep that the live driver runs after an upstream fault. A sweep is slow,
 /// and the verdict doesn't depend on it.
-async fn probe() -> anyhow::Result<Snapshot> {
-    let measurements = Prober::new()?.cycle(false).await;
+async fn probe(config: Config) -> anyhow::Result<Snapshot> {
+    let (measurements, targets) = Prober::new(Arc::new(config))?.cycle(false).await;
     let at = Timestamp::now();
     let hops = assess::hops(&measurements);
-    let verdict = diagnose(&hops);
+    let verdict = with_targets(diagnose(&hops), &targets);
     Ok(Snapshot {
         at,
         verdict,
         hops,
         open_incident: None,
+        targets,
     })
 }
 

@@ -36,6 +36,7 @@ pub fn api_router() -> Router<Hub> {
     Router::new()
         .route("/meta", get(meta))
         .route("/now", get(now))
+        .route("/config", get(config))
         .route("/history", get(history))
         .route("/speed", get(speed))
         .route("/speed/run", post(run_speed))
@@ -53,6 +54,13 @@ pub async fn serve(hub: Hub, addr: SocketAddr) -> std::io::Result<()> {
 
 async fn meta(State(hub): State<Hub>) -> impl IntoResponse {
     Json(hub.meta())
+}
+
+async fn config(State(hub): State<Hub>) -> Response {
+    match hub.config() {
+        Some(view) => Json(view).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 async fn now(State(hub): State<Hub>) -> Response {

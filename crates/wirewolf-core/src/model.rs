@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.0";
+pub const API_VERSION: &str = "1.1";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,6 +137,33 @@ pub struct Snapshot {
     pub hops: Vec<Hop>,
     /// The incident open right now, if any.
     pub open_incident: Option<String>,
+    /// User-configured targets (`[[targets]]` in the config), in config order. Added in 1.1;
+    /// empty when none are configured.
+    #[serde(default)]
+    pub targets: Vec<Target>,
+}
+
+/// The latest result for one user-configured target, for example a NAS or a Pi-hole.
+///
+/// Its history is in `/history?hop=<id>`. Ids start with `target:` so they never collide with
+/// hop ids.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Target {
+    /// Stable identifier, for example `target:nas`.
+    pub id: String,
+    /// Display name from the config, for example "NAS".
+    pub name: String,
+    /// The configured check, for example `tcp://nas.local:445` (credentials removed).
+    pub check: String,
+    /// `tcp`, `http`, `https`, `ping`, or `dns`.
+    pub kind: String,
+    /// A failing critical target makes the verdict degraded and can open an incident.
+    pub critical: bool,
+    pub status: Status,
+    /// One line, for example "TCP :445 in 1.8 ms".
+    pub detail: String,
+    pub rtt_ms: Option<f64>,
+    pub loss_pct: Option<f64>,
 }
 
 /// One time-series point for a hop.
@@ -233,6 +260,19 @@ pub struct Meta {
     pub scenarios: Vec<Scenario>,
     /// The active demo scenario, if in demo mode.
     pub scenario: Option<String>,
+}
+
+/// The effective configuration, from `GET /api/v1/config`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigView {
+    /// The config file that was read, if any.
+    pub path: Option<String>,
+    /// Every setting, with defaults filled in and credentials removed. Same shape as the TOML
+    /// file (`wirewolf config default`).
+    pub config: crate::config::Config,
+    /// Where each non-default setting came from, keyed by dotted path (for example
+    /// `probe.interval`): `file`, `env`, or `flag`. Anything absent is a default.
+    pub sources: std::collections::BTreeMap<String, crate::config::Source>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -5,12 +5,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hickory_resolver::Resolver;
-use hickory_resolver::config::{NameServerConfig, ResolverConfig, ResolverOpts};
+use hickory_resolver::config::{LookupIpStrategy, NameServerConfig, ResolverConfig, ResolverOpts};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use tokio::net::TcpStream;
+use wirewolf_core::config::{Config, Ipv6Mode, RecordType};
+use wirewolf_core::model::Target;
 
 use crate::assess::*;
 use crate::icmp::Icmp;
+use crate::targets;
 
 const GATEWAY_PINGS: u16 = 20;
 const ISP_PINGS: u16 = 5;
@@ -21,63 +24,108 @@ const WEB_TIMEOUT: Duration = Duration::from_secs(5);
 /// Probed past the gateway for the ISP edge and the TTL sweep.
 const TRACE_TARGET: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
 
-pub const INTERNET_TARGETS: [(&str, IpAddr, IpAddr); 3] = [
-    ("Cloudflare", IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), IpAddr::V6(Ipv6Addr::new(0x2606, 0x4700, 0x4700, 0, 0, 0, 0, 0x1111))),
-    ("Google", IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), IpAddr::V6(Ipv6Addr::new(0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888))),
-    ("Quad9", IpAddr::V4(Ipv4Addr::new(9, 9, 9, 9)), IpAddr::V6(Ipv6Addr::new(0x2620, 0xfe, 0, 0, 0, 0, 0, 0xfe))),
-];
-
-pub const PUBLIC_RESOLVERS: [(&str, IpAddr); 2] =
-    [("Cloudflare 1.1.1.1", IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))), ("Google 8.8.8.8", IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)))];
+/// How often to re-measure the path MTU; it rarely changes.
+const MTU_EVERY: Duration = Duration::from_secs(600);
 
 /// Long-lived probe state.
 pub struct Prober {
+    config: Arc<Config>,
+    targets: Vec<targets::Spec>,
     icmp: Option<Icmp>,
     http: reqwest::Client,
+    http_insecure: reqwest::Client,
+    path_mtu: Option<PathMtu>,
+    path_mtu_at: Option<Instant>,
     tls: tokio_rustls::TlsConnector,
     public_ip: (Option<String>, Option<String>),
     public_ip_at: Option<Instant>,
 }
 
 impl Prober {
-    pub fn new() -> anyhow::Result<Self> {
+    /// Fails if a `[[targets]]` check can't be parsed.
+    pub fn new(config: Arc<Config>) -> anyhow::Result<Self> {
+        let targets = targets::parse_all(&config.targets).map_err(anyhow::Error::msg)?;
         let icmp = Icmp::detect();
-        let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(WEB_TIMEOUT).user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION"))).build()?;
+        let builder = || reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(WEB_TIMEOUT).user_agent(concat!("wirewolf/", env!("CARGO_PKG_VERSION")));
+        let http = builder().build()?;
+        let http_insecure = builder().danger_accept_invalid_certs(true).build()?;
+        let cfg = config;
         let roots = rustls::RootCertStore { roots: webpki_roots::TLS_SERVER_ROOTS.to_vec() };
         let config = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
             .with_safe_default_protocol_versions()?
             .with_root_certificates(roots)
             .with_no_client_auth();
-        Ok(Self { icmp, http, tls: tokio_rustls::TlsConnector::from(Arc::new(config)), public_ip: (None, None), public_ip_at: None })
+        Ok(Self {
+            config: cfg,
+            targets,
+            icmp,
+            http,
+            http_insecure,
+            path_mtu: None,
+            path_mtu_at: None,
+            tls: tokio_rustls::TlsConnector::from(Arc::new(config)),
+            public_ip: (None, None),
+            public_ip_at: None,
+        })
     }
 
     pub fn icmp(&self) -> Option<Icmp> {
         self.icmp
     }
 
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
     /// Runs one full cycle. `trace` asks for a TTL sweep (on an upstream fault).
-    pub async fn cycle(&mut self, trace: bool) -> Measurements {
+    pub async fn cycle(&mut self, trace: bool) -> (Measurements, Vec<Target>) {
+        let c = self.config.clone();
         let mut host = host_info(self.icmp);
         let refresh = self.public_ip_at.is_none_or(|t| t.elapsed() > Duration::from_secs(600) || self.public_ip.0.is_none());
-        let has_v6 = !host.ipv6.is_empty();
+        let has_v6 = match c.probe.ipv6 {
+            Ipv6Mode::Auto => !host.ipv6.is_empty(),
+            Ipv6Mode::On => true,
+            Ipv6Mode::Off => false,
+        };
+        let mtu_due = c.probe.path_mtu && self.icmp.is_some() && self.path_mtu_at.is_none_or(|t| t.elapsed() > MTU_EVERY);
+        let local_mtu = host.mtu;
         let gw = host.gateway;
-        let (gateway, isp, internet, dns, web, public) = tokio::join!(
+        let clients = targets::Clients {
+            icmp: self.icmp,
+            http: &self.http,
+            http_insecure: &self.http_insecure,
+            dns_query: c.dns.queries.first().map_or(QUERY_NAME, |q| q.name.as_str()),
+        };
+        let user = futures_util::future::join_all(self.targets.iter().map(|spec| async {
+            let outcome = targets::probe(spec, &clients).await;
+            targets::assess(spec, &outcome, &c.thresholds.targets)
+        }));
+        let (gateway, isp, internet, dns, web, public, mtu, user) = tokio::join!(
             gateway_probe(self.icmp, gw),
             isp_probe(self.icmp, trace),
-            internet_probe(has_v6),
-            dns_probe(gw),
-            web_probe(&self.http, &self.tls),
+            internet_probe(&c, self.icmp, has_v6),
+            dns_probe(&c, gw, has_v6),
+            web_probe(&c, &self.http, &self.tls),
             async {
                 if refresh { Some(public_ips(&self.http, has_v6).await) } else { None }
             },
+            async {
+                if mtu_due { Some(path_mtu(self.icmp, local_mtu).await) } else { None }
+            },
+            user,
         );
         if let Some(public) = public {
             self.public_ip = public;
             self.public_ip_at = Some(Instant::now());
         }
+        if let Some(mtu) = mtu {
+            self.path_mtu = mtu;
+            self.path_mtu_at = Some(Instant::now());
+        }
         host.public_v4 = self.public_ip.0.clone();
         host.public_v6 = self.public_ip.1.clone();
-        Measurements { host, gateway, isp, internet, dns, web }
+        host.path_mtu = self.path_mtu.clone();
+        (Measurements { host, gateway, isp, internet, dns, web, thresholds: c.thresholds.clone() }, user)
     }
 }
 
@@ -107,6 +155,7 @@ pub fn host_info(icmp: Option<Icmp>) -> HostInfo {
         public_v6: None,
         container_bridge,
         icmp,
+        path_mtu: None,
     }
 }
 
@@ -164,18 +213,28 @@ async fn isp_probe(icmp: Option<Icmp>, trace: bool) -> IspProbe {
     }
 }
 
-async fn internet_probe(has_v6: bool) -> Vec<TcpTarget> {
+async fn internet_probe(config: &Config, icmp: Option<Icmp>, has_v6: bool) -> Vec<TcpTarget> {
+    let port = config.internet.port;
+    let icmp = icmp.filter(|_| config.internet.icmp);
     let mut futures = Vec::new();
-    for (name, v4, v6) in INTERNET_TARGETS {
-        for (family, ip) in [(Family::V4, v4), (Family::V6, v6)] {
+    for t in &config.internet.targets {
+        for (family, ip) in [(Family::V4, t.v4.map(IpAddr::V4)), (Family::V6, t.v6.map(IpAddr::V6))] {
+            let Some(ip) = ip else { continue };
             futures.push(async move {
-                let addr = SocketAddr::new(ip, 443);
-                let outcome = if family == Family::V6 && !has_v6 {
-                    TcpOutcome::NotApplicable("no IPv6 on this host".into())
-                } else {
-                    tcp_attempts(addr).await
+                let addr = SocketAddr::new(ip, port);
+                if family == Family::V6 && !has_v6 {
+                    return TcpTarget { name: t.name.clone(), family, addr: addr.to_string(), outcome: TcpOutcome::NotApplicable("no IPv6 on this host".into()), icmp: None };
+                }
+                let ping = async {
+                    let (Some(icmp), IpAddr::V4(v4)) = (icmp, ip) else { return None };
+                    let res = tokio::task::spawn_blocking(move || icmp.burst(v4, 64, 5, Duration::from_millis(100), Duration::from_secs(1))).await;
+                    match res {
+                        Ok(Ok(replies)) => Some(replies.iter().map(|r| r.map(|r| ms(r.rtt))).collect()),
+                        _ => None,
+                    }
                 };
-                TcpTarget { name: name.into(), family, addr: addr.to_string(), outcome }
+                let (outcome, icmp) = tokio::join!(tcp_attempts(addr), ping);
+                TcpTarget { name: t.name.clone(), family, addr: addr.to_string(), outcome, icmp }
             });
         }
     }
@@ -215,20 +274,25 @@ async fn tcp_attempts(addr: SocketAddr) -> TcpOutcome {
     TcpOutcome::Attempts { rtts, error }
 }
 
-async fn dns_probe(gateway: Option<IpAddr>) -> Vec<DnsResult> {
+async fn dns_probe(config: &Config, gateway: Option<IpAddr>, has_v6: bool) -> Vec<DnsResult> {
     let mut futures = Vec::new();
-    let system = hickory_resolver::system_conf::read_system_conf().map(|(c, _)| c.name_servers().iter().map(|n| n.ip).collect::<Vec<_>>()).unwrap_or_default();
-    let mut seen = Vec::new();
-    for ip in system.into_iter().filter(|ip| !seen.contains(ip) && { seen.push(*ip); true }).take(2) {
-        futures.push(resolve("System resolver".to_string(), ip, true, gateway));
+    if config.dns.system {
+        let system = hickory_resolver::system_conf::read_system_conf().map(|(c, _)| c.name_servers().iter().map(|n| n.ip).collect::<Vec<_>>()).unwrap_or_default();
+        let mut seen = Vec::new();
+        for ip in system.into_iter().filter(|ip| !seen.contains(ip) && { seen.push(*ip); true }).take(2) {
+            futures.push(resolve(config, "System resolver".to_string(), ip, true, gateway));
+        }
     }
-    for (name, ip) in PUBLIC_RESOLVERS {
-        futures.push(resolve(name.to_string(), ip, false, gateway));
+    for r in &config.dns.resolvers {
+        if r.address.is_ipv6() && !has_v6 {
+            continue;
+        }
+        futures.push(resolve(config, format!("{} {}", r.name, r.address), r.address, false, gateway));
     }
     futures_util::future::join_all(futures).await
 }
 
-async fn resolve(name: String, ip: IpAddr, system: bool, gateway: Option<IpAddr>) -> DnsResult {
+async fn resolve(config: &Config, name: String, ip: IpAddr, system: bool, gateway: Option<IpAddr>) -> DnsResult {
     let known = known_resolver(ip, gateway);
     // Ask local resolvers what software they run; Pi-hole and dnsmasq say so in `version.bind`.
     // Well-known addresses are labeled by address (Tailscale forwards CHAOS queries upstream).
@@ -236,7 +300,21 @@ async fn resolve(name: String, ip: IpAddr, system: bool, gateway: Option<IpAddr>
         IpAddr::V4(v4) => v4.is_private(),
         IpAddr::V6(v6) => v6.is_unique_local(),
     };
-    let (outcome, software) = tokio::join!(lookup(ip), async {
+    let addr = SocketAddr::new(ip, 53);
+    let queries = &config.dns.queries;
+    let (query, expect) = queries.first().map_or((QUERY_NAME.to_string(), QUERY_EXPECT.to_vec()), |q| (q.name.clone(), q.expect.clone()));
+    let types = &config.dns.record_types;
+    // Every (name, type) pair after the headline `A` of the first name.
+    let extra = queries.iter().enumerate().flat_map(|(i, q)| types.iter().filter(move |t| !(i == 0 && **t == RecordType::A)).map(move |t| (q.name.clone(), *t)));
+    let extra = futures_util::future::join_all(extra.map(|(name, t)| async move {
+        let aaaa = t == RecordType::Aaaa;
+        let outcome = lookup(addr, &name, aaaa).await.map(|a| a.rtt_ms);
+        ExtraQuery { query: format!("{} {name}", if aaaa { "AAAA" } else { "A" }), outcome }
+    }));
+    let primary = async {
+        lookup(addr, &query, false).await.map(|a| DnsAnswer { expected: expect.is_empty() || a.addrs.iter().any(|x| expect.contains(x)), ..a })
+    };
+    let (outcome, extra, software) = tokio::join!(primary, extra, async {
         if system && local && known.is_none_or(|k| k == "your router") { version_bind(ip).await } else { None }
     });
     let label = match (known, software.as_deref().and_then(resolver_software)) {
@@ -244,7 +322,7 @@ async fn resolve(name: String, ip: IpAddr, system: bool, gateway: Option<IpAddr>
         (Some(k), _) => Some(k.to_string()),
         (None, sw) => sw,
     };
-    DnsResult { name, server: ip.to_string(), system, label, outcome }
+    DnsResult { name, server: ip.to_string(), system, label, query, outcome, extra }
 }
 
 /// A CHAOS-class TXT query for `version.bind`, which many resolvers answer with their software.
@@ -284,30 +362,32 @@ fn parse_txt_answer(msg: &[u8], id: u16) -> Option<String> {
 }
 
 
-async fn lookup(ip: IpAddr) -> Result<DnsAnswer, String> {
-    let config = ResolverConfig::from_name_servers(vec![NameServerConfig::udp_and_tcp(ip)]);
+/// Resolves `name` (A, or AAAA) at one server. A name with no records of that type answers
+/// with no addresses.
+pub(crate) async fn lookup(server: SocketAddr, name: &str, aaaa: bool) -> Result<DnsAnswer, String> {
+    let config = ResolverConfig::from_name_servers(vec![NameServerConfig::udp_and_tcp(server.ip())]);
     let mut opts = ResolverOpts::default();
     opts.timeout = DNS_TIMEOUT;
     opts.attempts = 1;
     opts.cache_size = 0;
-    opts.ip_strategy = hickory_resolver::config::LookupIpStrategy::Ipv4Only;
+    opts.ip_strategy = if aaaa { LookupIpStrategy::Ipv6Only } else { LookupIpStrategy::Ipv4Only };
     let resolver = Resolver::builder_with_config(config, TokioRuntimeProvider::default()).with_options(opts).build().map_err(|e| e.to_string())?;
     let start = Instant::now();
-    let query = format!("{QUERY_NAME}.");
-    match tokio::time::timeout(DNS_TIMEOUT + Duration::from_secs(1), resolver.lookup_ip(query.as_str())).await {
-        Ok(Ok(answer)) => {
-            let addrs: Vec<IpAddr> = answer.iter().collect();
-            Ok(DnsAnswer { rtt_ms: round1(ms(start.elapsed())), expected: addrs.iter().any(|a| QUERY_EXPECT.contains(a)), addrs })
-        }
+    let query = format!("{}.", name.trim_end_matches('.'));
+    let lookup = async { resolver.lookup_ip(query.as_str()).await.map(|l| l.iter().collect::<Vec<_>>()) };
+    match tokio::time::timeout(DNS_TIMEOUT + Duration::from_secs(1), lookup).await {
+        Ok(Ok(addrs)) => Ok(DnsAnswer { rtt_ms: round1(ms(start.elapsed())), expected: true, addrs }),
+        Ok(Err(e)) if e.is_no_records_found() => Ok(DnsAnswer { rtt_ms: round1(ms(start.elapsed())), expected: true, addrs: vec![] }),
         Ok(Err(e)) => Err(sanitize(&e.to_string())),
         Err(_) => Err(format!("timed out after {}s", DNS_TIMEOUT.as_secs())),
     }
 }
 
-async fn web_probe(http: &reqwest::Client, tls: &tokio_rustls::TlsConnector) -> WebResult {
+async fn web_probe(config: &Config, http: &reqwest::Client, tls: &tokio_rustls::TlsConnector) -> WebResult {
+    let portal_url = config.web.captive_portal.as_str();
     let portal = async {
         let start = Instant::now();
-        match http.get(PORTAL_URL).send().await {
+        match http.get(portal_url).send().await {
             Ok(r) => Ok(HttpAnswer {
                 status: r.status().as_u16(),
                 location: r.headers().get("location").and_then(|l| l.to_str().ok()).map(str::to_string),
@@ -317,9 +397,9 @@ async fn web_probe(http: &reqwest::Client, tls: &tokio_rustls::TlsConnector) -> 
         }
     };
     let handshake = async {
-        let host = "www.cloudflare.com";
+        let host = config.web.tls_host.as_str();
         let stream = tokio::time::timeout(WEB_TIMEOUT, TcpStream::connect((host, 443))).await.map_err(|_| "connect timed out".to_string())?.map_err(|e| format!("connect to {host}: {e}"))?;
-        let name = rustls::pki_types::ServerName::try_from(host).map_err(|e| e.to_string())?;
+        let name = rustls::pki_types::ServerName::try_from(host.to_string()).map_err(|e| e.to_string())?;
         let start = Instant::now();
         let stream = tokio::time::timeout(WEB_TIMEOUT, tls.connect(name, stream)).await.map_err(|_| "TLS handshake timed out".to_string())?.map_err(|e| format!("TLS to {host}: {e}"))?;
         let version = match stream.get_ref().1.protocol_version() {
@@ -329,8 +409,16 @@ async fn web_probe(http: &reqwest::Client, tls: &tokio_rustls::TlsConnector) -> 
         };
         Ok(TlsAnswer { rtt_ms: round1(ms(start.elapsed())), version, host: host.into() })
     };
-    let (portal, tls) = tokio::join!(portal, handshake);
-    WebResult { portal: Some(portal), tls: Some(tls) }
+    let sites = futures_util::future::join_all(config.web.sites.iter().map(|url| async move {
+        let start = Instant::now();
+        let outcome = match http.get(url).send().await {
+            Ok(r) => Ok(HttpAnswer { status: r.status().as_u16(), location: None, rtt_ms: round1(ms(start.elapsed())) }),
+            Err(e) => Err(error_chain(&e)),
+        };
+        SiteResult { url: url.clone(), outcome }
+    }));
+    let (portal, tls, sites) = tokio::join!(portal, handshake, sites);
+    WebResult { portal_url: portal_url.to_string(), portal: Some(portal), tls: Some(tls), sites }
 }
 
 /// Public addresses from Cloudflare's trace endpoint, over v4 and (if present) v6.
@@ -355,11 +443,34 @@ pub fn error_chain(e: &dyn std::error::Error) -> String {
     sanitize(&s)
 }
 
-fn ms(d: Duration) -> f64 {
+/// Finds the largest don't-fragment packet that reaches the internet, between 1280 and the local
+/// MTU. `None` if nothing got through (ICMP filtered), which says nothing about the MTU.
+async fn path_mtu(icmp: Option<Icmp>, local: Option<u32>) -> Option<PathMtu> {
+    let icmp = icmp?;
+    let target = TRACE_TARGET;
+    let top = local.unwrap_or(1500).clamp(1280, 9000);
+    tokio::task::spawn_blocking(move || {
+        let fits = |size: u32| (0..2).any(|_| icmp.fits(target, size as usize, Duration::from_millis(500)).unwrap_or(false));
+        if !fits(1280) {
+            return None;
+        }
+        let (mut lo, mut hi) = (1280, top + 1);
+        while hi - lo > 1 {
+            let mid = (lo + hi) / 2;
+            if fits(mid) { lo = mid } else { hi = mid }
+        }
+        Some(PathMtu { mtu: lo, target: target.to_string() })
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+pub(crate) fn ms(d: Duration) -> f64 {
     d.as_secs_f64() * 1000.0
 }
 
-fn round1(x: f64) -> f64 {
+pub(crate) fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
 

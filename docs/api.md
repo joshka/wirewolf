@@ -24,6 +24,7 @@ publishes a live snapshot every 2s.
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/api/v1/meta` | `Meta`: version, `mode` (`demo`/`live`), host, scenarios, active scenario |
+| GET | `/api/v1/config` | `ConfigView`: the effective config and where each value came from (1.1). `404` if the server didn't publish one |
 | GET | `/api/v1/now` | `Snapshot`, or `204` before the first measurement |
 | GET | `/api/v1/history?hop=&since=&until=` | `[Sample]` in time order. All params are optional. `hop` is a hop id, `since`/`until` are RFC 3339 |
 | GET | `/api/v1/speed` | `[SpeedRun]`, newest first |
@@ -48,7 +49,10 @@ sent first on connect.
 ## Shapes (abridged)
 
 ```text
-Snapshot  { at, verdict: Verdict, hops: [Hop], open_incident: string? }
+Snapshot  { at, verdict: Verdict, hops: [Hop], open_incident: string?, targets: [Target] }
+Target    { id: "target:<slug>", name, check, kind: tcp|http|https|ping|dns, critical,
+            status, detail, rtt_ms?, loss_pct? }                                  (1.1)
+ConfigView { path?, config: <wirewolf.toml as JSON>, sources: { "probe.interval": file|env|flag } }
 Verdict   { severity: healthy|degraded|down|unknown, headline, detail, blame: hop_id?,
             confidence: low|medium|high, fix_hint?, method }
 Hop       { id, kind: host|gateway|isp|internet|dns|web, label, target?, status, summary,
@@ -61,6 +65,18 @@ SpeedRun  { id, started, state: running|complete|failed, backend, server?, down_
             error? }
 Incident  { id, started, ended?, severity, headline, blame?, evidence: Snapshot }
 ```
+
+User targets (`[[targets]]` in `wirewolf.toml`) arrive in `Snapshot.targets`, in config
+order. Each one has history under its id: `/history?hop=target:nas`, and `sample` events
+with `hop: "target:nas"`. A failing `critical` target makes an otherwise healthy verdict
+`degraded` with `blame` set to the target id, so incidents can blame a target as well as a
+hop. `ConfigView.config` has the same shape as the TOML file (`wirewolf config default`),
+with credentials in URLs replaced by `***`. A key that's missing from `sources` has its
+default value.
+
+Incidents open after `incidents.open_after` unhealthy snapshots in a row, and close after
+`incidents.close_after` healthy ones. Both default to 2. The open is backdated to the first
+bad snapshot, and the close is dated at the first good one.
 
 Hops always come in path order: `host`, `gateway`, `isp`, `internet`, `dns`, `web`. A
 `skip` hop is collateral damage from an earlier failure. Show it, but de-emphasize it.

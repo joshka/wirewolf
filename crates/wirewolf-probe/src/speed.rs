@@ -56,7 +56,9 @@ impl Default for CloudflareConfig {
 }
 
 /// Runs one test and publishes progress and the result into the hub.
-pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig) {
+///
+/// `server` pins the Ookla server (`host:port`) instead of picking the fastest nearby.
+pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig, server: Option<String>) {
     let started = Timestamp::now();
     let run = SpeedRun {
         id: format!("speed-{}", started.as_millisecond()),
@@ -76,7 +78,10 @@ pub async fn run(hub: Hub, backend: Backend, cf: CloudflareConfig) {
     hub.upsert_speed(run.clone());
     let result = match backend {
         Backend::Cloudflare => http_test(&hub, run.clone(), cf, Target::cloudflare).await,
-        Backend::Ookla => http_test(&hub, run.clone(), cf, Target::ookla).await,
+        Backend::Ookla => match server {
+            Some(host) => http_test(&hub, run.clone(), cf, |_| async move { Ok(Target::ookla_server(host)) }).await,
+            None => http_test(&hub, run.clone(), cf, Target::ookla).await,
+        },
     };
     let finished = match result {
         Ok(done) => done,
@@ -126,6 +131,16 @@ impl Target {
             upload: format!("{CF}/__up"),
             ping: PingVia::CloudflareHttp,
         })
+    }
+
+    /// A specific speedtest.net server, `host:port`.
+    fn ookla_server(host: String) -> Self {
+        Self {
+            label: crate::assess::sanitize(&host),
+            download: format!("https://{host}/download?size={CHUNK_DOWN}"),
+            upload: format!("https://{host}/upload"),
+            ping: PingVia::OoklaTcp(host),
+        }
     }
 
     /// Picks the lowest-latency server among the nearest few that speedtest.net suggests.

@@ -3,8 +3,12 @@
 mod check;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-use clap::{Parser, Subcommand};
+use clap::parser::ValueSource;
+use clap::{ArgMatches, CommandFactory, FromArgMatches, Parser, Subcommand};
+use wirewolf_core::config::{self, Loaded, Override, Source};
 use wirewolf_core::{Hub, demo};
 
 #[derive(Debug, Parser)]
@@ -18,15 +22,17 @@ pub struct Cli {
 enum Command {
     /// Run the probes and serve the dashboard and API.
     Serve {
-        /// Address to listen on.
-        #[arg(long, env = "WIREWOLF_LISTEN", default_value = "0.0.0.0:7465")]
-        listen: SocketAddr,
+        /// Address to listen on [default: 0.0.0.0:7465].
+        #[arg(long, env = "WIREWOLF_LISTEN")]
+        listen: Option<SocketAddr>,
         /// Serve scripted demo data instead of probing the network.
         #[arg(long, env = "WIREWOLF_DEMO")]
         demo: bool,
         /// Demo scenario to start with.
         #[arg(long, default_value = "healthy", requires = "demo")]
         scenario: String,
+        #[command(flatten)]
+        config: ConfigArg,
         #[command(flatten)]
         live: LiveArgs,
     },
@@ -46,78 +52,146 @@ enum Command {
         /// Print the snapshot as JSON instead of text.
         #[arg(long)]
         json: bool,
+        #[command(flatten)]
+        config: ConfigArg,
     },
+    /// Print or check the configuration.
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+#[derive(Debug, Subcommand)]
+enum ConfigCommand {
+    /// Print the default config, fully commented. Start a `wirewolf.toml` from it.
+    Default,
+    /// Load the config, report errors, and print the effective settings as TOML.
+    Show {
+        #[command(flatten)]
+        config: ConfigArg,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+struct ConfigArg {
+    /// Config file. Without it, `wirewolf.toml` in the current directory is used if it exists.
+    #[arg(long = "config", env = "WIREWOLF_CONFIG")]
+    path: Option<PathBuf>,
 }
 
 const DEFAULT_URL: &str = "http://127.0.0.1:7465";
 
-/// Settings for live probing (ignored with `--demo`).
+/// Settings for live probing (ignored with `--demo`). Each overrides the config file.
 #[derive(Debug, clap::Args)]
 struct LiveArgs {
     /// Time between probe cycles, for example `30s`.
-    #[arg(long, env = "WIREWOLF_INTERVAL", default_value = "30s", value_parser = parse_duration)]
-    interval: std::time::Duration,
+    #[arg(long, env = "WIREWOLF_INTERVAL")]
+    interval: Option<String>,
     /// Time between scheduled speed tests, for example `60m`. `0` disables them.
-    #[arg(long, env = "WIREWOLF_SPEED_INTERVAL", default_value = "60m", value_parser = parse_duration)]
-    speed_interval: std::time::Duration,
+    #[arg(long, env = "WIREWOLF_SPEED_INTERVAL")]
+    speed_interval: Option<String>,
     /// Speed test backend: `cloudflare` or `ookla` (speedtest.net servers). Both are built in.
-    #[arg(long, env = "WIREWOLF_SPEED_BACKEND", default_value = "cloudflare")]
-    speed_backend: wirewolf_probe::Backend,
+    #[arg(long, env = "WIREWOLF_SPEED_BACKEND")]
+    speed_backend: Option<String>,
     /// SQLite history file.
-    #[arg(long, env = "WIREWOLF_DB", default_value = "wirewolf.db")]
-    db: std::path::PathBuf,
+    #[arg(long, env = "WIREWOLF_DB")]
+    db: Option<String>,
     /// How long to keep history, for example `30d`.
-    #[arg(long, env = "WIREWOLF_RETENTION", default_value = "30d", value_parser = parse_duration)]
-    retention: std::time::Duration,
+    #[arg(long, env = "WIREWOLF_RETENTION")]
+    retention: Option<String>,
 }
 
-fn parse_duration(s: &str) -> Result<std::time::Duration, String> {
-    if s == "0" {
-        return Ok(std::time::Duration::ZERO);
-    }
-    let span: jiff::Span = s.parse().map_err(|e| format!("{e}"))?;
-    let d = span.to_duration(jiff::SpanRelativeTo::days_are_24_hours()).map_err(|e| format!("{e}"))?;
-    d.try_into().map_err(|e| format!("{e}"))
+/// Loads the config: defaults, then the file, then env vars and flags.
+///
+/// `sub` is the subcommand's matches, which say whether each value came from the environment or
+/// a flag.
+fn load_config(arg: &ConfigArg, sub: Option<&ArgMatches>, overrides: &[(&'static str, &str, Option<String>)]) -> anyhow::Result<Loaded> {
+    let from_flag = sub.and_then(|m| m.value_source("path")) == Some(ValueSource::CommandLine);
+    let (path, required) = match &arg.path {
+        Some(p) => (p.clone(), from_flag),
+        None => (PathBuf::from("wirewolf.toml"), false),
+    };
+    let overrides: Vec<Override> = overrides
+        .iter()
+        .filter_map(|(key, id, value)| {
+            let source = match sub.and_then(|m| m.value_source(id)) {
+                Some(ValueSource::CommandLine) => Source::Flag,
+                _ => Source::Env,
+            };
+            value.clone().map(|value| Override { key, value, source })
+        })
+        .collect();
+    let loaded = config::load(Some(&path), required, &overrides).map_err(anyhow::Error::msg)?;
+    wirewolf_probe::validate(&loaded.config)?;
+    Ok(loaded)
+}
+
+fn live_overrides(listen: Option<SocketAddr>, live: &LiveArgs) -> Vec<(&'static str, &'static str, Option<String>)> {
+    vec![
+        ("server.listen", "listen", listen.map(|l| l.to_string())),
+        ("probe.interval", "interval", live.interval.clone()),
+        ("speed.interval", "speed_interval", live.speed_interval.clone()),
+        ("speed.backend", "speed_backend", live.speed_backend.clone()),
+        ("storage.db", "db", live.db.clone()),
+        ("storage.retention", "retention", live.retention.clone()),
+    ]
 }
 
 pub fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    if let Command::Tui { url } = &cli.command {
-        // No log subscriber: log lines would corrupt the screen.
-        return tokio::runtime::Runtime::new()?.block_on(wirewolf_tui::run(url));
-    }
-    if let Command::Check { url, json } = &cli.command {
-        let code = tokio::runtime::Runtime::new()?.block_on(check::run(url.as_deref(), *json));
-        std::process::exit(code);
+    let matches = Cli::command().get_matches();
+    let cli = Cli::from_arg_matches(&matches)?;
+    let sub = matches.subcommand().map(|(_, m)| m);
+    match &cli.command {
+        Command::Tui { url } => {
+            // No log subscriber: log lines would corrupt the screen.
+            return tokio::runtime::Runtime::new()?.block_on(wirewolf_tui::run(url));
+        }
+        Command::Check { url, json, config } => {
+            let loaded = if url.is_none() { Some(load_config(config, sub, &[])?) } else { None };
+            let code = tokio::runtime::Runtime::new()?.block_on(check::run(url.as_deref(), *json, loaded.map(|l| l.config)));
+            std::process::exit(code);
+        }
+        Command::Config(ConfigCommand::Default) => {
+            print!("{}", config::DEFAULT_TOML);
+            return Ok(());
+        }
+        Command::Config(ConfigCommand::Show { config }) => {
+            let sub = sub.and_then(|m| m.subcommand()).map(|(_, m)| m);
+            let loaded = load_config(config, sub, &[])?;
+            match &loaded.path {
+                Some(p) => println!("# from {} (non-default: {})", p.display(), loaded.sources.keys().cloned().collect::<Vec<_>>().join(", ")),
+                None => println!("# no config file; all defaults"),
+            }
+            print!("{}", toml::to_string(&loaded.config.redacted())?);
+            return Ok(());
+        }
+        Command::Serve { .. } => {}
     }
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
+    let Command::Serve { listen, demo, scenario, config, live } = cli.command else { unreachable!("handled above") };
     tokio::runtime::Runtime::new()?.block_on(async {
-        match cli.command {
-            Command::Serve { listen, demo: true, scenario, .. } => {
-                let hub = Hub::new(demo::meta(&scenario));
-                tokio::spawn(demo::run(hub.clone(), scenario));
-                wirewolf_web::serve(hub, listen).await?;
-            }
-            Command::Serve { listen, demo: false, live, .. } => {
-                let config = wirewolf_probe::Config {
-                    interval: live.interval.max(std::time::Duration::from_secs(5)),
-                    speed_interval: (!live.speed_interval.is_zero()).then_some(live.speed_interval),
-                    speed_backend: live.speed_backend,
-                    db: Some(live.db),
-                    retention: live.retention.try_into()?,
-                    ..Default::default()
-                };
-                let hub = Hub::new(wirewolf_probe::meta());
-                wirewolf_probe::attach_store(&hub, &config)?;
-                tokio::spawn(wirewolf_probe::run(hub.clone(), config));
-                wirewolf_web::serve(hub, listen).await?;
-            }
-            Command::Tui { .. } | Command::Check { .. } => unreachable!("handled above"),
+        if demo {
+            let addr = listen.unwrap_or_else(|| ([0, 0, 0, 0], 7465).into());
+            let hub = Hub::new(demo::meta(&scenario));
+            tokio::spawn(demo::run(hub.clone(), scenario));
+            wirewolf_web::serve(hub, addr).await?;
+            return Ok(());
         }
+        let loaded = load_config(&config, sub, &live_overrides(listen, &live))?;
+        match &loaded.path {
+            Some(p) => tracing::info!("config from {} ({} settings)", p.display(), loaded.sources.len()),
+            None => tracing::info!("no config file; using defaults (`wirewolf config default` prints them)"),
+        }
+        let addr: SocketAddr = loaded.config.server.listen.parse().map_err(|e| anyhow::anyhow!("server.listen {:?}: {e}", loaded.config.server.listen))?;
+        let hub = Hub::new(wirewolf_probe::meta());
+        hub.set_config(loaded.view());
+        let config = Arc::new(loaded.config);
+        wirewolf_probe::attach_store(&hub, &config)?;
+        tokio::spawn(wirewolf_probe::run(hub.clone(), config));
+        wirewolf_web::serve(hub, addr).await?;
         Ok(())
     })
 }

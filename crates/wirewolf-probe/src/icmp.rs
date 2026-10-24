@@ -109,6 +109,44 @@ impl Icmp {
         Ok(replies)
     }
 
+    /// Sends one don't-fragment echo request of `size` bytes (IP header included) and reports
+    /// whether the reply came back. Too big for the local link or the path is `false`.
+    pub fn fits(self, target: Ipv4Addr, size: usize, timeout: Duration) -> io::Result<bool> {
+        let socket = self.socket()?;
+        set_dont_fragment(&socket)?;
+        let id = fastrand::u16(..);
+        let dest = SocketAddr::from((target, 0)).into();
+        match socket.send_to(&sized_echo_request(id, 0, size.saturating_sub(28)), &dest) {
+            Ok(_) => {}
+            // EMSGSIZE: bigger than the interface (or a cached path) MTU.
+            Err(e) if e.raw_os_error() == Some(libc::EMSGSIZE) => return Ok(false),
+            Err(e) => return Err(e),
+        }
+        let deadline = Instant::now() + timeout;
+        let mut buf = [MaybeUninit::<u8>::uninit(); 9100];
+        loop {
+            let now = Instant::now();
+            if now >= deadline {
+                return Ok(false);
+            }
+            socket.set_read_timeout(Some(deadline - now))?;
+            let len = match socket.recv_from(&mut buf) {
+                Ok((len, _)) => len,
+                Err(e) if matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut) => return Ok(false),
+                Err(e) if e.raw_os_error() == Some(libc::EMSGSIZE) => return Ok(false),
+                Err(e) => return Err(e),
+            };
+            // SAFETY: recv_from initialized the first `len` bytes.
+            let data = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<u8>(), len) };
+            let check_id = self == Self::Raw || cfg!(target_vendor = "apple");
+            if let Some((ReplyKind::Echo, reply_id, 0)) = parse(data)
+                && (!check_id || reply_id == id)
+            {
+                return Ok(true);
+            }
+        }
+    }
+
     /// An mtr-style sweep toward `target`: one probe per TTL from 1 to `max_ttl`, stopping once the
     /// target answers. Each entry is `(ttl, reply)`.
     pub fn trace(self, target: Ipv4Addr, max_ttl: u32, timeout: Duration) -> io::Result<Vec<(u32, Option<Reply>)>> {
@@ -125,6 +163,20 @@ impl Icmp {
     }
 }
 
+/// Sets don't-fragment, ignoring any cached path MTU so each probe tests the path afresh.
+fn set_dont_fragment(socket: &Socket) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    #[cfg(target_os = "linux")]
+    let (opt, value) = (libc::IP_MTU_DISCOVER, libc::IP_PMTUDISC_PROBE);
+    #[cfg(not(target_os = "linux"))]
+    let (opt, value) = (libc::IP_DONTFRAG, 1);
+    // SAFETY: a valid socket, and a c_int option value of the right size.
+    let r = unsafe {
+        libc::setsockopt(socket.as_raw_fd(), libc::IPPROTO_IP, opt, (&raw const value).cast(), size_of::<libc::c_int>() as libc::socklen_t)
+    };
+    if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReplyKind {
     Echo,
@@ -132,10 +184,15 @@ enum ReplyKind {
 }
 
 fn echo_request(id: u16, seq: u16) -> Vec<u8> {
+    sized_echo_request(id, seq, 16)
+}
+
+/// An echo request with `payload` bytes after the 8-byte header.
+fn sized_echo_request(id: u16, seq: u16, payload: usize) -> Vec<u8> {
     let mut packet = vec![8, 0, 0, 0];
     packet.extend_from_slice(&id.to_be_bytes());
     packet.extend_from_slice(&seq.to_be_bytes());
-    packet.extend_from_slice(b"wirewolf-probe..");
+    packet.extend(b"wirewolf-probe..".iter().cycle().take(payload));
     let sum = checksum(&packet);
     packet[2..4].copy_from_slice(&sum.to_be_bytes());
     packet

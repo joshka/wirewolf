@@ -8,14 +8,11 @@ services:
     network_mode: host
     volumes:
       - wirewolf:/data
+    # Settings live in /data/wirewolf.toml (in the volume). Start one with:
+    #   docker compose run --rm wirewolf config default > wirewolf.toml
+    # Environment variables override the file, e.g. WIREWOLF_INTERVAL: 30s or
+    # WIREWOLF_SPEED_INTERVAL: "0" to turn off scheduled speed tests.
     environment:
-      WIREWOLF_LISTEN: 0.0.0.0:7465
-      WIREWOLF_INTERVAL: 30s
-      # Every hour; 0 disables scheduled speed tests. Each run uses a few hundred MB on fiber.
-      WIREWOLF_SPEED_INTERVAL: 60m
-      # cloudflare (default) or ookla (speedtest.net servers); both are built in.
-      WIREWOLF_SPEED_BACKEND: cloudflare
-      WIREWOLF_RETENTION: 30d
       # Shown in the UI; the container hostname is otherwise random.
       WIREWOLF_HOSTNAME: wirewolf
 volumes:

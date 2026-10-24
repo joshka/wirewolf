@@ -208,6 +208,7 @@ mod tests {
                 },
                 hops: vec![],
                 open_incident: Some(id.into()),
+                targets: vec![],
             },
         }
     }

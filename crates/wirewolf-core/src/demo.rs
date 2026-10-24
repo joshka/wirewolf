@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use jiff::{Timestamp, ToSpan};
 
-use crate::diagnose::diagnose;
+use crate::diagnose::{diagnose, with_targets};
 use crate::hub::{Command, Hub};
 use crate::model::*;
 
@@ -69,6 +69,7 @@ pub fn meta(scenario: &str) -> Meta {
 pub async fn run(hub: Hub, scenario: String) {
     let mut scenario = scenario;
     let mut commands = hub.take_commands().expect("demo driver needs the command receiver");
+    hub.set_config(config().view());
     backfill(&hub, Timestamp::now());
     let mut started = tokio::time::Instant::now();
     let mut ticker = tokio::time::interval(TICK);
@@ -102,7 +103,66 @@ fn publish(hub: &Hub, at: Timestamp, kind: Kind) {
     for hop in &hops {
         hub.push_sample(sample(at, hop));
     }
-    hub.publish_snapshot(Snapshot { at, verdict: diagnose(&hops), hops, open_incident: None });
+    let targets = targets(kind);
+    for t in &targets {
+        hub.push_sample(target_sample(at, t));
+    }
+    let verdict = with_targets(diagnose(&hops), &targets);
+    hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None, targets });
+}
+
+/// The demo's config: the defaults plus a few user targets, as if from a file.
+pub fn config() -> crate::config::Loaded {
+    use crate::config::{Config, Loaded, Source, UserTarget};
+    let t = |name: &str, check: &str, critical: bool| UserTarget { name: name.into(), check: check.into(), critical, verify_tls: true };
+    let config = Config {
+        targets: vec![
+            t("NAS", "tcp://nas.local:445", true),
+            UserTarget { verify_tls: false, ..t("Router admin", "https://router.local", false) },
+            t("Printer", "ping://10.0.0.5", false),
+            t("Pi-hole", "dns://pihole.local", false),
+        ],
+        ..Config::default()
+    };
+    let sources = [("targets".to_string(), Source::File)].into();
+    Loaded { config, path: Some("wirewolf.toml (demo)".into()), sources }
+}
+
+fn targets(kind: Kind) -> Vec<Target> {
+    let lossy = kind == Kind::WifiLoss;
+    let t = |id: &str, name: &str, check: &str, kind: &str, critical: bool, base: f64| {
+        let loss = if lossy { [0.0, 0.0, 20.0, 40.0][fastrand::usize(..4)] } else { 0.0 };
+        let rtt = round1(jitter(if lossy { base * 4.0 } else { base }, base / 3.0));
+        let status = if loss >= 10.0 { Status::Warn } else { Status::Pass };
+        let detail = match kind {
+            "tcp" => format!("TCP :445 in {rtt:.1} ms"),
+            "https" => format!("200 OK in {rtt:.0} ms"),
+            "ping" if loss > 0.0 => format!("{rtt:.1} ms, {loss:.0}% loss"),
+            "ping" => format!("{rtt:.1} ms, no loss"),
+            _ => format!("one.one.one.one → 1.1.1.1 in {rtt:.1} ms"),
+        };
+        Target {
+            id: id.into(),
+            name: name.into(),
+            check: check.into(),
+            kind: kind.into(),
+            critical,
+            status,
+            detail,
+            rtt_ms: Some(rtt),
+            loss_pct: Some(loss),
+        }
+    };
+    vec![
+        t("target:nas", "NAS", "tcp://nas.local:445", "tcp", true, 1.6),
+        t("target:router-admin", "Router admin", "https://router.local", "https", false, 9.0),
+        t("target:printer", "Printer", "ping://10.0.0.5", "ping", false, 4.0),
+        t("target:pi-hole", "Pi-hole", "dns://pihole.local", "dns", false, 2.2),
+    ]
+}
+
+fn target_sample(at: Timestamp, t: &Target) -> Sample {
+    Sample { at, hop: t.id.clone(), status: t.status, rtt_ms: t.rtt_ms, jitter_ms: None, loss_pct: t.loss_pct }
 }
 
 fn sample(at: Timestamp, hop: &Hop) -> Sample {
@@ -449,6 +509,7 @@ fn backfill(hub: &Hub, now: Timestamp) {
         let kind = kind_at_minute(minute);
         let hops = hops(kind);
         samples.extend(hops.iter().map(|h| sample(at, h)));
+        samples.extend(targets(kind).iter().map(|t| target_sample(at, t)));
         let verdict = diagnose(&hops);
         let bad = matches!(verdict.severity, Severity::Down | Severity::Degraded) && kind != Kind::Bufferbloat;
         match (open.take(), bad) {
@@ -461,7 +522,7 @@ fn backfill(hub: &Hub, now: Timestamp) {
                     severity: verdict.severity,
                     headline: verdict.headline.clone(),
                     blame: verdict.blame.clone(),
-                    evidence: Snapshot { at, verdict, hops, open_incident: Some(id) },
+                    evidence: Snapshot { at, verdict, hops, open_incident: Some(id), targets: targets(kind) },
                 });
             }
             (Some(incident), true) => open = Some(incident),

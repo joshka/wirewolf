@@ -3,21 +3,8 @@
 
 use std::net::IpAddr;
 
+use wirewolf_core::config::{Limits, Thresholds};
 use wirewolf_core::model::{Check, Evidence, Hop, HopKind, HopMetrics, Status};
-
-/// Thresholds for "degraded". Loss is percent, times are milliseconds.
-pub mod limits {
-    pub const GATEWAY_LOSS_WARN: f64 = 10.0;
-    /// Wi-Fi to the router is routinely 5–20 ms, and routers answer ICMP at low priority, so only
-    /// a clearly slow median counts.
-    pub const GATEWAY_RTT_WARN: f64 = 30.0;
-    pub const GATEWAY_JITTER_WARN: f64 = 30.0;
-    pub const INTERNET_LOSS_WARN: f64 = 10.0;
-    pub const INTERNET_RTT_WARN: f64 = 150.0;
-    pub const INTERNET_JITTER_WARN: f64 = 40.0;
-    pub const ISP_LOSS_WARN: f64 = 25.0;
-    pub const DNS_RTT_WARN: f64 = 250.0;
-}
 
 /// Everything one probe cycle measured.
 #[derive(Debug, Clone, Default)]
@@ -28,6 +15,8 @@ pub struct Measurements {
     pub internet: Vec<TcpTarget>,
     pub dns: Vec<DnsResult>,
     pub web: WebResult,
+    /// The limits the hops are judged by.
+    pub thresholds: Thresholds,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -46,6 +35,14 @@ pub struct HostInfo {
     /// Running in a container on a bridge network, so the "gateway" is the bridge.
     pub container_bridge: bool,
     pub icmp: String,
+    /// The largest packet that reached the internet with don't-fragment set, if measured.
+    pub path_mtu: Option<PathMtu>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathMtu {
+    pub mtu: u32,
+    pub target: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,6 +86,8 @@ pub struct TcpTarget {
     pub family: Family,
     pub addr: String,
     pub outcome: TcpOutcome,
+    /// ICMP echo RTTs to the same address, if ICMP pings ran.
+    pub icmp: Option<Vec<Option<f64>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,7 +105,20 @@ pub struct DnsResult {
     pub system: bool,
     /// What the resolver is, if known, for example "Tailscale MagicDNS" or "Pi-hole".
     pub label: Option<String>,
+    /// The headline query name. Empty means [`QUERY_NAME`].
+    pub query: String,
+    /// The headline query: the first configured name, type A.
     pub outcome: Result<DnsAnswer, String>,
+    /// The other names and record types, for example `AAAA www.google.com`.
+    pub extra: Vec<ExtraQuery>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtraQuery {
+    /// For example `AAAA www.google.com`.
+    pub query: String,
+    /// The RTT, or why it failed. A name with no records of that type is a success.
+    pub outcome: Result<f64, String>,
 }
 
 /// Names a resolver from its address alone. `gateway` is the default gateway.
@@ -157,8 +169,17 @@ pub struct DnsAnswer {
 
 #[derive(Debug, Clone, Default)]
 pub struct WebResult {
+    /// The captive-portal URL probed. Empty means [`PORTAL_URL`].
+    pub portal_url: String,
     pub portal: Option<Result<HttpAnswer, String>>,
     pub tls: Option<Result<TlsAnswer, String>>,
+    pub sites: Vec<SiteResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SiteResult {
+    pub url: String,
+    pub outcome: Result<HttpAnswer, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -248,13 +269,14 @@ fn worst(statuses: impl IntoIterator<Item = Status>) -> Status {
 
 /// Builds the path, in order, and marks failures downstream of the first hard break as collateral.
 pub fn hops(m: &Measurements) -> Vec<Hop> {
-    let internet = internet(&m.internet);
+    let internet = internet(&m.internet, &m.thresholds.internet);
     let internet_ok = matches!(internet.status, Status::Pass | Status::Warn);
     // The fastest reply from beyond the gateway. Traffic through the router can't be faster than
     // the router itself, so if this beats the gateway's RTT, the router is just slow to answer
     // probes.
     let downstream = [median(&ok(&m.isp.rtts)), internet.metrics.rtt_ms].into_iter().flatten().reduce(f64::min);
-    let mut hops = vec![host(&m.host), gateway(&m.gateway, &m.host, internet_ok, downstream), isp(&m.isp, internet_ok, &internet), internet, dns(&m.dns), web(&m.web)];
+    let t = &m.thresholds;
+    let mut hops = vec![host(&m.host), gateway(&m.gateway, &m.host, internet_ok, downstream, &t.gateway), isp(&m.isp, internet_ok, &internet, t), internet, dns(&m.dns, &t.dns), web(&m.web)];
     // Hard breaks on the path itself (host → internet) make later failures collateral.
     if let Some(broken) = hops.iter().take(4).position(|h| h.status == Status::Fail) {
         let label = hops[broken].label.clone();
@@ -310,6 +332,16 @@ pub fn host(h: &HostInfo) -> Hop {
         Some(a) => check("IPv6 address", Status::Pass, a, None),
         None => check("IPv6 address", Status::NotApplicable, "no global IPv6 address", None),
     });
+    if let Some(p) = &h.path_mtu {
+        evidence.push(ev("path mtu", format!("{} (to {})", p.mtu, p.target)));
+        // 1280 is the IPv6 minimum; below it, something on the path is badly configured.
+        let status = if p.mtu < 1280 { Status::Warn } else { Status::Pass };
+        let note = match (h.mtu, p.mtu) {
+            (Some(local), path) if path < local => format!("{path} bytes to {}; smaller than the local {local} (PPPoE or a tunnel)", p.target),
+            (_, path) => format!("{path} bytes to {}", p.target),
+        };
+        checks.push(check("Path MTU", status, note, None));
+    }
     Hop {
         id: "host".into(),
         kind: HopKind::Host,
@@ -336,7 +368,7 @@ fn cgnat(h: &HostInfo) -> String {
     }
 }
 
-pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt: Option<f64>) -> Hop {
+pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt: Option<f64>, limits: &Limits) -> Hop {
     let target = h.gateway.map(|g| g.to_string());
     let base = |status, summary: String, metrics, evidence: Vec<Evidence>, checks| Hop {
         id: "gateway".into(),
@@ -379,8 +411,8 @@ pub fn gateway(g: &GatewayProbe, h: &HostInfo, internet_ok: bool, downstream_rtt
         evidence.push(ev("note", format!("hops beyond answer faster ({:.1} ms), so the router deprioritizes probes; its RTT isn't the bottleneck", downstream_rtt.unwrap_or_default())));
     }
     let slow = !deprioritized
-        && (m.rtt_ms.is_some_and(|r| r > limits::GATEWAY_RTT_WARN) || m.jitter_ms.is_some_and(|j| j > limits::GATEWAY_JITTER_WARN));
-    let degraded = lost >= limits::GATEWAY_LOSS_WARN || slow;
+        && (m.rtt_ms.is_some_and(|r| r > limits.rtt_warn_ms) || m.jitter_ms.is_some_and(|j| j > limits.jitter_warn_ms));
+    let degraded = lost >= limits.loss_warn_pct || slow;
     let status = if degraded { Status::Warn } else { Status::Pass };
     let detail = format!("{} sent, {:.0}% lost", g.rtts.len(), lost);
     base(status, summary(&m), m, evidence, vec![check(&method_name(g.method), status, detail, m.rtt_ms)])
@@ -394,7 +426,7 @@ fn method_name(m: PingMethod) -> String {
     }
 }
 
-pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop) -> Hop {
+pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop, limits: &Thresholds) -> Hop {
     let mut evidence = Vec::new();
     if let Some(trace) = &p.trace {
         evidence.push(ev("method", "ICMP TTL sweep"));
@@ -441,8 +473,8 @@ pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop) -> Hop {
         };
     }
     // TTL-exceeded replies are rate-limited, so loss here alone isn't trusted.
-    let internet_lossy = internet.metrics.loss_pct.is_some_and(|l| l >= limits::INTERNET_LOSS_WARN);
-    let status = if lost >= limits::ISP_LOSS_WARN && internet_lossy { Status::Warn } else { Status::Pass };
+    let internet_lossy = internet.metrics.loss_pct.is_some_and(|l| l >= limits.internet.loss_warn_pct);
+    let status = if lost >= limits.isp.loss_warn_pct && internet_lossy { Status::Warn } else { Status::Pass };
     Hop {
         id: "isp".into(),
         kind: HopKind::Isp,
@@ -456,7 +488,7 @@ pub fn isp(p: &IspProbe, internet_ok: bool, internet: &Hop) -> Hop {
     }
 }
 
-pub fn internet(targets: &[TcpTarget]) -> Hop {
+pub fn internet(targets: &[TcpTarget], limits: &Limits) -> Hop {
     let mut checks = Vec::new();
     let mut all: Vec<Option<f64>> = Vec::new();
     let mut family_ok = [None::<bool>; 2];
@@ -475,13 +507,13 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
                 *family_ok[fam].get_or_insert(false) |= any;
                 let status = if !any {
                     Status::Fail
-                } else if lost >= limits::INTERNET_LOSS_WARN {
+                } else if lost >= limits.loss_warn_pct {
                     Status::Warn
                 } else {
                     Status::Pass
                 };
                 let detail = if any {
-                    format!("TCP :443 to {} — {}/{} handshakes", t.addr, rtts.iter().flatten().count(), rtts.len())
+                    format!("TCP to {} — {}/{} handshakes", t.addr, rtts.iter().flatten().count(), rtts.len())
                 } else {
                     format!("{} — {}", t.addr, error.as_deref().unwrap_or("no handshake completed"))
                 };
@@ -489,12 +521,25 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
             }
         }
     }
+    // ICMP is informational: some networks drop it, so it never changes the hop's status.
+    let mut pings = Vec::new();
+    for t in targets {
+        let Some(rtts) = &t.icmp else { continue };
+        let name = format!("{} ICMP", t.name);
+        let m = metrics(rtts);
+        let ip = t.addr.rsplit_once(':').map_or(t.addr.as_str(), |(ip, _)| ip);
+        pings.push(match m.loss_pct {
+            Some(l) if l < 100.0 => check(&name, Status::Pass, format!("echo to {ip} — {}", summary(&m)), m.rtt_ms),
+            _ => check(&name, Status::NotApplicable, format!("no echo replies from {ip} (ICMP filtered?)"), None),
+        });
+    }
     let best = checks.iter().filter_map(|c| c.rtt_ms).fold(None, |a: Option<f64>, r| Some(a.map_or(r, |a| a.min(r))));
     let m = HopMetrics {
         rtt_ms: best,
         jitter_ms: (!jitters.is_empty()).then(|| round1(jitters.iter().sum::<f64>() / jitters.len() as f64)),
         loss_pct: loss(&all).map(round1),
     };
+    checks.extend(pings);
     let any_ok = family_ok.contains(&Some(true));
     let broken_family = family_ok.iter().position(|f| *f == Some(false));
     let status = if checks.iter().all(|c| c.status == Status::NotApplicable) {
@@ -502,9 +547,9 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
     } else if !any_ok {
         Status::Fail
     } else if broken_family.is_some()
-        || m.loss_pct.is_some_and(|l| l >= limits::INTERNET_LOSS_WARN)
-        || m.rtt_ms.is_some_and(|r| r > limits::INTERNET_RTT_WARN)
-        || m.jitter_ms.is_some_and(|j| j > limits::INTERNET_JITTER_WARN)
+        || m.loss_pct.is_some_and(|l| l >= limits.loss_warn_pct)
+        || m.rtt_ms.is_some_and(|r| r > limits.rtt_warn_ms)
+        || m.jitter_ms.is_some_and(|j| j > limits.jitter_warn_ms)
     {
         Status::Warn
     } else {
@@ -526,6 +571,7 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
         (false, true) => "IPv6 only",
         _ => "none",
     };
+    let port = targets.first().and_then(|t| t.addr.rsplit_once(':')).map_or("443", |(_, p)| p);
     let mut names: Vec<&str> = targets.iter().map(|t| t.name.as_str()).collect();
     names.dedup();
     Hop {
@@ -536,12 +582,12 @@ pub fn internet(targets: &[TcpTarget]) -> Hop {
         status,
         summary,
         metrics: m,
-        evidence: vec![ev("method", format!("TCP :443 handshake × {} per target", per.unwrap_or(0))), ev("families", families)],
+        evidence: vec![ev("method", format!("TCP :{port} handshake × {} per target", per.unwrap_or(0))), ev("families", families)],
         checks,
     }
 }
 
-pub fn dns(results: &[DnsResult]) -> Hop {
+pub fn dns(results: &[DnsResult], limits: &Limits) -> Hop {
     let mut checks = Vec::new();
     for r in results {
         let label = match (&r.label, r.system) {
@@ -549,12 +595,21 @@ pub fn dns(results: &[DnsResult]) -> Hop {
             (None, true) => format!("{} — ", r.server),
             _ => String::new(),
         };
+        let query = if r.query.is_empty() { QUERY_NAME } else { r.query.as_str() };
+        let failed: Vec<String> = r.extra.iter().filter_map(|x| x.outcome.as_ref().err().map(|e| format!("{}: {e}", x.query))).collect();
+        let others = match failed.first() {
+            None if r.extra.is_empty() => String::new(),
+            None => format!("; {} more lookups ok", r.extra.len()),
+            Some(first) => format!("; {}/{} more lookups failed ({first})", failed.len(), r.extra.len()),
+        };
         checks.push(match &r.outcome {
-            Ok(a) if a.expected => check(&r.name, Status::Pass, format!("{label}{} → {}", QUERY_NAME, list(&a.addrs)), Some(a.rtt_ms)),
-            Ok(a) => check(&r.name, Status::Warn, format!("{label}unexpected answer {} (filtered or hijacked?)", list(&a.addrs)), Some(a.rtt_ms)),
+            Ok(a) if a.expected && failed.is_empty() => check(&r.name, Status::Pass, format!("{label}{query} → {}{others}", list(&a.addrs)), Some(a.rtt_ms)),
+            Ok(a) if a.expected => check(&r.name, Status::Warn, format!("{label}{query} → {}{others}", list(&a.addrs)), Some(a.rtt_ms)),
+            Ok(a) => check(&r.name, Status::Warn, format!("{label}unexpected answer {} for {query} (filtered or hijacked?){others}", list(&a.addrs)), Some(a.rtt_ms)),
             Err(e) => check(&r.name, Status::Fail, format!("{label}{e}"), None),
         });
     }
+    let partial = results.iter().any(|r| r.system && r.outcome.is_ok() && r.extra.iter().any(|x| x.outcome.is_err()));
     let system: Vec<&DnsResult> = results.iter().filter(|r| r.system).collect();
     let public: Vec<&DnsResult> = results.iter().filter(|r| !r.system).collect();
     let sys_ok: Vec<&DnsAnswer> = system.iter().filter_map(|r| r.outcome.as_ref().ok()).collect();
@@ -573,7 +628,9 @@ pub fn dns(results: &[DnsResult]) -> Hop {
         (Status::Fail, "no resolver answers".into())
     } else if sys_ok.iter().any(|a| !a.expected) {
         (Status::Warn, "system resolver gives unexpected answers".into())
-    } else if sys_rtt.is_some_and(|r| r > limits::DNS_RTT_WARN) {
+    } else if partial {
+        (Status::Warn, format!("{:.1} ms via {via}, but some lookups fail", sys_rtt.unwrap()))
+    } else if sys_rtt.is_some_and(|r| r > limits.rtt_warn_ms) {
         (Status::Warn, format!("slow: {:.1} ms via {via}", sys_rtt.unwrap()))
     } else if !public.is_empty() && !pub_ok {
         (Status::Warn, format!("{:.1} ms via {via}; public resolvers blocked", sys_rtt.unwrap()))
@@ -589,7 +646,7 @@ pub fn dns(results: &[DnsResult]) -> Hop {
         status,
         summary,
         metrics: HopMetrics { rtt_ms: sys_rtt.map(round1), jitter_ms: None, loss_pct: sys_loss },
-        evidence: vec![ev("resolvers", if servers.is_empty() { "none".into() } else { servers.join(", ") }), ev("query", format!("{QUERY_NAME} A"))],
+        evidence: vec![ev("resolvers", if servers.is_empty() { "none".into() } else { servers.join(", ") }), ev("queries", queries(results))],
         checks,
     }
 }
@@ -597,6 +654,13 @@ pub fn dns(results: &[DnsResult]) -> Hop {
 /// Queried on every resolver; it must contain one of [`QUERY_EXPECT`].
 pub const QUERY_NAME: &str = "one.one.one.one";
 pub const QUERY_EXPECT: [IpAddr; 2] = [IpAddr::V4(std::net::Ipv4Addr::new(1, 1, 1, 1)), IpAddr::V4(std::net::Ipv4Addr::new(1, 0, 0, 1))];
+
+/// The query names and types asked, for the evidence list.
+fn queries(results: &[DnsResult]) -> String {
+    let Some(r) = results.first() else { return format!("{QUERY_NAME} A") };
+    let first = format!("{} A", if r.query.is_empty() { QUERY_NAME } else { &r.query });
+    std::iter::once(first).chain(r.extra.iter().map(|x| x.query.clone())).collect::<Vec<_>>().join(", ")
+}
 
 fn list(addrs: &[IpAddr]) -> String {
     if addrs.is_empty() {
@@ -607,11 +671,13 @@ fn list(addrs: &[IpAddr]) -> String {
 
 pub fn web(w: &WebResult) -> Hop {
     let mut evidence = Vec::new();
+    let portal_url = if w.portal_url.is_empty() { PORTAL_URL } else { w.portal_url.as_str() };
+    let portal_host = host_of(portal_url);
     let portal = match &w.portal {
         None => check("Captive portal", Status::Pending, "not run", None),
         Some(Ok(a)) if a.status == 204 => {
             evidence.push(ev("http status", "204 No Content"));
-            check("Captive portal", Status::Pass, "204 from cp.cloudflare.com", Some(a.rtt_ms))
+            check("Captive portal", Status::Pass, format!("204 from {portal_host}"), Some(a.rtt_ms))
         }
         Some(Ok(a)) => {
             evidence.push(ev("http status", a.status));
@@ -621,7 +687,7 @@ pub fn web(w: &WebResult) -> Hop {
             }
             check("Captive portal", Status::Fail, format!("expected 204, got {}{to}", a.status), Some(a.rtt_ms))
         }
-        Some(Err(e)) => check("Captive portal", Status::Fail, format!("{PORTAL_URL}: {e}"), None),
+        Some(Err(e)) => check("Captive portal", Status::Fail, format!("{portal_url}: {e}"), None),
     };
     let tls = match &w.tls {
         None => check("TLS handshake", Status::Pending, "not run", None),
@@ -631,27 +697,56 @@ pub fn web(w: &WebResult) -> Hop {
         }
         Some(Err(e)) => check("TLS handshake", Status::Fail, e.as_str(), None),
     };
-    let status = worst([portal.status, tls.status]);
+    let sites: Vec<Check> = w
+        .sites
+        .iter()
+        .map(|site| {
+            let name = host_of(&site.url);
+            match &site.outcome {
+                Ok(a) if a.status < 500 => check(name, Status::Pass, format!("{} in {:.0} ms", a.status, a.rtt_ms), Some(a.rtt_ms)),
+                Ok(a) => check(name, Status::Warn, format!("server error {}", a.status), Some(a.rtt_ms)),
+                Err(e) => check(name, Status::Fail, e.as_str(), None),
+            }
+        })
+        .collect();
+    let sites_failed = sites.iter().filter(|c| c.status == Status::Fail).count();
+    // One site down is that site's problem; all of them down is ours.
+    let sites_status = match sites_failed {
+        0 => worst(sites.iter().map(|c| c.status)),
+        n if n == sites.len() => Status::Fail,
+        _ => Status::Warn,
+    };
+    let status = worst([portal.status, tls.status, if sites.is_empty() { Status::NotApplicable } else { sites_status }]);
     let intercepted = matches!(&w.portal, Some(Ok(a)) if a.status != 204);
     let summary = match status {
+        Status::Pass if !sites.is_empty() => format!("HTTP in {:.0} ms, TLS in {:.0} ms, {} sites up", portal.rtt_ms.unwrap_or_default(), tls.rtt_ms.unwrap_or_default(), sites.len()),
         Status::Pass => format!("HTTP in {:.0} ms, TLS in {:.0} ms", portal.rtt_ms.unwrap_or_default(), tls.rtt_ms.unwrap_or_default()),
         _ if intercepted && matches!(&w.portal, Some(Ok(a)) if a.location.is_some()) => "HTTP redirected to a login page".into(),
         _ if intercepted => "HTTP intercepted".into(),
         Status::Fail if portal.status == Status::Fail => "HTTP requests fail".into(),
-        Status::Fail => "TLS handshake fails".into(),
+        Status::Fail if tls.status == Status::Fail => "TLS handshake fails".into(),
+        Status::Fail => "no HTTPS site answers".into(),
+        Status::Warn if sites_failed > 0 => format!("{sites_failed} of {} sites unreachable", sites.len()),
         _ => "pending".into(),
     };
     Hop {
         id: "web".into(),
         kind: HopKind::Web,
         label: "Web".into(),
-        target: Some("cp.cloudflare.com".into()),
+        target: Some(portal_host.into()),
         status,
         summary,
         metrics: HopMetrics { rtt_ms: portal.rtt_ms, jitter_ms: None, loss_pct: None },
         evidence,
-        checks: vec![portal, tls],
+        checks: [portal, tls].into_iter().chain(sites).collect(),
     }
+}
+
+/// The host part of a URL, for labels.
+fn host_of(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    authority.rsplit_once('@').map_or(authority, |(_, h)| h)
 }
 
 /// Keeps remote-supplied text short and printable.
@@ -692,7 +787,7 @@ mod tests {
 
     fn tcp(name: &str, family: Family, r: Vec<Option<f64>>) -> TcpTarget {
         let error = r.iter().any(Option::is_none).then(|| "timed out after 1s".to_string());
-        TcpTarget { name: name.into(), family, addr: "1.1.1.1:443".into(), outcome: TcpOutcome::Attempts { rtts: r, error } }
+        TcpTarget { name: name.into(), family, addr: "1.1.1.1:443".into(), outcome: TcpOutcome::Attempts { rtts: r, error }, icmp: None }
     }
 
     fn dns_ok(name: &str, system: bool, rtt: f64) -> DnsResult {
@@ -701,7 +796,9 @@ mod tests {
             server: "192.168.1.1".into(),
             system,
             label: None,
+            query: String::new(),
             outcome: Ok(DnsAnswer { rtt_ms: rtt, addrs: QUERY_EXPECT.to_vec(), expected: true }),
+            extra: vec![],
         }
     }
 
@@ -709,6 +806,7 @@ mod tests {
         WebResult {
             portal: Some(Ok(HttpAnswer { status: 204, location: None, rtt_ms: 22.0 })),
             tls: Some(Ok(TlsAnswer { rtt_ms: 15.0, version: "TLS 1.3".into(), host: "www.cloudflare.com".into() })),
+            ..Default::default()
         }
     }
 
@@ -726,6 +824,7 @@ mod tests {
             ],
             dns: vec![dns_ok("System resolver", true, 12.0), dns_ok("Cloudflare 1.1.1.1", false, 7.0)],
             web: web_ok(),
+            thresholds: Thresholds::default(),
         }
     }
 

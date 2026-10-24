@@ -1,0 +1,169 @@
+# wirewolf configuration
+#
+# Every key is optional: anything you leave out keeps the default shown here, so a config can
+# be as short as one [[targets]] entry. Environment variables and command line flags (see
+# `wirewolf serve --help`) override this file. The Settings page shows where each value came
+# from.
+#
+# Durations are written like "30s", "5m", "1h", or "30d".
+
+[server]
+# Address to serve the dashboard and API on. WIREWOLF_LISTEN, --listen.
+listen = "0.0.0.0:7465"
+
+[probe]
+# Time between probe cycles (at least 5s). WIREWOLF_INTERVAL, --interval.
+interval = "30s"
+# Test IPv6 targets: "auto" (when this host has a global IPv6 address), "on", or "off".
+ipv6 = "auto"
+# Measure the path MTU toward the internet with don't-fragment pings. Needs ICMP; runs every
+# ten minutes.
+path_mtu = true
+
+[internet]
+# The internet hop is a TCP handshake to each target, over IPv4 and IPv6. Anycast addresses are
+# best: they answer from nearby, so the RTT is your path, not the ocean.
+port = 443
+# Also ping each target with ICMP where the host allows it. Informational: some networks drop
+# ICMP, so it never fails the hop.
+icmp = true
+
+[[internet.targets]]
+name = "Cloudflare"
+v4 = "1.1.1.1"
+v6 = "2606:4700:4700::1111"
+
+[[internet.targets]]
+name = "Google"
+v4 = "8.8.8.8"
+v6 = "2001:4860:4860::8888"
+
+[[internet.targets]]
+name = "Quad9"
+v4 = "9.9.9.9"
+v6 = "2620:fe::fe"
+
+[dns]
+# Test the resolvers this host is configured with (/etc/resolv.conf). These decide the hop's
+# status.
+system = true
+# Record types asked of every resolver.
+record_types = ["A", "AAAA"]
+
+# Public resolvers to compare against. They tell "my resolver is broken" apart from "DNS is
+# blocked".
+[[dns.resolvers]]
+name = "Cloudflare"
+address = "1.1.1.1"
+
+[[dns.resolvers]]
+name = "Google"
+address = "8.8.8.8"
+
+[[dns.resolvers]]
+name = "Quad9"
+address = "9.9.9.9"
+
+# Names asked of every resolver. The first is the headline check. With `expect`, an A answer
+# must contain one of the addresses, or the resolver is flagged as filtering or hijacking.
+[[dns.queries]]
+name = "one.one.one.one"
+expect = ["1.1.1.1", "1.0.0.1"]
+
+[[dns.queries]]
+name = "www.google.com"
+expect = []
+
+[[dns.queries]]
+name = "www.wikipedia.org"
+expect = []
+
+[web]
+# Must answer 204 over plain HTTP. Anything else means a captive portal or intercepting proxy.
+captive_portal = "http://cp.cloudflare.com/generate_204"
+# The TLS handshake and certificate check.
+tls_host = "www.cloudflare.com"
+# HTTPS sites that must answer (any status below 500 counts).
+sites = ["https://www.google.com", "https://www.wikipedia.org", "https://github.com"]
+
+# A hop above any of its limits is degraded. Loss is percent; times are milliseconds.
+[thresholds.gateway]
+rtt_warn_ms = 30.0
+jitter_warn_ms = 30.0
+loss_warn_pct = 10.0
+
+# Only loss is used here, and only while the internet hop is lossy too (routers on the way
+# rate-limit ICMP).
+[thresholds.isp]
+rtt_warn_ms = 150.0
+jitter_warn_ms = 40.0
+loss_warn_pct = 25.0
+
+[thresholds.internet]
+rtt_warn_ms = 150.0
+jitter_warn_ms = 40.0
+loss_warn_pct = 10.0
+
+# Only the RTT of the system resolver is used.
+[thresholds.dns]
+rtt_warn_ms = 250.0
+jitter_warn_ms = 40.0
+loss_warn_pct = 10.0
+
+# Applied to every [[targets]] entry.
+[thresholds.targets]
+rtt_warn_ms = 250.0
+jitter_warn_ms = 40.0
+loss_warn_pct = 10.0
+
+[incidents]
+# Unhealthy cycles in a row before an incident opens, and healthy cycles in a row before it
+# closes. At the default 30s interval, 2 means a blip under a minute isn't an incident. The
+# incident's times still start and end at the first bad and first good cycle.
+open_after = 2
+close_after = 2
+
+[speed]
+# "cloudflare" or "ookla" (speedtest.net servers). WIREWOLF_SPEED_BACKEND, --speed-backend.
+backend = "cloudflare"
+# Time between scheduled tests; "0" turns them off. WIREWOLF_SPEED_INTERVAL, --speed-interval.
+interval = "1h"
+# Ookla only: always use this speedtest.net server ("host:port"). Empty picks the fastest of the
+# nearest few.
+server = ""
+# Parallel connections per direction, and how long each direction runs.
+streams = 8
+duration = "10s"
+
+[storage]
+# SQLite history file. WIREWOLF_DB, --db.
+db = "wirewolf.db"
+# How long to keep history. WIREWOLF_RETENTION, --retention.
+retention = "30d"
+
+# Your own things to watch. Each gets a status on the Now page and its own history. A failing
+# `critical` target degrades the verdict and opens incidents like any hop. Checks:
+#
+#   tcp://host:port      a TCP handshake
+#   http://… https://…   a GET; any status below 500 counts. `verify_tls = false` for
+#                        self-signed admin pages
+#   ping://host          ICMP echo (TCP to common ports when ICMP is unavailable)
+#   dns://server[:port]  the first [[dns.queries]] name, asked of that server
+#
+# [[targets]]
+# name = "NAS"
+# check = "tcp://nas.local:445"
+# critical = true
+#
+# [[targets]]
+# name = "Router admin"
+# check = "https://router.local"
+# verify_tls = false
+#
+# [[targets]]
+# name = "Printer"
+# check = "ping://10.0.0.5"
+#
+# [[targets]]
+# name = "Pi-hole"
+# check = "dns://pihole.local"

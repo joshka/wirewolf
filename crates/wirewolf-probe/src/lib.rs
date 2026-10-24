@@ -4,11 +4,12 @@
 //! into a [`Hub`] with the same shapes the demo driver uses, runs scheduled and on-demand speed
 //! tests, and keeps history in SQLite.
 
-use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use jiff::{SignedDuration, Timestamp};
-use wirewolf_core::diagnose::diagnose;
+use wirewolf_core::config::Config;
+use wirewolf_core::diagnose::{diagnose, with_targets};
 use wirewolf_core::model::{API_VERSION, Meta, Sample, Severity, Snapshot, Status};
 use wirewolf_core::{Command, Hub};
 
@@ -17,35 +18,9 @@ pub mod icmp;
 pub mod measure;
 pub mod speed;
 pub mod store;
+pub mod targets;
 
 pub use speed::Backend;
-
-/// How the live driver runs.
-#[derive(Debug, Clone)]
-pub struct Config {
-    /// Time between probe cycles.
-    pub interval: Duration,
-    /// Time between scheduled speed tests. `None` disables them.
-    pub speed_interval: Option<Duration>,
-    pub speed_backend: Backend,
-    pub cloudflare: speed::CloudflareConfig,
-    /// SQLite file. `None` keeps history in memory only.
-    pub db: Option<PathBuf>,
-    pub retention: SignedDuration,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            interval: Duration::from_secs(30),
-            speed_interval: Some(Duration::from_secs(60 * 60)),
-            speed_backend: Backend::Cloudflare,
-            cloudflare: speed::CloudflareConfig::default(),
-            db: None,
-            retention: SignedDuration::from_hours(24 * 30),
-        }
-    }
-}
 
 pub fn meta() -> Meta {
     Meta {
@@ -79,28 +54,36 @@ const LOAD_WINDOW: SignedDuration = SignedDuration::from_hours(48);
 
 /// Opens the store, loads history into the hub, and starts writing new history. Call before
 /// [`run`] so the API serves history from the first request.
+///
+/// An empty `storage.db` keeps history in memory only.
 pub fn attach_store(hub: &Hub, config: &Config) -> anyhow::Result<()> {
-    let store = match &config.db {
-        Some(path) => store::Store::open(path)?,
-        None => store::Store::in_memory()?,
-    };
+    let db = &config.storage.db;
+    let store = if db.as_os_str().is_empty() { store::Store::in_memory()? } else { store::Store::open(db)? };
     let history = store.load(Timestamp::now() - LOAD_WINDOW, 500)?;
     tracing::info!(
         "loaded {} samples, {} speed runs, {} incidents from {}",
         history.samples.len(),
         history.speed.len(),
         history.incidents.len(),
-        config.db.as_ref().map_or("memory".into(), |p| p.display().to_string())
+        if db.as_os_str().is_empty() { "memory".into() } else { db.display().to_string() }
     );
     hub.load_history(history.samples, history.speed, history.incidents);
-    tokio::spawn(store::follow(hub.clone(), store, config.retention));
+    let retention = SignedDuration::try_from(config.storage.retention.0)?;
+    tokio::spawn(store::follow(hub.clone(), store, retention));
+    Ok(())
+}
+
+/// Checks the parts of a config that serde can't, such as target URLs and the speed backend.
+pub fn validate(config: &Config) -> anyhow::Result<()> {
+    targets::parse_all(&config.targets).map_err(anyhow::Error::msg)?;
+    config.speed.backend.parse::<Backend>().map_err(anyhow::Error::msg)?;
     Ok(())
 }
 
 /// Probes forever, publishing into the hub.
-pub async fn run(hub: Hub, config: Config) {
+pub async fn run(hub: Hub, config: Arc<Config>) {
     let mut commands = hub.take_commands().expect("the live driver needs the command receiver");
-    let mut prober = match measure::Prober::new() {
+    let mut prober = match measure::Prober::new(config.clone()) {
         Ok(p) => p,
         Err(e) => {
             tracing::error!("can't start probes: {e}");
@@ -112,9 +95,10 @@ pub async fn run(hub: Hub, config: Config) {
         Some(i) => tracing::info!("ICMP available ({i:?}) without TTL replies; the ISP hop is inferred"),
         None => tracing::info!("ICMP unavailable; the gateway uses TCP connects and the ISP hop is inferred"),
     }
-    let mut ticker = tokio::time::interval(config.interval);
+    let mut ticker = tokio::time::interval(config.probe.interval.0.max(Duration::from_secs(5)));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let mut speed_ticker = config.speed_interval.map(|every| {
+    let speed_interval = Some(config.speed.interval.0).filter(|d| !d.is_zero());
+    let mut speed_ticker = speed_interval.map(|every| {
         // First scheduled run after one interval, unless the history says one is overdue.
         let last = hub.speed_runs().first().map(|r| r.started);
         let since = last.map(|t| Timestamp::now().duration_since(t).unsigned_abs()).unwrap_or(Duration::MAX);
@@ -131,7 +115,7 @@ pub async fn run(hub: Hub, config: Config) {
                     tracing::debug!("skipping probe cycle during speed test");
                     continue;
                 }
-                let measurements = prober.cycle(upstream_fault).await;
+                let (measurements, targets) = prober.cycle(upstream_fault).await;
                 let at = Timestamp::now();
                 let hops = assess::hops(&measurements);
                 // Sweep the path next cycle when the break is past the gateway.
@@ -140,11 +124,14 @@ pub async fn run(hub: Hub, config: Config) {
                 for hop in &hops {
                     hub.push_sample(Sample { at, hop: hop.id.clone(), status: hop.status, rtt_ms: hop.metrics.rtt_ms, jitter_ms: hop.metrics.jitter_ms, loss_pct: hop.metrics.loss_pct });
                 }
-                let verdict = diagnose(&hops);
+                for t in &targets {
+                    hub.push_sample(Sample { at, hop: t.id.clone(), status: t.status, rtt_ms: t.rtt_ms, jitter_ms: None, loss_pct: t.loss_pct });
+                }
+                let verdict = with_targets(diagnose(&hops), &targets);
                 if verdict.severity != Severity::Healthy {
                     tracing::info!("{:?}: {}", verdict.severity, verdict.headline);
                 }
-                hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None });
+                hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None, targets });
             }
             _ = async { speed_ticker.as_mut().unwrap().tick().await }, if speed_ticker.is_some() => {
                 start_speed(&hub, &config);
@@ -161,6 +148,9 @@ fn start_speed(hub: &Hub, config: &Config) {
     if hub.speed_running() {
         return;
     }
-    tracing::info!("starting {} speed test", config.speed_backend.name());
-    tokio::spawn(speed::run(hub.clone(), config.speed_backend, config.cloudflare));
+    let backend = config.speed.backend.parse().unwrap_or(Backend::Cloudflare);
+    let cf = speed::CloudflareConfig { streams: config.speed.streams.max(1), duration: config.speed.duration.0.max(Duration::from_secs(2)) };
+    let server = Some(config.speed.server.clone()).filter(|s| !s.is_empty());
+    tracing::info!("starting {} speed test", backend.name());
+    tokio::spawn(speed::run(hub.clone(), backend, cf, server));
 }
