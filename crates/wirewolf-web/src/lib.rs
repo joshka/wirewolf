@@ -20,12 +20,15 @@ use tokio_stream::wrappers::BroadcastStream;
 use wirewolf_core::model::Event;
 use wirewolf_core::{Command, Hub};
 
+#[cfg(feature = "ui-shadcn")]
+mod ui_shadcn;
+
 /// The full app: the API under `/api/v1` plus the UI.
 pub fn router(hub: Hub) -> Router {
-    Router::new()
-        .nest("/api/v1", api_router())
-        .route("/", get(index))
-        .with_state(hub)
+    let router = Router::new().nest("/api/v1", api_router()).route("/", get(index));
+    #[cfg(feature = "ui-shadcn")]
+    let router = router.merge(ui_shadcn::router());
+    router.with_state(hub)
 }
 
 /// The JSON + SSE API. Mount under `/api/v1`.

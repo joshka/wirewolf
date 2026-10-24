@@ -17,3 +17,8 @@ tokio = { version = "1.54.1", features = ["net", "rt-multi-thread", "macros", "s
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 tracing = "0.1.44"
 wirewolf-core = { version = "0.0.0", path = "../wirewolf-core" }
+rust-embed = { version = "8.13.0", optional = true, features = ["mime-guess"] }
+
+[features]
+# The React + Vite + shadcn/ui variant at /ui/shadcn/. Needs Node + pnpm at build time (see build.rs).
+ui-shadcn = ["dep:rust-embed"]
