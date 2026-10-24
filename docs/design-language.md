@@ -123,7 +123,9 @@ tiles. The icon names are fixed:
 
 ## Component specifics
 
-- **Hop card** (desktop), with a fixed 132px height so the row aligns. The rows inside are:
+- **Hop card** (desktop). All cards in the row are equal height (grid stretch, so they match the
+  tallest, which is the blamed card with its badge line), with a minimum of 132px. Keep the
+  icon tile at 36px. The rows inside are:
   1. the icon tile and status icon;
   2. the label, with the `LIKELY CAUSE` badge on its own line below when blamed;
   3. the target (mono, truncated);
