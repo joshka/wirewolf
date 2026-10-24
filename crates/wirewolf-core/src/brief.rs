@@ -441,20 +441,39 @@ impl<'a> Redactor<'a> {
         out
     }
 
-    /// One run of address-like characters, for example `203.0.113.7/24` or `10:56`.
+    /// One run of address-like characters, for example `203.0.113.7/24`, `10:56`, or the
+    /// `://203.0.113.7:8080/` in a URL. Each `/`-separated piece is checked on its own, so
+    /// addresses inside URLs and `ip:port` pairs are caught too.
     fn word(&mut self, w: &str) -> String {
+        w.split('/').map(|piece| self.piece(piece)).collect::<Vec<_>>().join("/")
+    }
+
+    fn piece(&mut self, p: &str) -> String {
         // Trailing punctuation ("…at 1.2.3.4.") isn't part of the address.
-        let trimmed = w.trim_end_matches(['.', ':']);
-        let (addr, rest) = trimmed.split_once('/').map_or((trimmed, ""), |(a, p)| (a, p));
-        let Ok(ip) = addr.parse::<IpAddr>() else { return w.to_owned() };
-        if !public(ip) || WELL_KNOWN.contains(&addr) || self.keep.iter().any(|k| k == addr) {
-            return w.to_owned();
+        let addr = p.trim_end_matches(['.', ':']);
+        let tail = &p[addr.len()..];
+        if is_mac(addr) {
+            return format!("<mac>{tail}");
+        }
+        // `203.0.113.7:443`. IPv6 with a port is bracketed, and brackets end the word.
+        let (host, port) = match addr.rsplit_once(':') {
+            Some((h, port)) if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) && h.parse::<std::net::Ipv4Addr>().is_ok() => (h, &addr[h.len()..]),
+            _ => (addr, ""),
+        };
+        let Ok(ip) = host.parse::<IpAddr>() else { return p.to_owned() };
+        if !public(ip) || WELL_KNOWN.contains(&host) || self.keep.iter().any(|k| k == host) {
+            return p.to_owned();
         }
         let n = self.tokens.len() + 1;
         let token = self.tokens.entry(ip).or_insert_with(|| format!("<public-ip-{n}>")).clone();
-        let prefix = if rest.is_empty() { String::new() } else { format!("/{rest}") };
-        format!("{token}{prefix}{}", &w[trimmed.len()..])
+        format!("{token}{port}{tail}")
     }
+}
+
+/// `aa:bb:cc:dd:ee:ff`: a hardware address, which identifies a device.
+fn is_mac(s: &str) -> bool {
+    let parts: Vec<&str> = s.split(':').collect();
+    parts.len() == 6 && parts.iter().all(|p| p.len() == 2 && p.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// Whether an address could identify the user: globally routable, not a documentation example.
@@ -490,6 +509,12 @@ mod tests {
         let s = r.text("me 93.184.215.14/24, gw 192.168.1.1, isp 100.64.0.1, dns 1.1.1.1, again 93.184.215.14. v6 2606:2800:21f:cb07::68 at 10:56");
         assert_eq!(s, "me <public-ip-1>/24, gw 192.168.1.1, isp 100.64.0.1, dns 1.1.1.1, again <public-ip-1>. v6 <public-ip-2> at 10:56");
         assert_eq!(r.text("fd7a:115c:a1e0::53 and 2001:db8::1"), "fd7a:115c:a1e0::53 and 2001:db8::1");
+        // Inside URLs, with ports, and MAC addresses (a captive portal's redirect can carry all three).
+        assert_eq!(
+            r.text("portal http://93.184.215.14/login?mac=aa:bb:cc:dd:ee:ff, tcp 93.184.215.14:443, ookla 93.184.215.15:8080. v6 [2606:2800:21f:cb07::68]:443"),
+            "portal http://<public-ip-1>/login?mac=<mac>, tcp <public-ip-1>:443, ookla <public-ip-3>:8080. v6 [<public-ip-2>]:443"
+        );
+        assert_eq!(r.text("http://192.168.1.1:8080/ at 10:56:07"), "http://192.168.1.1:8080/ at 10:56:07");
         let off = Options { redact: false, ..Options::default() };
         assert_eq!(Redactor::new(&off).text("93.184.215.14"), "93.184.215.14");
     }
