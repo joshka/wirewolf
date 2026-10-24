@@ -21,6 +21,9 @@ export const hopIcon: Record<HopKind, LucideIcon> = {
 export function keyMetric(hop: Hop): string {
   const m = hop.metrics
   if (hop.status === "skip" || (m.rtt_ms == null && m.loss_pct == null)) return hop.summary
+  // DNS and web count failed lookups and requests, not lost packets, so "100% loss" would
+  // misdescribe them. Their summaries say what failed ("system resolver timing out").
+  if ((hop.kind === "dns" || hop.kind === "web") && hop.status !== "pass") return hop.summary
   if ((m.loss_pct ?? 0) > 0) return m.rtt_ms == null ? `${pct(m.loss_pct)} loss` : `${ms(m.rtt_ms)} · ${pct(m.loss_pct)} loss`
   return ms(m.rtt_ms)
 }
@@ -135,7 +138,7 @@ export function PathDiagram({
                 )}
                 <span
                   className={cn(
-                    "hidden shrink-0 truncate text-right text-sm font-medium tabular-nums sm:block sm:w-40",
+                    "hidden truncate text-right text-sm font-medium tabular-nums sm:block sm:flex-[0_1_auto] sm:min-w-40 sm:max-w-[45%]",
                     cards && "lg:w-auto lg:text-left",
                     metricTone(hop.status),
                   )}
