@@ -7,6 +7,7 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -18,6 +19,8 @@ import {
 } from "@/components/ui/sidebar"
 import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { hopIcon } from "@/components/path"
+import { StatusIcon } from "@/components/status"
 import { LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/components/chrome"
 import { start, useLive } from "@/lib/live"
 import { href, onLinkClick, useRoute, type Route } from "@/lib/router"
@@ -35,8 +38,7 @@ const NAV: { route: Route; label: string; icon: LucideIcon }[] = [
 ]
 
 const isActive = (nav: Route, cur: Route) =>
-  nav.name === cur.name || (nav.name === "incidents" && (cur.name === "incident" || (cur.name === "hop" && !!cur.incident))) ||
-  (nav.name === "now" && cur.name === "hop" && !cur.incident)
+  nav.name === cur.name || (nav.name === "incidents" && (cur.name === "incident" || (cur.name === "hop" && !!cur.incident)))
 
 export default function App() {
   useEffect(start, [])
@@ -57,6 +59,7 @@ function AppSidebar() {
   const route = useRoute()
   const meta = useLive((s) => s.meta)
   const open = useLive((s) => s.incidents.filter((i) => !i.ended).length)
+  const hops = useLive((s) => s.snapshot?.hops)
   const { setOpenMobile } = useSidebar()
   const go = (e: React.MouseEvent<HTMLAnchorElement>) => {
     onLinkClick(e)
@@ -108,6 +111,30 @@ function AppSidebar() {
             ))}
           </SidebarMenu>
         </SidebarGroup>
+        {hops && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Path</SidebarGroupLabel>
+            <SidebarMenu>
+              {hops.map((h) => {
+                const active = route.name === "hop" && !route.incident && route.id === h.id
+                const Icon = hopIcon[h.kind]
+                return (
+                  <SidebarMenuItem key={h.id}>
+                    <SidebarMenuButton
+                      isActive={active}
+                      tooltip={h.label}
+                      render={<a href={href({ name: "hop", id: h.id })} onClick={go} aria-current={active ? "page" : undefined} />}
+                    >
+                      <Icon aria-hidden />
+                      <span>{h.label}</span>
+                      <StatusIcon status={h.status} className="ml-auto group-data-[collapsible=icon]:hidden" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="items-start gap-2 px-4 pb-4 group-data-[collapsible=icon]:hidden">
         <ScenarioSwitcher />
