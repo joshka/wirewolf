@@ -113,7 +113,9 @@ fn explain_degraded(hop: &Hop) -> Explanation {
     let lossy = loss >= 1.0;
     let side = match hop.kind {
         HopKind::Host | HopKind::Gateway => "on your local network (Wi-Fi or LAN)",
-        HopKind::Isp | HopKind::Internet => "at your internet provider",
+        HopKind::Isp => "at your internet provider",
+        // The internet hop is the anycast targets, so slowness there isn't pinned on the ISP.
+        HopKind::Internet => "reaching the internet",
         HopKind::Dns => "in name resolution",
         HopKind::Web => "in web requests",
     };
@@ -130,7 +132,12 @@ fn explain_degraded(hop: &Hop) -> Explanation {
         (
             format!("Slow {side}"),
             format!("{} is responding slowly ({}).", hop.label, hop.summary),
-            None,
+            Some(match hop.kind {
+                HopKind::Host | HopKind::Gateway => s("Check Wi-Fi signal and whether a big upload, download, or backup is saturating the network."),
+                HopKind::Isp | HopKind::Internet => s("Check nothing on your network is using the whole connection, then run a speed test."),
+                HopKind::Dns => s("Compare against another resolver (for example 1.1.1.1); switch if it's faster."),
+                HopKind::Web => s("If every site is slow, run a speed test; if only some are, it's those sites."),
+            }),
         )
     }
 }
