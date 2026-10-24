@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, type Hop, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { ms, pct } from "@/lib/format"
-import { bucket, HopChart } from "./charts"
+import { bucket, TimeChart } from "./charts"
 import { hopIcon, IconTile } from "./path"
 import { CauseBadge, StatusPill } from "./status"
 import { useNow } from "./time"
@@ -109,9 +109,12 @@ function HopDetail({ hop, blamed, severity, at }: { hop: Hop; blamed: boolean; s
         {error ? (
           <p className="text-sm text-fail">Couldn't load history: {error}</p>
         ) : !fetched ? (
-          <Skeleton className="h-52 w-full" />
+          <Skeleton className="h-68 w-full" />
         ) : samples.some((s) => s.rtt_ms != null) ? (
-          <HopChart hop={hop} data={data} from={from} to={to} incidents={incidents} />
+          <div className="flex flex-col gap-2">
+            <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-40 w-full" />
+            <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-28 w-full" />
+          </div>
         ) : (
           <p className="text-sm text-muted-foreground">This hop has no latency series.</p>
         )}

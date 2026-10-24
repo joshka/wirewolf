@@ -27,11 +27,12 @@ describe("format", () => {
   })
   it("formats relative times", () => {
     const now = Date.parse(at(0))
-    expect(relative(at(0), now + 5e3)).toBe("just now")
-    expect(relative(at(0), now + 38e3)).toBe("38s ago")
-    expect(relative(at(0), now + 3 * 60e3)).toBe("3 min ago")
-    expect(relative(at(0), now + 20 * 3600e3)).toBe("20 h ago")
-    expect(relative(at(0), now + 72 * 3600e3)).not.toMatch(/ago/)
+    const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" })
+    expect(relative(at(0), now + 5e3)).toBe(rtf.format(0, "second"))
+    expect(relative(at(0), now + 38e3)).toBe(rtf.format(-38, "second"))
+    expect(relative(at(0), now + 3 * 60e3)).toBe(rtf.format(-3, "minute"))
+    expect(relative(at(0), now + 20 * 3600e3)).toBe(rtf.format(-20, "hour"))
+    expect(relative(at(0), now + 72 * 3600e3)).toBe(new Date(at(0)).toLocaleDateString(undefined, { month: "short", day: "numeric" }))
   })
   it("formats durations", () => {
     expect(duration(at(0), at(4))).toBe("4 min")

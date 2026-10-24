@@ -1,4 +1,4 @@
-import { Area, CartesianGrid, ComposedChart, Line, LineChart, ReferenceArea, XAxis, YAxis } from "recharts"
+import { CartesianGrid, Line, LineChart, ReferenceArea, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 import type { HopKind, Incident, SpeedRun } from "@/lib/api"
 import { bucket, type Point } from "@/lib/bucket"
@@ -59,7 +59,7 @@ const tooltip = (config: ChartConfig) => (
 )
 
 /** Shaded incident periods, clipped to the visible window. */
-const incidentBands = (incidents: Incident[], from: number, to: number, yAxisId?: string) =>
+const incidentBands = (incidents: Incident[], from: number, to: number) =>
   incidents.map((inc) => {
     const x1 = Math.max(from, new Date(inc.started).getTime())
     const x2 = Math.min(to, inc.ended ? new Date(inc.ended).getTime() : Date.now())
@@ -67,7 +67,6 @@ const incidentBands = (incidents: Incident[], from: number, to: number, yAxisId?
     return (
       <ReferenceArea
         key={inc.id}
-        yAxisId={yAxisId}
         x1={x1}
         x2={Math.max(x2, x1 + (to - from) / 300)}
         ifOverflow="hidden"
@@ -124,28 +123,6 @@ export function TimeChart({
           />
         ))}
       </LineChart>
-    </ChartContainer>
-  )
-}
-
-/** One hop: RTT line in the hop color, loss as a red area on a 0–100% right axis. */
-export function HopChart({ hop, data, from, to, incidents }: { hop: Series; data: Point[]; from: number; to: number; incidents: Incident[] }) {
-  const config: ChartConfig = {
-    [`${hop.id}_rtt`]: { label: "RTT", color: hopColor[hop.kind] },
-    [`${hop.id}_loss`]: { label: "Loss", color: "var(--fail)" },
-  }
-  return (
-    <ChartContainer config={config} className="aspect-auto h-52 w-full">
-      <ComposedChart data={data} margin={{ left: 4, right: 4, top: 8 }} accessibilityLayer>
-        <CartesianGrid vertical={false} />
-        {timeAxis(from, to, to - from)}
-        <YAxis yAxisId="rtt" width={52} tickLine={false} axisLine={false} domain={[0, "auto"]} tickFormatter={msTick} />
-        <YAxis yAxisId="loss" orientation="right" width={40} tickLine={false} axisLine={false} domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(v: number) => `${v}%`} />
-        {incidentBands(incidents, from, to, "rtt")}
-        {tooltip(config)}
-        <Area yAxisId="loss" dataKey={`${hop.id}_loss`} type="stepAfter" stroke="var(--fail)" fill="var(--fail)" fillOpacity={0.2} isAnimationActive={false} />
-        <Line yAxisId="rtt" dataKey={`${hop.id}_rtt`} type="monotone" stroke={`var(--color-${hop.id}_rtt)`} strokeWidth={1.75} dot={false} isAnimationActive={false} />
-      </ComposedChart>
     </ChartContainer>
   )
 }

@@ -41,7 +41,7 @@ export const severityStatus: Record<Severity, Status> = {
 
 export function StatusIcon({ status, className }: { status: Status; className?: string }) {
   const Icon = statusIcon[status]
-  return <Icon aria-hidden strokeWidth={1.75} className={cn("size-4 shrink-0", statusText[status], className)} />
+  return <Icon aria-hidden className={cn("size-4 shrink-0", statusText[status], className)} />
 }
 
 /** Icon plus label, so status never relies on color alone. */

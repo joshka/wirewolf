@@ -32,15 +32,16 @@ export function bytes(v: number | null | undefined): string {
   return `${nf(i === 0 ? 0 : 1).format(v)} ${units[i]}`
 }
 
-/** "just now", "38s ago", "3 min ago", "2 h ago", "20 h ago", or "Oct 21" beyond 48h. */
+const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" })
+
+/** Localized "3 min ago" up to 48 hours, then a short date. */
 export function relative(at: string | Date, now = Date.now()): string {
   const t = new Date(at).getTime()
-  const secs = Math.round((now - t) / 1000)
-  if (secs < 0) return "just now"
-  if (secs < 10) return "just now"
-  if (secs < 60) return `${secs}s ago`
-  if (secs < 3600) return `${Math.round(secs / 60)} min ago`
-  if (secs < 48 * 3600) return `${Math.round(secs / 3600)} h ago`
+  const secs = Math.round((t - now) / 1000)
+  const a = Math.abs(secs)
+  if (a < 60) return rtf.format(a < 10 ? 0 : secs, "second")
+  if (a < 3600) return rtf.format(Math.round(secs / 60), "minute")
+  if (a < 48 * 3600) return rtf.format(Math.round(secs / 3600), "hour")
   return new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" })
 }
 

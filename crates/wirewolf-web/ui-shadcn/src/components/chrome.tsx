@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Monitor, Moon, Sun } from "lucide-react"
+import { Check, ChevronDown, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -8,6 +8,8 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
@@ -15,19 +17,22 @@ import { api } from "@/lib/api"
 import { reloadMeta, useLive } from "@/lib/live"
 import { cn } from "@/lib/utils"
 
-const THEMES = ["system", "light", "dark"] as const
-const themeIcon = { system: Monitor, light: Sun, dark: Moon }
-
-/** Shows the current mode; each click cycles system → light → dark. */
 export function ThemeToggle() {
-  const { theme = "system", setTheme } = useTheme()
-  const current = (THEMES as readonly string[]).includes(theme) ? (theme as (typeof THEMES)[number]) : "system"
-  const next = THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]
-  const Icon = themeIcon[current]
+  const { theme, setTheme } = useTheme()
   return (
-    <Button variant="ghost" size="icon" title={`Theme: ${current}`} aria-label={`Theme: ${current}. Switch to ${next}`} onClick={() => setTheme(next)}>
-      <Icon aria-hidden />
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Theme" />}>
+        <Sun aria-hidden className="dark:hidden" />
+        <Moon aria-hidden className="hidden dark:block" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={theme} onValueChange={(v) => setTheme(String(v))}>
+          <DropdownMenuRadioItem value="light">Light</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark">Dark</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="system">System</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 

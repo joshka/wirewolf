@@ -42,7 +42,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
             v.severity === "unknown" && "bg-muted",
           )}
         >
-          <Icon aria-hidden strokeWidth={1.75} className={cn("size-6", statusText[status])} />
+          <Icon aria-hidden className={cn("size-6", statusText[status])} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
@@ -67,7 +67,7 @@ export function VerdictBanner({ snapshot, since }: { snapshot: Snapshot; since?:
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground text-pretty">{v.detail}</p>
           {v.fix_hint && !healthy && (
             <div className="mt-4 flex max-w-2xl items-start gap-2 rounded-lg border bg-background p-3 text-sm">
-              <Lightbulb aria-hidden strokeWidth={1.75} className="mt-0.5 size-4 shrink-0 text-primary" />
+              <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
               <p>
                 <span className="font-medium">Try next: </span>
                 {v.fix_hint}
