@@ -10,10 +10,23 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Added
 
-- Notifications when incidents open and close.
-- A printable connection report to hand to your ISP.
-- Export of history, incidents, and speed tests.
-- Speed results compared with the plan you pay for.
+- Notifications when incidents open, get worse, and close, sent to ntfy and/or a webhook
+  (Slack, Discord, and Home Assistant accept its JSON). Set them up under Settings →
+  Notifications or `[notify]` in the config (`ntfy`, `ntfy_token`, `webhook`, `min_severity`,
+  `resolved`); "Send test" checks the settings. The token and webhook URL are kept out of the
+  logs and hidden from people who can't change settings.
+- A printable connection report at `/report`, linked from Incidents: outages on the provider's
+  side kept apart from problems on your own network, total downtime, and speed against your
+  plan over 7 or 30 days. It prints on white and can be copied as text.
+- Prometheus metrics at `/api/v1/metrics`: the verdict, each hop's status, latency, jitter, and
+  loss, user targets, whether an incident is open, and the latest speed test, in base units.
+- CSV downloads of history, incidents, and speed tests (Download CSV on those pages, or
+  `/api/v1/export/{history,incidents,speed}.csv`).
+- Speed results compared with the plan you pay for. Set `speed.plan_down_mbps` and
+  `speed.plan_up_mbps` (in Settings or the config; 0 means not set) to see each result as a
+  share of the plan, a dashed plan line on the speed chart, and runs under 80% flagged.
+- API 1.7: `Meta.monitoring_since` (the oldest measurement kept) and the metrics, export, and
+  `POST /api/v1/notify/test` endpoints. All additions; see `docs/api.md`.
 - The current state says how long it has lasted, and speed tests say which phase they are in.
 - DNS and web rows say what failed.
 - Every page has a title and description.
@@ -26,7 +39,8 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Changed
 
-- The Incidents page shows the last 30 days.
+- The Incidents page starts with a 30-day uptime strip, one cell per day. Days before
+  wirewolf started measuring show as no data rather than as good days.
 - Speed tests are drawn as measured points, the speed tests table is trimmed, and each
   target's timing is shown once.
 - Overlapping history lines are easier to follow, and keyboard-focused charts show a focus

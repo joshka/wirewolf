@@ -99,7 +99,7 @@ edit it when you're allowed to.
 - [API](docs/api.md): the JSON and SSE API the dashboard and TUI use
 - [Dashboard](docs/ui.md): the pages and how to develop the UI
 - [Design](docs/design.md): why wirewolf works the way it does
-- [Changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md) and [contributing](CONTRIBUTING.md)
 
 ## License
 

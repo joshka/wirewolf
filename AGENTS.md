@@ -34,3 +34,8 @@ Tim Pope / Chris Beams style, not conventional commits:
   ("Add live probes", not "feat(probe): added live probes.").
 - A blank line, then a body wrapped at 72 columns that explains what changed and why.
   Small, self-explanatory changes may omit the body.
+
+## Changelog
+
+Add a line under `[Unreleased]` in `CHANGELOG.md` in the same commit as any change a user would
+notice. See [CONTRIBUTING.md](CONTRIBUTING.md#changelog) for what a good entry says.
