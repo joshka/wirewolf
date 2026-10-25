@@ -4,6 +4,8 @@ import { cn } from "@/lib/utils"
 import type { Snapshot } from "@/lib/api"
 import { Lasting, RelTime } from "./time"
 import { SeverityPill } from "./status"
+import { Explanation, ExplainToggle } from "./explain"
+import { useExplainOpen } from "@/lib/explain"
 
 /**
  * The answer to "is it broken, where, and since when?". Loud when something is wrong, compact
@@ -25,6 +27,8 @@ export function VerdictBanner({
   const v = snapshot.verdict
   const blamed = snapshot.hops.find((h) => h.id === v.blame)
   const healthy = v.severity === "healthy"
+  const [open, setOpen] = useExplainOpen()
+  const canExplain = v.severity !== "unknown"
   return (
     <section
       aria-label="Verdict"
@@ -70,7 +74,7 @@ export function VerdictBanner({
           {v.headline}
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground text-pretty">{v.detail}</p>
-        {v.fix_hint && !healthy && (
+        {v.fix_hint && !healthy && !open && (
           <div className="mt-4 flex max-w-2xl items-start gap-2 p-0 text-sm">
             <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
             <p>
@@ -79,9 +83,13 @@ export function VerdictBanner({
             </p>
           </div>
         )}
-        <p className="mt-3 text-xs text-muted-foreground">
-          {v.method} · checked <RelTime at={snapshot.at} />
-        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="text-xs text-muted-foreground">
+            {v.method} · checked <RelTime at={snapshot.at} />
+          </p>
+          {canExplain && <ExplainToggle open={open} onChange={setOpen} />}
+        </div>
+        {canExplain && open && <Explanation snapshot={snapshot} />}
       </div>
     </section>
   )
