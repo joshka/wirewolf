@@ -41,7 +41,7 @@ One thing gets attention at a time; everything else is quiet. Design at laptop w
 - **Colour means status.** There's one status colour per page: every coloured mark uses the
   verdict's colour, so a red verdict never has an amber cause. No tint over a whole section,
   and no pills in a different hue. The accent stays out of content.
-- **Verdict.** A faint band of the status colour (`--status-tint`) runs edge to edge behind
+- **Verdict.** A faint band of the status colour (the status tint) runs edge to edge behind
   only the status line and the headline. It's there in every state, green when healthy. The
   status word is in the status colour and its metadata is muted. The headline is 26px at
   weight 650 with slight negative tracking. The lead is 15px, at most ~68 characters per line.
@@ -67,8 +67,8 @@ One thing gets attention at a time; everything else is quiet. Design at laptop w
   neutral (see Visual style).
 - **Status:** pass `#22c55e`, warn `#f59e0b`, fail `#ef4444`, skip and n/a in muted
   foreground. Always pair status color with an icon or a word.
-- **Status tint** (`--status-tint`): the status colour at 10% alpha, for the verdict band and
-  the cause row.
+- **Status tint:** the status colour at 10% alpha (`bg-fail/10`, `bg-warn/10`,
+  `bg-pass/10`), for the verdict band and the cause row.
 - **Hop palette** (chart series and legend dots only):
 
   | Hop | Color |
