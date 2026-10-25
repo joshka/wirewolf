@@ -233,6 +233,8 @@ impl Hub {
             let state = &mut *guard;
             let severity = snapshot.verdict.severity;
             let previous = state.snapshot.as_ref().map(|s| s.verdict.severity);
+            let held = state.snapshot.as_ref().filter(|_| previous == Some(severity)).and_then(|s| s.verdict.held_cycles).unwrap_or(0);
+            snapshot.verdict.held_cycles = Some(held + 1);
             if previous != Some(severity) {
                 let message = match previous {
                     Some(p) => format!("Verdict {} → {}: {}", severity_word(p), severity_word(severity), snapshot.verdict.headline),

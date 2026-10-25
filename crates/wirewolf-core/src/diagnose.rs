@@ -5,10 +5,23 @@
 //! a more specific explanation (DNS failing while the internet answers by IP, HTTP intercepted
 //! while DNS and TCP work).
 
+use crate::config::Thresholds;
+use crate::explain::{explain, explain_target};
 use crate::model::{Confidence, Hop, HopKind, Severity, Status, Target, Verdict};
 
-/// Diagnoses a path. `hops` must be in path order.
+/// Diagnoses a path with the default limits. `hops` must be in path order.
 pub fn diagnose(hops: &[Hop]) -> Verdict {
+    diagnose_with(hops, &Thresholds::default())
+}
+
+/// Diagnoses a path and explains it against the configured limits. `hops` must be in path order.
+pub fn diagnose_with(hops: &[Hop], limits: &Thresholds) -> Verdict {
+    let mut verdict = conclude(hops);
+    explain(&mut verdict, hops, limits);
+    verdict
+}
+
+fn conclude(hops: &[Hop]) -> Verdict {
     let probes = hops.iter().map(|h| h.checks.len().max(1)).sum::<usize>();
     let method = format!("{probes} checks across {} hops", hops.len());
 
@@ -208,7 +221,7 @@ pub fn with_targets(verdict: Verdict, targets: &[Target]) -> Verdict {
         n => format!(" (and {n} more targets)"),
     };
     let failed = target.status == Status::Fail;
-    Verdict {
+    let mut verdict = Verdict {
         severity: Severity::Degraded,
         headline: if failed { format!("{} is unreachable{more}", target.name) } else { format!("{} is slow{more}", target.name) },
         detail: format!("The path to the internet is fine, but {} ({}) {}: {}.", target.name, target.check, if failed { "fails" } else { "is degraded" }, target.detail),
@@ -218,9 +231,11 @@ pub fn with_targets(verdict: Verdict, targets: &[Target]) -> Verdict {
         method: format!("{}, plus {} targets", verdict.method, targets.len()),
         bottom_line: None,
         confidence_reason: None,
-        steps: vec![],
+        steps: verdict.steps,
         held_cycles: None,
-    }
+    };
+    explain_target(&mut verdict, target);
+    verdict
 }
 
 #[cfg(test)]

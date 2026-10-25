@@ -22,6 +22,7 @@ pub mod brief;
 pub mod config;
 pub mod diagnose;
 pub mod editor;
+pub mod explain;
 pub mod hub;
 pub mod logs;
 pub mod model;

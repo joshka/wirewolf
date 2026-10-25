@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use jiff::{SignedDuration, Timestamp};
 use wirewolf_core::config::Config;
-use wirewolf_core::diagnose::{diagnose, with_targets};
+use wirewolf_core::diagnose::{diagnose_with, with_targets};
 use wirewolf_core::model::{API_VERSION, ActivityKind, Meta, Sample, Severity, Snapshot, Status};
 use wirewolf_core::{Command, Hub};
 
@@ -195,7 +195,7 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                         tracing::debug!(check = %id, "{id} {status:?}: {detail}");
                     }
                 }
-                let verdict = with_targets(diagnose(&hops), &targets);
+                let verdict = with_targets(diagnose_with(&hops, &measurements.thresholds), &targets);
                 let key = (verdict.severity, verdict.headline.clone());
                 if last_verdict.as_ref() != Some(&key) {
                     match verdict.severity {

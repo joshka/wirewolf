@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use wirewolf_core::brief;
 use wirewolf_core::config::Config;
-use wirewolf_core::diagnose::{diagnose, with_targets};
+use wirewolf_core::diagnose::{diagnose_with, with_targets};
 use wirewolf_core::model::{Severity, Snapshot};
 use wirewolf_probe::{assess, measure::Prober};
 use wirewolf_tui::{Client, format, report};
@@ -95,7 +95,7 @@ async fn probe(config: Config) -> anyhow::Result<Snapshot> {
     let (measurements, targets) = Prober::new(Arc::new(config))?.cycle(false).await;
     let at = Timestamp::now();
     let hops = assess::hops(&measurements);
-    let verdict = with_targets(diagnose(&hops), &targets);
+    let verdict = with_targets(diagnose_with(&hops, &measurements.thresholds), &targets);
     Ok(Snapshot {
         at,
         verdict,
