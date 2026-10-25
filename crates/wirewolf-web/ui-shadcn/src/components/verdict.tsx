@@ -1,15 +1,24 @@
 import type { ReactNode } from "react"
-import { Lightbulb } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { Snapshot } from "@/lib/api"
-import { Lasting, RelTime } from "./time"
+import type { Severity, Snapshot } from "@/lib/api"
+import { Lasting } from "./time"
 import { SeverityPill } from "./status"
-import { Explanation, ExplainToggle } from "./explain"
-import { useExplainOpen } from "@/lib/explain"
+import { Explanation } from "./explain"
+
+/** The faint status band behind the status line and headline, one colour per verdict. */
+const band: Record<Severity, string> = {
+  down: "bg-fail/10",
+  degraded: "bg-warn/10",
+  healthy: "bg-pass/10",
+  unknown: "bg-muted/40",
+}
 
 /**
- * The answer to "is it broken, where, and since when?". Loud when something is wrong, compact
- * when healthy.
+ * The answer to "is it broken, where, and since when?", then the checks behind it.
+ *
+ * No card: a status band (in every state, so only its colour changes) holds the status line and
+ * headline; the lead and the checks sit on the page surface below it. Band text, lead, check
+ * rows, and footer share one 16px left edge.
  */
 export function VerdictBanner({
   snapshot,
@@ -25,72 +34,32 @@ export function VerdictBanner({
   action?: ReactNode
 }) {
   const v = snapshot.verdict
-  const blamed = snapshot.hops.find((h) => h.id === v.blame)
   const healthy = v.severity === "healthy"
-  const [open, setOpen] = useExplainOpen()
-  const canExplain = v.severity !== "unknown"
+  const lead = v.bottom_line ?? v.detail
   return (
-    <section
-      aria-label="Verdict"
-      className={cn(
-        "relative overflow-hidden rounded-xl border",
-        "bg-card p-4 sm:p-5",
-        v.severity === "degraded" && "border-warn/40 bg-warn/10",
-        v.severity === "down" && "border-fail/40 bg-fail/10",
-        v.severity === "unknown" && "bg-muted/40",
-      )}
-    >
-      <div
-        aria-hidden
-        className={cn(
-          "pointer-events-none absolute inset-x-0 top-0 h-1",
-          v.severity === "down" ? "bg-fail" : v.severity === "degraded" ? "bg-warn" : v.severity === "healthy" ? "bg-pass" : "bg-skip",
-        )}
-      />
-      {action && <div className="float-right ml-3">{action}</div>}
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
-          <SeverityPill severity={v.severity} />
-          {blamed && <span> · at {blamed.label}</span>}
-          {since && (
-            <span>
-              · <Lasting since={since} />
-            </span>
-          )}
-          <span>· {v.confidence[0].toUpperCase() + v.confidence.slice(1)} confidence</span>
-          {healthy && recent != null && (
-            <span>
-              · {recent === 0 ? "no incidents" : recent === 1 ? "1 incident" : `${recent} incidents`} in the last 24 h
-            </span>
-          )}
+    <section aria-label="Verdict">
+      <div className={cn("rounded-lg px-4 py-3.5", band[v.severity])}>
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+            <SeverityPill severity={v.severity} />
+            {since && (
+              <span>
+                · <Lasting since={since} />
+              </span>
+            )}
+            <span>· {v.confidence} confidence</span>
+            {healthy && recent != null && (
+              <span>· {recent === 0 ? "no incidents" : recent === 1 ? "1 incident" : `${recent} incidents`} in the last 24 h</span>
+            )}
+          </div>
+          {action && <div className="shrink-0">{action}</div>}
         </div>
-        <h1
-          aria-live="polite"
-          className={cn(
-            "mt-2 font-semibold tracking-tight text-balance",
-            healthy ? "text-xl sm:text-2xl" : "text-2xl sm:text-3xl",
-          )}
-        >
+        <h1 aria-live="polite" className="mt-1.5 text-[26px] leading-tight font-[650] tracking-[-0.015em] text-balance">
           {v.headline}
         </h1>
-        <p className="mt-2 max-w-2xl text-sm text-muted-foreground text-pretty">{v.detail}</p>
-        {v.fix_hint && !healthy && !open && (
-          <div className="mt-4 flex max-w-2xl items-start gap-2 p-0 text-sm">
-            <Lightbulb aria-hidden className="mt-0.5 size-4 shrink-0 text-primary" />
-            <p>
-              <span className="font-medium">Try next: </span>
-              {v.fix_hint}
-            </p>
-          </div>
-        )}
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-          <p className="text-xs text-muted-foreground">
-            {v.method} · checked <RelTime at={snapshot.at} />
-          </p>
-          {canExplain && <ExplainToggle open={open} onChange={setOpen} />}
-        </div>
-        {canExplain && open && <Explanation snapshot={snapshot} />}
       </div>
+      <p className="mt-3 max-w-[68ch] px-4 text-[15px] text-foreground/80 text-pretty">{lead}</p>
+      {v.severity !== "unknown" && <Explanation snapshot={snapshot} />}
     </section>
   )
 }

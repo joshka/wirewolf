@@ -8,11 +8,11 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Added
 
-- An **Explain** button on the verdict on Now. It lists every check behind the verdict in
-  path order: what wirewolf did, what came back against which limit, and what that means,
-  marking the cause, knock-on failures, and hops that look bad but don't count. It also
-  says whose side the problem is on and why the confidence is what it is. **Copy
-  explanation** copies it as plain text for a support chat.
+- The verdict on Now explains itself. Under the headline, it says whose side the problem is
+  on, then lists every check behind the verdict in path order: what wirewolf did, what came
+  back against which limit, and what that means, marking the cause, knock-on failures, and
+  hops that look bad but don't count. When everything passes, the checks collapse to one
+  line. **Copy explanation** copies it as plain text for a support chat.
 - API 1.8: `Verdict` gains `steps`, the checks behind the verdict in path order, each with
   what was checked, what came back, the limit, and what it means, plus `bottom_line`,
   `confidence_reason`, and `held_cycles`. All are additive; older servers omit them.

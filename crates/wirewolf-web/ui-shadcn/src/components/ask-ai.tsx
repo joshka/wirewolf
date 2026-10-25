@@ -60,7 +60,7 @@ export function AskAi({ incident, size }: { incident?: string; size?: "sm" | "de
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger render={<Button variant="outline" size={size} />}>
+      <DialogTrigger render={<Button variant="ghost" size={size} className="text-muted-foreground hover:text-foreground" />}>
         <Sparkles aria-hidden />
         Ask an AI
       </DialogTrigger>

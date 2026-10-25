@@ -1,4 +1,3 @@
-import { useState } from "react"
 import type { Snapshot, Step } from "./api"
 
 const mark: Record<Step["role"], string> = { cause: "✗", collateral: "·", excused: "✓", pass: "✓", skipped: "–" }
@@ -21,12 +20,4 @@ export function explanationText(s: Snapshot): string {
   if (v.held_cycles) lines.push(`Held for ${v.held_cycles} ${v.held_cycles === 1 ? "check" : "checks"} in a row.`)
   if (v.fix_hint && v.severity !== "healthy") lines.push(`Try: ${v.fix_hint}`)
   return lines.join("\n")
-}
-
-const KEY = "wirewolf.explain"
-
-/** Whether the explanation is open, remembered per browser. */
-export function useExplainOpen(): [boolean, (open: boolean) => void] {
-  const [open, setOpen] = useState(() => localStorage.getItem(KEY) === "1")
-  return [open, (o) => { localStorage.setItem(KEY, o ? "1" : "0"); setOpen(o) }]
 }

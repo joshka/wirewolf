@@ -1,108 +1,115 @@
-import { ChevronDown, Copy, FileText } from "lucide-react"
+import { useState } from "react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
-import type { Snapshot, Step } from "@/lib/api"
+import type { Severity, Snapshot, Step } from "@/lib/api"
 import { copyText } from "@/lib/clipboard"
 import { explanationText } from "@/lib/explain"
 import { href, onLinkClick } from "@/lib/router"
-import { Button, buttonVariants } from "./ui/button"
+import { Button } from "./ui/button"
 import { StatusIcon } from "./status"
+import { RelTime } from "./time"
 
-export function ExplainToggle({ open, onChange }: { open: boolean; onChange: (open: boolean) => void }) {
-  return (
-    <Button variant="outline" size="sm" aria-expanded={open} aria-controls="verdict-explanation" onClick={() => onChange(!open)}>
-      {open ? "Hide explanation" : "Explain"}
-      <ChevronDown aria-hidden className={cn("size-4 transition-transform", open && "rotate-180")} />
-    </Button>
-  )
-}
+/** The cause row's tint and its outlined pill, in the verdict's colour. */
+const tint: Record<Severity, string> = { down: "bg-fail/10", degraded: "bg-warn/10", healthy: "", unknown: "" }
+const pill: Record<Severity, string> = { down: "border-fail text-fail", degraded: "border-warn text-warn", healthy: "", unknown: "" }
 
-const tag: Partial<Record<Step["role"], { label: string; className: string }>> = {
-  cause: { label: "Cause", className: "bg-fail text-white" },
-  collateral: { label: "Knock-on", className: "border border-border text-muted-foreground" },
-  excused: { label: "Excused", className: "border border-pass/50 text-pass" },
-}
+const link = "text-muted-foreground underline decoration-border underline-offset-4 hover:text-foreground"
 
 /**
- * The checks behind the verdict, in path order, each saying what was done, what came back, the
- * limit, and what it means. Four columns from `md` up, stacked on phones.
+ * The checks behind the verdict, in path order. Two columns: the check (question, target in mono)
+ * and what it saw, with what that tells you under it. Hairlines between rows only.
+ *
+ * Collapsed to one line when everything passes; open when there's something to show.
  */
 export function Explanation({ snapshot }: { snapshot: Snapshot }) {
   const v = snapshot.verdict
   const steps = v.steps ?? []
-  const warnCause = v.severity === "degraded"
+  const healthy = v.severity === "healthy"
+  const [open, setOpen] = useState(!healthy)
+  const reportable = v.blame === "isp" || v.blame === "internet"
+
   async function copy() {
     await copyText(explanationText(snapshot))
     toast.success("Explanation copied", { description: "Paste it into a support chat or an email." })
   }
+
+  const footer = (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3 text-[13px]">
+      {!healthy && (reportable ? (
+        <a href={href({ name: "report" })} onClick={onLinkClick} className="inline-flex h-8 items-center rounded-md bg-foreground px-3 font-medium text-background hover:bg-foreground/90">
+          Open ISP report
+        </a>
+      ) : (
+        <Button size="sm" className="bg-foreground text-background hover:bg-foreground/90" onClick={copy}>
+          Copy explanation
+        </Button>
+      ))}
+      {(healthy || reportable) && <button type="button" className={link} onClick={copy}>Copy explanation</button>}
+      <button type="button" className={link} aria-expanded={open} aria-controls="verdict-checks" onClick={() => setOpen(!open)}>
+        {open ? "Hide checks" : "Show checks"}
+      </button>
+      <span className="ml-auto text-muted-foreground">{v.method} · checked <RelTime at={snapshot.at} /></span>
+    </div>
+  )
+
   if (steps.length === 0) {
-    return <p id="verdict-explanation" className="mt-4 text-sm text-muted-foreground">This server doesn't send an explanation yet (it needs wirewolf with API 1.8).</p>
+    return v.fix_hint && !healthy ? <p className="mt-3 max-w-[68ch] px-4 text-sm"><span className="font-medium">Try: </span>{v.fix_hint}</p> : null
+  }
+  if (!open) {
+    const bad = steps.filter((s) => s.status !== "pass").length
+    return (
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-y px-4 py-2.5 text-sm">
+        <StatusIcon status={healthy ? "pass" : "warn"} className="size-4 shrink-0" />
+        <span className="-ml-2">{healthy ? `All ${steps.length} checks passed` : `${bad} of ${steps.length} checks need attention`}</span>
+        <button type="button" className={link} aria-expanded={false} aria-controls="verdict-checks" onClick={() => setOpen(true)}>Show checks</button>
+        <button type="button" className={link} onClick={copy}>Copy explanation</button>
+        <span className="ml-auto text-[13px] text-muted-foreground">{v.method} · checked <RelTime at={snapshot.at} /></span>
+      </div>
+    )
   }
   return (
-    <div id="verdict-explanation" className="mt-4">
-      {v.bottom_line && (
-        <p className={cn("rounded-r-md border-l-4 bg-background/60 px-3 py-2 text-sm sm:text-base", v.severity === "down" ? "border-fail" : v.severity === "degraded" ? "border-warn" : "border-pass")}>
-          <span className="font-semibold">Bottom line: </span>
-          {v.bottom_line}
-        </p>
-      )}
-      <div role="table" aria-label="Checks behind the verdict" className="mt-4 text-sm">
-        <div role="row" className="hidden gap-4 px-3 pb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground md:grid md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.4fr)]">
-          <span role="columnheader">Check, in path order</span>
-          <span role="columnheader">What wirewolf did</span>
-          <span role="columnheader">What it saw</span>
-          <span role="columnheader">What that tells you</span>
-        </div>
-        {steps.map((s) => {
-          const t = tag[s.role]
-          const quiet = s.role === "collateral" || s.role === "skipped"
-          return (
-            <div
-              key={s.hop}
-              role="row"
-              className={cn(
-                "grid gap-1 border-t px-3 py-2.5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_minmax(0,1.4fr)] md:gap-4",
-                s.role === "cause" && (warnCause ? "rounded-md bg-warn/15" : "rounded-md bg-fail/15"),
-                quiet && "text-muted-foreground",
-              )}
-            >
-              <div role="cell" className="flex gap-2.5">
-                <StatusIcon status={s.status} className="mt-0.5 size-4 shrink-0" />
-                <div className="min-w-0">
-                  <div className="font-medium">{s.question}</div>
-                  {s.subject && <div className="truncate font-mono text-xs text-muted-foreground" title={s.subject}>{s.subject}</div>}
-                </div>
-              </div>
-              <div role="cell" className="pl-6.5 md:pl-0"><span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground md:hidden">Did </span>{s.did}</div>
-              <div role="cell" className="pl-6.5 tabular-nums md:pl-0">
-                <span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground md:hidden">Saw </span><span className={cn(s.role === "cause" && "font-semibold")}>{s.saw}</span>
-                {s.limit && <div className="text-xs text-muted-foreground">Limit: {s.limit}</div>}
-              </div>
-              <div role="cell" className="pl-6.5 md:pl-0">
-                {!t && (<span className="mr-1 text-xs font-medium uppercase tracking-wide text-muted-foreground md:hidden">Means </span>)}
-                {t && <span className={cn("mr-1.5 rounded px-1.5 py-px text-xs font-semibold", s.role === "cause" && warnCause ? "bg-warn text-black" : t.className)}>{t.label}</span>}
-                {s.means}
-              </div>
-            </div>
-          )
-        })}
+    <div className="mt-4">
+      <div id="verdict-checks" role="table" aria-label="Checks behind the verdict" className="divide-y border-y text-sm">
+        {steps.map((s) => <Row key={s.hop} step={s} severity={v.severity} />)}
       </div>
-      <div className="mt-2 grid gap-4 border-t px-3 pt-3 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto]">
-        <p>
-          <span className="font-medium">How sure: </span>
+      <div className="grid gap-x-8 gap-y-2 px-4 pt-3 text-[13px] md:grid-cols-2">
+        {v.fix_hint && !healthy && (
+          <p><span className="font-medium">Try: </span>{v.fix_hint}</p>
+        )}
+        <p className="text-muted-foreground">
+          <span className="font-medium text-foreground">How sure: </span>
           {v.confidence_reason ?? v.confidence}
-          {v.held_cycles != null && v.held_cycles > 1 && ` It has held for ${v.held_cycles} checks in a row.`}
+          {v.held_cycles != null && v.held_cycles > 1 && ` Held for ${v.held_cycles} checks in a row.`}
         </p>
-        <p>{v.fix_hint && v.severity !== "healthy" && <><span className="font-medium">What to try: </span>{v.fix_hint}</>}</p>
-        <div className="flex flex-wrap items-start gap-2 md:flex-col md:items-stretch">
-          <Button variant="outline" size="sm" onClick={copy}>
-            <Copy aria-hidden className="size-4" /> Copy explanation
-          </Button>
-          {v.severity !== "healthy" && (
-            <a href={href({ name: "report" })} onClick={onLinkClick} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              <FileText aria-hidden className="size-4" /> Open ISP report
-            </a>
-          )}
+      </div>
+      {footer}
+    </div>
+  )
+}
+
+function Row({ step: s, severity }: { step: Step; severity: Severity }) {
+  const cause = s.role === "cause"
+  const quiet = s.role === "collateral" || s.role === "skipped"
+  return (
+    <div role="row" className={cn("grid gap-x-8 gap-y-1 px-4 py-2.5 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]", cause && tint[severity], quiet && "text-muted-foreground")}>
+      <div role="cell" className="flex min-w-0 gap-2.5">
+        <StatusIcon status={s.status} className="mt-0.5 size-4 shrink-0" />
+        <div className="min-w-0">
+          <div className={cn(cause ? "font-[650]" : "font-medium")}>
+            {s.question}
+            {cause && <span className={cn("ml-2 rounded border px-1.5 py-px align-[1px] text-[10.5px] font-semibold tracking-wide", pill[severity])}>CAUSE</span>}
+            {s.role === "excused" && <span className="ml-2 text-xs font-normal text-muted-foreground">excused</span>}
+          </div>
+          {s.subject && <div className="truncate font-mono text-xs text-muted-foreground/70" title={s.subject}>{s.subject}</div>}
+        </div>
+      </div>
+      <div role="cell" className="min-w-0 pl-6.5 md:pl-0">
+        <div className="tabular-nums">
+          <span className={cn(cause && "font-[650]")}>{s.saw}</span>
+          {s.limit && <span className="text-muted-foreground"> · limit {s.limit}</span>}
+        </div>
+        <div className="mt-0.5 text-[13px] text-muted-foreground">
+          {s.role === "skipped" ? s.means : `${s.did}. ${s.means}`}
         </div>
       </div>
     </div>
