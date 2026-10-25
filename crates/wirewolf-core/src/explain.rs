@@ -165,7 +165,11 @@ fn step(hop: &Hop, role: StepRole, inherits: bool, t: &Thresholds) -> Step {
                 StepRole::Collateral => "Expected: this is past the problem, so it fails too.".into(),
                 _ => "Your provider's equipment is answering. These routers often drop pings on purpose, so loss here only counts if the internet checks lose packets too.".into(),
             };
-            let limit = format!("loss over {:.0}% counts only if the internet also loses packets; no latency limit", t.isp.loss_warn_pct);
+            let limit = if hop.status == Status::Fail {
+                "any reply counts as up".into()
+            } else {
+                format!("loss over {:.0}% counts only if the internet also loses packets; no latency limit", t.isp.loss_warn_pct)
+            };
             ("Does your provider's first router answer?", did, saw, Some(limit), means)
         }
         HopKind::Internet => {
@@ -223,7 +227,7 @@ fn step(hop: &Hop, role: StepRole, inherits: bool, t: &Thresholds) -> Step {
             did: "Not run this time".into(),
             saw: sentence(&hop.summary),
             limit: None,
-            means: "Not tested, so it says nothing either way. Checks past a break are skipped because they can't work.".into(),
+            means: "Not tested: it can't work past the break, so it says nothing either way.".into(),
         };
     }
     Step {
@@ -277,7 +281,7 @@ fn confidence_reason(v: &Verdict, cause: Option<&Hop>) -> String {
     let why = match (v.severity, cause) {
         (Severity::Healthy, _) => "every check passed".to_string(),
         (Severity::Down, Some(h)) if h.checks.len() >= 2 => format!("{} separate checks on {} agree, and everything past it fails the same way", h.checks.len(), name(h)),
-        (Severity::Down, Some(h)) => format!("one check on {} failed and everything past it fails too, but there's only that one check to go on", name(h)),
+        (Severity::Down, Some(h)) => format!("one check on {} failed and nothing past it could be reached, but there's only that one check to go on", name(h)),
         (_, Some(h)) => format!("there's one clear signal at {} and the checks after it fit, but slowness and loss can come and go", name(h)),
         _ => "only some checks have run".to_string(),
     };
