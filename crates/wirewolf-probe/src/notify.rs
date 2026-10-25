@@ -188,7 +188,7 @@ mod tests {
 
     fn incident(severity: Severity, ended: Option<i64>) -> Incident {
         let at = Timestamp::from_second(0).unwrap();
-        let verdict = Verdict { severity, headline: "h".into(), detail: String::new(), blame: Some("isp".into()), confidence: Confidence::High, fix_hint: None, method: String::new() };
+        let verdict = Verdict { severity, headline: "h".into(), detail: String::new(), blame: Some("isp".into()), confidence: Confidence::High, fix_hint: None, method: String::new(), bottom_line: None, confidence_reason: None, steps: vec![], held_cycles: None };
         Incident {
             id: "inc-1".into(),
             started: at,

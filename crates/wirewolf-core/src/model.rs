@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.7";
+pub const API_VERSION: &str = "1.8";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +158,60 @@ pub struct Verdict {
     pub fix_hint: Option<String>,
     /// How the verdict was reached, for example "12 probes over 4s to 3 targets".
     pub method: String,
+    /// Where the problem is and what that means for the reader, for example "The loss starts
+    /// inside your home; your internet provider isn't the cause." Added in 1.8; `null` from
+    /// older servers and while waiting for the first measurements.
+    #[serde(default)]
+    pub bottom_line: Option<String>,
+    /// Why the confidence is what it is, in a sentence. Added in 1.8.
+    #[serde(default)]
+    pub confidence_reason: Option<String>,
+    /// The checks behind the verdict, in path order, then any critical target that decided it.
+    /// Added in 1.8; empty from older servers.
+    #[serde(default)]
+    pub steps: Vec<Step>,
+    /// Consecutive probe cycles with this severity, counting this one. Added in 1.8; `null`
+    /// from older servers and in one-off checks.
+    #[serde(default)]
+    pub held_cycles: Option<u32>,
+}
+
+/// One check behind a verdict, worded for someone who doesn't know networking (API 1.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Step {
+    /// The hop id (`gateway`, …) or target id (`target:nas`) this step is about.
+    pub hop: String,
+    pub status: Status,
+    pub role: StepRole,
+    /// The check as a question, for example "Can it reach your router?".
+    pub question: String,
+    /// What it was checked against, for example "gateway 192.0.2.1".
+    pub subject: Option<String>,
+    /// What wirewolf did, for example "Sent 20 pings to the router".
+    pub did: String,
+    /// What came back, for example "3 of 20 lost (15%); replies in 6.2 ms".
+    pub saw: String,
+    /// The limit it was judged against, for example "10% loss, 30 ms". `null` when there's none.
+    pub limit: Option<String>,
+    /// What the result tells the reader.
+    pub means: String,
+}
+
+/// How a step contributed to the verdict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepRole {
+    /// The first problem on the path: the verdict blames it.
+    Cause,
+    /// Wrong, but only because of the cause upstream of it.
+    Collateral,
+    /// Over a limit, but deliberately not counted (for example a router that answers pings
+    /// slowly while traffic through it is fast).
+    Excused,
+    /// Fine.
+    Pass,
+    /// Not measured this cycle.
+    Skipped,
 }
 
 /// The complete current state of the path at one moment.

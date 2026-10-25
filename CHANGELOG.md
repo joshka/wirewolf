@@ -6,6 +6,12 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- API 1.8: `Verdict` gains `steps`, the checks behind the verdict in path order, each with
+  what was checked, what came back, the limit, and what it means, plus `bottom_line`,
+  `confidence_reason`, and `held_cycles`. All are additive; older servers omit them.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

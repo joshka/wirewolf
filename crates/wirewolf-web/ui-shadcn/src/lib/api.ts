@@ -56,6 +56,24 @@ export interface Verdict {
   confidence: Confidence
   fix_hint: string | null
   method: string
+  /** 1.8; absent from older servers. */
+  bottom_line?: string | null
+  confidence_reason?: string | null
+  steps?: Step[]
+  held_cycles?: number | null
+}
+
+/** One check behind a verdict (1.8). */
+export interface Step {
+  hop: string
+  status: Status
+  role: "cause" | "collateral" | "excused" | "pass" | "skipped"
+  question: string
+  subject: string | null
+  did: string
+  saw: string
+  limit: string | null
+  means: string
 }
 
 export interface Snapshot {

@@ -21,6 +21,10 @@ pub fn diagnose(hops: &[Hop]) -> Verdict {
             confidence: Confidence::Low,
             fix_hint: None,
             method,
+            bottom_line: None,
+            confidence_reason: None,
+            steps: vec![],
+            held_cycles: None,
         };
     }
 
@@ -36,6 +40,10 @@ pub fn diagnose(hops: &[Hop]) -> Verdict {
             confidence: if hop.checks.len() >= 2 { Confidence::High } else { Confidence::Medium },
             fix_hint,
             method,
+            bottom_line: None,
+            confidence_reason: None,
+            steps: vec![],
+            held_cycles: None,
         };
     }
 
@@ -49,6 +57,10 @@ pub fn diagnose(hops: &[Hop]) -> Verdict {
             confidence: Confidence::Medium,
             fix_hint,
             method,
+            bottom_line: None,
+            confidence_reason: None,
+            steps: vec![],
+            held_cycles: None,
         };
     }
 
@@ -60,6 +72,10 @@ pub fn diagnose(hops: &[Hop]) -> Verdict {
         confidence: Confidence::High,
         fix_hint: None,
         method,
+        bottom_line: None,
+        confidence_reason: None,
+        steps: vec![],
+        held_cycles: None,
     }
 }
 
@@ -200,6 +216,10 @@ pub fn with_targets(verdict: Verdict, targets: &[Target]) -> Verdict {
         confidence: Confidence::Medium,
         fix_hint: Some(format!("Check {} itself: power, network cable, or the service on it.", target.name)),
         method: format!("{}, plus {} targets", verdict.method, targets.len()),
+        bottom_line: None,
+        confidence_reason: None,
+        steps: vec![],
+        held_cycles: None,
     }
 }
 
@@ -230,6 +250,10 @@ mod target_tests {
             confidence: Confidence::High,
             fix_hint: None,
             method: "m".into(),
+            bottom_line: None,
+            confidence_reason: None,
+            steps: vec![],
+            held_cycles: None,
         }
     }
 

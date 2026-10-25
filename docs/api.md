@@ -117,7 +117,10 @@ ConfigView { path?, config: <wirewolf.toml as JSON>, sources: { "probe.interval"
              defaults: <same shape as config, built-in values>                         (1.4)
 FieldError { key: "probe.interval" | "targets.0.check" | "" (whole config), message }  (1.2)
 Verdict   { severity: healthy|degraded|down|unknown, headline, detail, blame: hop_id?,
-            confidence: low|medium|high, fix_hint?, method }
+            confidence: low|medium|high, fix_hint?, method,
+            bottom_line?, confidence_reason?, steps: [Step], held_cycles? }       (1.8)
+Step      { hop: hop_id | target_id, status, role: cause|collateral|excused|pass|skipped,
+            question, subject?, did, saw, limit?, means }                         (1.8)
 Hop       { id, kind: host|gateway|isp|internet|dns|web, label, target?, status, summary,
             metrics: { rtt_ms?, jitter_ms?, loss_pct? },
             evidence: [{ key, value }], checks: [{ name, status, detail, rtt_ms? }],
