@@ -14,7 +14,7 @@ const MIN_SPARK_POINTS = 3
  * RTT over the last 15 minutes, in the hop's colour. A hop that isn't being measured right now
  * (skipped) draws its old line grey and dashed, so stale data can't pass for healthy.
  */
-export default function Sparkline({ hop, samples, now, className }: { hop: Hop; samples: Sample[]; now: number; className?: string }) {
+export default function Sparkline({ hop, samples, now, from: shared, className }: { hop: Hop; samples: Sample[]; now: number; from?: number; className?: string }) {
   const { data } = sparkSeries(samples)
   if (samples.filter((s) => s.rtt_ms != null).length < MIN_SPARK_POINTS) {
     return <span className={cn("self-center text-xs text-muted-foreground", className)}>collecting…</span>
@@ -23,7 +23,9 @@ export default function Sparkline({ hop, samples, now, className }: { hop: Hop; 
   // Until there's a full window of samples (e.g. just after a restart), stretch what there is
   // across the width instead of leaving most of the line empty.
   const first = data.find((p) => p.rtt != null)?.t ?? now - SPARK_WINDOW_MS
-  const from = Math.max(now - SPARK_WINDOW_MS, first)
+  // across the width instead of leaving most of the line empty. Rows pass a shared start so
+  // their lines line up in time.
+  const from = shared ?? Math.max(now - SPARK_WINDOW_MS, first)
   return (
     <ChartContainer
       config={{ rtt: { label: hop.label, color: stale ? "var(--muted-foreground)" : hopColor[hop.kind] } }}

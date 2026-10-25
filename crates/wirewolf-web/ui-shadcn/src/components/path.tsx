@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import type { Hop, HopKind, Sample, Severity, Status } from "@/lib/api"
 import { ms, pct, statusLabel } from "@/lib/format"
 import { CauseBadge, StatusIcon, statusText } from "./status"
+import { SPARK_WINDOW_MS } from "@/lib/live"
 
 export const hopIcon: Record<HopKind, LucideIcon> = {
   host: Laptop,
@@ -57,6 +58,13 @@ function useLayout(): [Layout, (l: Layout) => void] {
   ]
 }
 
+/** The start of the shared sparkline window: 15 minutes back, or the oldest sample if newer. */
+function sparkFrom(samples: Record<string, Sample[]> | undefined, now: number | undefined): number | undefined {
+  if (!samples || now == null) return undefined
+  const firsts = Object.values(samples).flatMap((ss) => (ss.length ? [new Date(ss[0].at).getTime()] : []))
+  return Math.max(now - SPARK_WINDOW_MS, Math.min(...firsts, now))
+}
+
 /**
  * The path from this machine to the web, as rows (one per hop, with a wide sparkline) or as six
  * cards across (from `lg` up, with small sparklines). The choice is remembered per browser; phones
@@ -79,6 +87,8 @@ export function PathDiagram({
 }) {
   const [layout, setLayout] = useLayout()
   const cards = layout === "cards"
+  // One time axis for every sparkline, so a moment sits at the same x on each row.
+  const from = sparkFrom(samples, now)
   return (
     <section aria-label="Network path" className="flex flex-col gap-2">
       <div className="hidden items-center justify-between lg:flex">
@@ -131,14 +141,14 @@ export function PathDiagram({
                 </div>
                 {spark ? (
                   <Suspense fallback={<span className={cn("hidden h-8 flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />}>
-                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} className={cn("hidden flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
+                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} from={from} className={cn("hidden flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
                   </Suspense>
                 ) : (
                   <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
                 )}
                 <span
                   className={cn(
-                    "hidden truncate text-right text-sm font-medium tabular-nums sm:ml-auto sm:block sm:flex-[0_1_auto] sm:min-w-40 sm:max-w-[45%]",
+                    "hidden truncate text-right text-sm font-medium tabular-nums sm:ml-auto sm:block sm:w-56 sm:flex-none",
                     cards && "lg:w-auto lg:text-left",
                     metricTone(hop.status),
                   )}
