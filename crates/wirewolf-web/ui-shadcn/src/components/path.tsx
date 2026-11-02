@@ -1,12 +1,11 @@
-import { lazy, Suspense, useState } from "react"
+import { useState } from "react"
 import { AppWindow, AtSign, Building2, ChevronRight, Columns3, Globe, Laptop, Crosshair, Router, Rows3, type LucideIcon } from "lucide-react"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { href, onLinkClick } from "@/lib/router"
 import { cn } from "@/lib/utils"
-import type { Hop, HopKind, Sample, Severity, Status } from "@/lib/api"
+import type { Hop, HopKind, Severity, Status } from "@/lib/api"
 import { ms, pct, statusLabel } from "@/lib/format"
 import { CauseBadge, StatusIcon, statusText } from "./status"
-import { SPARK_WINDOW_MS } from "@/lib/live"
 
 export const hopIcon: Record<HopKind, LucideIcon> = {
   host: Laptop,
@@ -28,9 +27,6 @@ export function keyMetric(hop: Hop): string {
   if ((m.loss_pct ?? 0) > 0) return m.rtt_ms == null ? `${pct(m.loss_pct)} loss` : `${ms(m.rtt_ms)} · ${pct(m.loss_pct)} loss`
   return ms(m.rtt_ms)
 }
-
-// The chart library is loaded after first paint, so the verdict and path render without it.
-const Sparkline = lazy(() => import("./sparkline"))
 
 export const dimmed = (s: Status) => s === "skip" || s === "not_applicable"
 
@@ -58,44 +54,28 @@ function useLayout(): [Layout, (l: Layout) => void] {
   ]
 }
 
-/** The start of the shared sparkline window: 15 minutes back, or the oldest sample if newer. */
-function sparkFrom(samples: Record<string, Sample[]> | undefined, now: number | undefined): number | undefined {
-  if (!samples || now == null) return undefined
-  const firsts = Object.values(samples).flatMap((ss) => (ss.length ? [new Date(ss[0].at).getTime()] : []))
-  return Math.max(now - SPARK_WINDOW_MS, Math.min(...firsts, now))
-}
-
 /**
- * The path from this machine to the web, as rows (one per hop, with a wide sparkline) or as six
- * cards across (from `lg` up, with small sparklines). The choice is remembered per browser; phones
+ * The path from this machine to the web, as rows (one per hop) or as six cards across (from `lg`
+ * up). The choice is remembered per browser; phones
  * always get rows. Each hop links to its page.
  */
 export function PathDiagram({
   hops,
   blame,
   severity,
-  samples,
-  now,
   incident,
 }: {
   hops: Hop[]
   blame: string | null
   severity: Severity
-  samples?: Record<string, Sample[]>
-  now?: number
   incident?: string
 }) {
   const [layout, setLayout] = useLayout()
   const cards = layout === "cards"
-  // One time axis for every sparkline, so a moment sits at the same x on each row.
-  const from = sparkFrom(samples, now)
   return (
     <section aria-label="Network path" className="flex flex-col gap-2">
       <div className="hidden items-center justify-between lg:flex">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          Path
-          {samples && !cards && <span className="font-normal"> · round-trip time, last 15 min</span>}
-        </h2>
+        <h2 className="text-sm font-medium text-muted-foreground">Path</h2>
         <ToggleGroup variant="segmented" size="sm" value={[layout]} onValueChange={(v) => v[0] && setLayout(v[0] as Layout)} aria-label="Path layout">
           <ToggleGroupItem value="rows" aria-label="Rows">
             <Rows3 aria-hidden />
@@ -108,7 +88,6 @@ export function PathDiagram({
       <ol className={cn("@container grid gap-0 border-y", cards && "lg:grid-cols-6 lg:gap-3 lg:overflow-visible lg:border-0 lg:bg-transparent")}>
         {hops.map((hop, i) => {
           const blamed = hop.id === blame
-          const spark = samples && now != null && hop.kind !== "host"
           return (
             <li key={hop.id} className={cn("flex min-w-0", i > 0 && "border-t", cards && "lg:border-t-0")}>
               <a
@@ -139,13 +118,7 @@ export function PathDiagram({
                   {/* Phones put the metric under the target, so a long summary can't push the row wider. */}
                   <span className={cn("truncate text-sm font-medium tabular-nums sm:hidden", metricTone(hop.status))}>{keyMetric(hop)}</span>
                 </div>
-                {spark ? (
-                  <Suspense fallback={<span className={cn("hidden h-8 flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />}>
-                    <Sparkline hop={hop} samples={samples[hop.id] ?? []} now={now} from={from} className={cn("hidden flex-1 @2xl:block", cards && "lg:order-last lg:mt-auto lg:h-10 lg:flex-none")} />
-                  </Suspense>
-                ) : (
-                  <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
-                )}
+                <span className={cn("hidden flex-1 sm:block", cards && "lg:hidden")} />
                 <span
                   className={cn(
                     "hidden truncate text-right text-sm font-medium tabular-nums sm:ml-auto sm:block sm:w-56 sm:flex-none",

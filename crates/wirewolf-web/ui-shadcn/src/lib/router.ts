@@ -4,9 +4,12 @@ import { useSyncExternalStore } from "react"
 
 export const BASE = import.meta.env.BASE_URL.replace(/\/$/, "") // "" when served from the root
 
+/** History's view, kept in the URL so a view can be linked to and shared. */
+export type HistoryQuery = Partial<Record<"range" | "hops" | "focus" | "scale" | "agg" | "from" | "to", string>>
+
 export type Route =
   | { name: "now" }
-  | { name: "history" }
+  | { name: "history"; query?: HistoryQuery }
   | { name: "incidents" }
   | { name: "incident"; id: string }
   | { name: "speed" }
@@ -15,12 +18,14 @@ export type Route =
   | { name: "report" }
   | { name: "hop"; id: string; incident?: string } // incident: show that incident's evidence
 
-export function parse(pathname: string): Route {
+export function parse(pathname: string, search = ""): Route {
   const p = pathname.startsWith(BASE) ? pathname.slice(BASE.length) : pathname
   const parts = p.split("/").filter(Boolean)
   switch (parts[0]) {
-    case "history":
-      return { name: "history" }
+    case "history": {
+      const query = Object.fromEntries(new URLSearchParams(search)) as HistoryQuery
+      return Object.keys(query).length ? { name: "history", query } : { name: "history" }
+    }
     case "incidents":
       if (parts[2] === "path" && parts[3]) return { name: "hop", id: decodeURIComponent(parts[3]), incident: decodeURIComponent(parts[1]) }
       return parts[1] ? { name: "incident", id: decodeURIComponent(parts[1]) } : { name: "incidents" }
@@ -43,6 +48,10 @@ export function href(route: Route): string {
   switch (route.name) {
     case "now":
       return `${BASE}/`
+    case "history": {
+      const q = new URLSearchParams(Object.entries(route.query ?? {}).filter((kv): kv is [string, string] => !!kv[1]))
+      return `${BASE}/history${q.size ? `?${q}` : ""}`
+    }
     case "incident":
       return `${BASE}/incidents/${encodeURIComponent(route.id)}`
     case "hop":
@@ -60,28 +69,33 @@ const notify = () => listeners.forEach((l) => l())
 /** Asked before every in-app navigation; returning true keeps the user where they are. */
 type Blocker = (to: string) => boolean
 let blocker: Blocker | null = null
-/** The path being shown, so a blocked back/forward can be undone. */
-let shown = typeof location === "undefined" ? "" : location.pathname
+const here = () => location.pathname + location.search
+
+/** The URL being shown, so a blocked back/forward can be undone. */
+let shown = typeof location === "undefined" ? "" : here()
 
 /** Lets a page with unsaved work intercept navigation. Pass null to stop. */
 export function blockNavigation(b: Blocker | null) {
   blocker = b
 }
 
-/** Goes to `to`. `force` skips the blocker, for "discard and leave". */
-export function navigate(to: string, { force = false } = {}) {
-  if (to === location.pathname) return
+/**
+ * Goes to `to`. `force` skips the blocker, for "discard and leave". `replace` swaps the current
+ * entry instead of adding one, for controls that only change the query.
+ */
+export function navigate(to: string, { force = false, replace = false } = {}) {
+  if (to === here()) return
   if (!force && blocker?.(to)) return
-  history.pushState(null, "", to)
+  history[replace ? "replaceState" : "pushState"](null, "", to)
   shown = to
-  window.scrollTo({ top: 0 })
+  if (!replace) window.scrollTo({ top: 0 })
   notify()
 }
 
 // Back and forward have already changed the URL by the time we hear of them, so a blocked one
 // puts the shown path back. (No window in unit tests.)
 globalThis.window?.addEventListener("popstate", () => {
-  const to = location.pathname
+  const to = here()
   if (to !== shown && blocker?.(to)) {
     history.pushState(null, "", shown)
     return
@@ -91,16 +105,17 @@ globalThis.window?.addEventListener("popstate", () => {
 })
 
 export function useRoute(): Route {
-  const path = useSyncExternalStore(
+  const url = useSyncExternalStore(
     (l) => {
       listeners.add(l)
       return () => {
         listeners.delete(l)
       }
     },
-    () => location.pathname,
+    () => here(),
   )
-  return parse(path)
+  const i = url.indexOf("?")
+  return parse(i < 0 ? url : url.slice(0, i), i < 0 ? "" : url.slice(i))
 }
 
 /** Left-click navigation without a page load; modified clicks fall through to the browser. */

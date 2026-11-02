@@ -19,6 +19,7 @@ import { href, onLinkClick } from "@/lib/router"
 
 // Loaded after first paint: the chart library is the biggest part of the bundle.
 const SpeedChart = lazy(() => import("@/components/charts").then((m) => ({ default: m.SpeedChart })))
+const NowChart = lazy(() => import("@/components/now-chart"))
 
 export function NowView() {
   const snapshot = useLive((s) => s.snapshot)
@@ -33,7 +34,17 @@ export function NowView() {
   const recent = incidents.filter((i) => now - new Date(i.ended ?? now).getTime() < 24 * 3600e3).length
   return (
     <div className="flex flex-col gap-4">
-      <SnapshotView snapshot={snapshot} since={since} recent={recent} samples={samples} now={now} action={<AskAi size="sm" />} />
+      <SnapshotView
+        snapshot={snapshot}
+        since={since}
+        recent={recent}
+        action={<AskAi size="sm" />}
+        chart={
+          <Suspense fallback={<div className="h-72" />}>
+            <NowChart snapshot={snapshot} samples={samples} incidents={incidents} now={now} />
+          </Suspense>
+        }
+      />
       <TargetsCard targets={snapshot.targets ?? []} />
       <div className="grid gap-4 lg:grid-cols-2">
         <SpeedCard />

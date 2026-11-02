@@ -5,8 +5,8 @@ import { api, type Activity, type Incident, type Meta, type Sample, type Snapsho
 
 export type Connection = "connecting" | "live" | "reconnecting"
 
-/** How much recent history the Now view keeps for sparklines. */
-export const SPARK_WINDOW_MS = 15 * 60 * 1000
+/** How much recent history the Now view keeps for its chart. */
+export const LIVE_WINDOW_MS = 60 * 60 * 1000
 
 /** The speeds the user pays for (`speed.plan_*` in the config). `null` when not set. */
 export interface Plan {
@@ -17,7 +17,7 @@ export interface Plan {
 export interface LiveState {
   meta: Meta | null
   snapshot: Snapshot | null
-  /** Recent samples per hop, oldest first, trimmed to SPARK_WINDOW_MS. */
+  /** Recent samples per hop, oldest first, trimmed to LIVE_WINDOW_MS. */
   samples: Record<string, Sample[]>
   speedRuns: SpeedRun[]
   incidents: Incident[]
@@ -82,7 +82,7 @@ function set(patch: Partial<LiveState>) {
 }
 
 function trim(list: Sample[]): Sample[] {
-  const cutoff = Date.now() - SPARK_WINDOW_MS
+  const cutoff = Date.now() - LIVE_WINDOW_MS
   let i = 0
   while (i < list.length && new Date(list[i].at).getTime() < cutoff) i++
   return i ? list.slice(i) : list
@@ -103,7 +103,7 @@ function upsertById<T extends { id: string }>(list: T[], item: T): T[] {
 
 /** Reload everything that SSE doesn't replay: meta, recent history, speed runs, incidents. */
 async function refresh() {
-  const since = new Date(Date.now() - SPARK_WINDOW_MS)
+  const since = new Date(Date.now() - LIVE_WINDOW_MS)
   const [meta, history, speedRuns, incidents, activity] = await Promise.all([
     api.meta(),
     api.history({ since }),

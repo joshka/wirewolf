@@ -38,6 +38,9 @@ All notable changes to wirewolf are recorded here. The format is based on
   stopped answering instead of a line drawn through the outage, each hop's name at the end of
   its line, and a tooltip that lists every hop at that moment, worst first, with its loss. A
   note under each chart says how it was summarised ("avg · 2 min · log scale") and the timezone.
+- The Now page shows the last hour of every hop on one chart, with the blamed hop bold and
+  incidents shaded, in place of a sparkline per path row. It links to History on the same
+  window. The dashboard keeps an hour of live samples instead of 15 minutes.
 - Dashboard polish: the primary button is neutral (the accent now only marks navigation,
   focus, and changed settings); time, period, tab, and layout choosers are segmented controls
   with only the selected item raised; incident headlines line up in the Incidents list and the
