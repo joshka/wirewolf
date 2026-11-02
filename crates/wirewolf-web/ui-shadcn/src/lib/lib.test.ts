@@ -59,6 +59,16 @@ describe("bucket", () => {
     const { data } = bucket([sample(0, "gw", 2), sample(0, "isp", 8), sample(5, "gw", 3)], from, to, { step: 5 * 60e3 })
     expect(data[1]).toEqual({ t: from + 5 * 60e3, gw_rtt: 3, gw_loss: 0, isp_rtt: null, isp_loss: null })
   })
+  it("fills a short gap from its neighbours but keeps a long silence", () => {
+    // Samples every 2 minutes in 1-minute buckets: the in-between buckets are interpolated.
+    const coarse = [0, 2, 4].map((m) => sample(m, "gw", m === 4 ? 6 : 2, m === 2 ? 10 : 0))
+    const { data } = bucket(coarse, from, from + 4 * 60e3, { step: 60e3 })
+    expect(data.map((p) => p.gw_rtt)).toEqual([2, 2, 2, 4, 6])
+    expect(data.map((p) => p.gw_loss)).toEqual([0, 10, 10, 10, 0])
+    // Four empty buckets in a row is an outage: the line breaks.
+    const silent = [sample(0, "gw", 2), sample(5, "gw", 2)]
+    expect(bucket(silent, from, from + 5 * 60e3, { step: 60e3 }).data.map((p) => p.gw_rtt)).toEqual([2, null, null, null, null, 2])
+  })
   it("summarises as p95 or max", () => {
     const s = [1, 2, 3, 4, 100].map((v, i) => sample(i, "gw", v))
     expect(bucket(s, from, to, { step: 10 * 60e3, agg: "max" }).data[0].gw_rtt).toBe(100)

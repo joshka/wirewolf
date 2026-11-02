@@ -42,10 +42,15 @@ const summarise = (v: number[], agg: Agg): number => {
   return agg === "max" ? sorted[sorted.length - 1] : percentile(sorted, 0.95)
 }
 
+/** An empty stretch longer than this many buckets is a real silence, not a coarser sampling. */
+const GAP_BUCKETS = 3
+
 /**
- * Samples bucketed into fixed slots of `step` across the window. Every slot is present, and a
- * hop with no sample in a slot gets `null`, so the line breaks where data is missing rather
- * than drawing a line through an outage. Keys are `<hop>_rtt` and `<hop>_loss`.
+ * Samples bucketed into fixed slots of `step` across the window. Every slot is present. A hop
+ * with no sample in a slot gets a value interpolated from its neighbours when they are close
+ * (history can be sampled more coarsely than the buckets), and `null` when the silence is
+ * longer than a few buckets, so the line breaks where a hop stopped answering rather than
+ * drawing through an outage. Keys are `<hop>_rtt` and `<hop>_loss`.
  */
 export function bucket(samples: Sample[], from: number, to: number, { points = 300, agg = "avg" as Agg, step = 0 } = {}): { data: Point[]; step: number } {
   step ||= bucketStep(samples, from, to, points)
@@ -72,7 +77,25 @@ export function bucket(samples: Sample[], from: number, to: number, { points = 3
     }
     data.push(p)
   }
+  for (const hop of hops) {
+    fillShortGaps(data, `${hop}_rtt`, (a, b, f) => a + (b - a) * f)
+    fillShortGaps(data, `${hop}_loss`, (a, b) => Math.max(a, b))
+  }
   return { data, step }
+}
+
+/** Fills runs of nulls shorter than GAP_BUCKETS from the values either side; longer runs stay null. */
+function fillShortGaps(data: Point[], key: string, mix: (a: number, b: number, f: number) => number) {
+  let prev = -1
+  for (let i = 0; i < data.length; i++) {
+    if (data[i][key] == null) continue
+    if (prev >= 0 && i - prev > 1 && i - prev <= GAP_BUCKETS) {
+      const a = data[prev][key]!
+      const b = data[i][key]!
+      for (let k = prev + 1; k < i; k++) data[k][key] = mix(a, b, (k - prev) / (i - prev))
+    }
+    prev = i
+  }
 }
 
 /** Last, mean, p95, worst round trip and worst loss for one hop's samples in a window. */
