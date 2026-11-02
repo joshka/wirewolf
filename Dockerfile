@@ -17,7 +17,7 @@
 FROM --platform=$BUILDPLATFORM node:26-bookworm-slim@sha256:28147155d47dc31abe0a46e0d12b59b2fb3d0a2dcc5dc65fce76a074180b16fe AS ui
 WORKDIR /ui
 RUN npm install -g pnpm@11.11.0
-COPY crates/wirewolf-web/ui-shadcn/package.json crates/wirewolf-web/ui-shadcn/pnpm-lock.yaml ./
+COPY crates/wirewolf-web/ui-shadcn/package.json crates/wirewolf-web/ui-shadcn/pnpm-lock.yaml crates/wirewolf-web/ui-shadcn/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY crates/wirewolf-web/ui-shadcn/ ./
 RUN pnpm build
