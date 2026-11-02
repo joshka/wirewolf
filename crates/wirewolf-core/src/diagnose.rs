@@ -239,6 +239,166 @@ pub fn with_targets(verdict: Verdict, targets: &[Target]) -> Verdict {
 }
 
 #[cfg(test)]
+mod path_tests {
+    use super::*;
+    use crate::model::{Check, HopMetrics};
+
+    fn hop(id: &str, kind: HopKind, status: Status) -> Hop {
+        Hop {
+            id: id.into(),
+            kind,
+            label: id.to_uppercase(),
+            target: None,
+            status,
+            summary: "6.2 ms, no loss".into(),
+            metrics: HopMetrics { rtt_ms: Some(6.2), jitter_ms: Some(0.3), loss_pct: Some(0.0) },
+            evidence: vec![],
+            checks: vec![],
+            interfaces: vec![],
+        }
+    }
+
+    /// The six hops in path order, all passing.
+    fn path() -> Vec<Hop> {
+        vec![
+            hop("host", HopKind::Host, Status::Pass),
+            hop("gateway", HopKind::Gateway, Status::Pass),
+            hop("isp", HopKind::Isp, Status::Pass),
+            hop("internet", HopKind::Internet, Status::Pass),
+            hop("dns", HopKind::Dns, Status::Pass),
+            hop("web", HopKind::Web, Status::Pass),
+        ]
+    }
+
+    fn with(mut hops: Vec<Hop>, id: &str, f: impl FnOnce(&mut Hop)) -> Vec<Hop> {
+        f(hops.iter_mut().find(|h| h.id == id).expect("hop"));
+        hops
+    }
+
+    /// Everything after a hard failure is collateral, as the live assess step marks it.
+    fn fail_at(id: &str) -> Vec<Hop> {
+        let mut hops = path();
+        let at = hops.iter().position(|h| h.id == id).unwrap();
+        hops[at].status = Status::Fail;
+        for h in &mut hops[at + 1..] {
+            h.status = Status::Skip;
+        }
+        hops
+    }
+
+    #[test]
+    fn nothing_measured_is_unknown() {
+        let hops: Vec<Hop> = path().into_iter().map(|mut h| {
+            h.status = Status::Pending;
+            h
+        }).collect();
+        let v = diagnose(&hops);
+        assert_eq!((v.severity, v.confidence), (Severity::Unknown, Confidence::Low));
+        assert_eq!(v.blame, None);
+        assert!(v.steps.is_empty(), "no steps until something was measured");
+    }
+
+    #[test]
+    fn all_pass_is_healthy_with_high_confidence() {
+        let v = diagnose(&path());
+        assert_eq!((v.severity, v.confidence), (Severity::Healthy, Confidence::High));
+        assert_eq!(v.blame, None);
+        assert_eq!(v.method, "6 checks across 6 hops");
+        assert_eq!(v.steps.len(), 6);
+    }
+
+    #[test]
+    fn the_first_failure_is_blamed_with_its_own_headline() {
+        for (id, headline) in [
+            ("host", "This machine has no working network connection"),
+            ("gateway", "Can't reach the router"),
+            ("isp", "Your internet provider's connection is down"),
+            ("internet", "The internet is unreachable"),
+            ("web", "Web traffic is being intercepted"),
+        ] {
+            let v = diagnose(&fail_at(id));
+            assert_eq!(v.severity, Severity::Down, "{id}");
+            assert_eq!(v.blame.as_deref(), Some(id));
+            assert_eq!(v.headline, headline);
+            assert!(v.fix_hint.is_some(), "{id} has a next step");
+        }
+    }
+
+    #[test]
+    fn dns_failure_reads_differently_when_the_internet_answers_by_ip() {
+        let v = diagnose(&fail_at("dns"));
+        assert_eq!(v.headline, "DNS is failing — the internet is reachable by IP");
+        // When the internet hop isn't known to pass, don't claim it does.
+        let v = diagnose(&with(fail_at("dns"), "internet", |h| h.status = Status::Warn));
+        assert_eq!(v.headline, "DNS is failing");
+    }
+
+    #[test]
+    fn a_failure_outranks_an_earlier_warning() {
+        let hops = with(fail_at("isp"), "gateway", |h| h.status = Status::Warn);
+        let v = diagnose(&hops);
+        assert_eq!((v.severity, v.blame.as_deref()), (Severity::Down, Some("isp")));
+    }
+
+    #[test]
+    fn confidence_follows_the_blamed_hops_check_count() {
+        let one = diagnose(&fail_at("isp"));
+        assert_eq!(one.confidence, Confidence::Medium);
+        let check = |name: &str| Check { name: name.into(), status: Status::Fail, detail: String::new(), rtt_ms: None };
+        let two = diagnose(&with(fail_at("isp"), "isp", |h| h.checks = vec![check("TTL 2"), check("TTL 3")]));
+        assert_eq!(two.confidence, Confidence::High);
+    }
+
+    #[test]
+    fn the_first_degraded_hop_is_blamed_as_loss_or_slowness() {
+        let lossy = with(path(), "gateway", |h| {
+            h.status = Status::Warn;
+            h.metrics.loss_pct = Some(9.0);
+        });
+        let v = diagnose(&lossy);
+        assert_eq!((v.severity, v.confidence), (Severity::Degraded, Confidence::Medium));
+        assert_eq!(v.blame.as_deref(), Some("gateway"));
+        assert_eq!(v.headline, "Packet loss on your local network (Wi-Fi or LAN)");
+        assert!(v.detail.contains("9%"), "{}", v.detail);
+
+        let slow = with(path(), "isp", |h| {
+            h.status = Status::Warn;
+            h.summary = "33.8 ms, no loss".into();
+        });
+        let v = diagnose(&slow);
+        assert_eq!(v.headline, "Slow at your internet provider");
+        assert!(v.detail.contains("33.8 ms"), "{}", v.detail);
+        assert!(v.fix_hint.as_deref().unwrap_or_default().contains("speed test"));
+    }
+
+    #[test]
+    fn degraded_headlines_name_each_side() {
+        for (id, side) in [("internet", "reaching the internet"), ("dns", "in name resolution"), ("web", "in web requests")] {
+            let v = diagnose(&with(path(), id, |h| h.status = Status::Warn));
+            assert_eq!(v.headline, format!("Slow {side}"));
+        }
+    }
+
+    #[test]
+    fn a_warning_about_a_host_port_explains_the_cable() {
+        let hops = with(path(), "host", |h| {
+            h.status = Status::Warn;
+            h.checks = vec![Check { name: "eth0 speed".into(), status: Status::Warn, detail: "eth0 linked at 100 Mbps".into(), rtt_ms: None }];
+        });
+        let v = diagnose(&hops);
+        assert_eq!(v.severity, Severity::Degraded);
+        assert_eq!(v.headline, "eth0 linked at 100 Mbps");
+        assert!(v.fix_hint.as_deref().unwrap_or_default().contains("cable"));
+        // An unknown port check falls back to the generic wording.
+        let hops = with(path(), "host", |h| {
+            h.status = Status::Warn;
+            h.checks = vec![Check { name: "eth0 mystery".into(), status: Status::Warn, detail: "?".into(), rtt_ms: None }];
+        });
+        assert_eq!(diagnose(&hops).headline, "Slow on your local network (Wi-Fi or LAN)");
+    }
+}
+
+#[cfg(test)]
 mod target_tests {
     use super::*;
 
@@ -270,6 +430,24 @@ mod target_tests {
             steps: vec![],
             held_cycles: None,
         }
+    }
+
+    #[test]
+    fn a_broken_path_keeps_the_headline() {
+        let down = Verdict { severity: Severity::Down, headline: "Can't reach the router".into(), blame: Some("gateway".into()), ..healthy() };
+        let v = with_targets(down, &[target("NAS", true, Status::Fail)]);
+        assert_eq!((v.severity, v.blame.as_deref()), (Severity::Down, Some("gateway")));
+    }
+
+    #[test]
+    fn a_failing_target_outranks_a_slow_one_and_counts_the_rest() {
+        let v = with_targets(healthy(), &[target("Printer", true, Status::Warn), target("NAS", true, Status::Fail), target("Pi-hole", true, Status::Warn)]);
+        assert_eq!(v.blame.as_deref(), Some("target:nas"));
+        assert_eq!(v.headline, "NAS is unreachable (and 2 more targets)");
+        let v = with_targets(healthy(), &[target("Printer", true, Status::Warn)]);
+        assert_eq!(v.headline, "Printer is slow");
+        assert_eq!(v.steps.last().map(|s| s.hop.as_str()), Some("target:printer"));
+        assert!(v.bottom_line.as_deref().unwrap_or_default().contains("Printer itself"));
     }
 
     #[test]

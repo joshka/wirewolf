@@ -274,4 +274,89 @@ mod tests {
         let h = store.load(t0 - 1.hour(), 10).unwrap();
         assert_eq!((h.samples.len(), h.activity.len()), (1, 1));
     }
+
+    fn run(id: &str, started: Timestamp, state: SpeedState) -> SpeedRun {
+        SpeedRun {
+            id: id.into(),
+            started,
+            state,
+            backend: "cloudflare".into(),
+            server: None,
+            down_mbps: Some(900.0),
+            up_mbps: Some(40.0),
+            idle_latency_ms: Some(8.0),
+            loaded_latency_ms: Some(20.0),
+            bloat: None,
+            bytes_used: None,
+            progress: None,
+            error: None,
+        }
+    }
+
+    #[test]
+    fn load_window_and_limits_bound_what_comes_back() {
+        let store = Store::in_memory().unwrap();
+        let t0: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        // Ten days of one sample an hour, so the window matters.
+        for h in 0..240 {
+            store.insert_sample(&Sample { at: t0 + (h as i64).hours(), hop: "gateway".into(), status: Status::Pass, rtt_ms: Some(1.0), jitter_ms: None, loss_pct: Some(0.0) }).unwrap();
+        }
+        for i in 0..6 {
+            store.upsert_speed(&run(&format!("sp-{i}"), t0 + (i * 24).hours(), SpeedState::Complete)).unwrap();
+            store.upsert_incident(&incident(&format!("inc-{i}"), t0 + (i * 24).hours(), Some(t0 + (i * 24 + 1).hours()))).unwrap();
+        }
+        let h = store.load(t0 + (9 * 24).hours(), 4).unwrap();
+        assert_eq!(h.samples.len(), 24, "only the last day of samples");
+        // The oldest kept sample is older than the window, so "monitoring since" isn't the window.
+        assert_eq!(h.first_sample, Some(t0));
+        // Latest N, in time order.
+        assert_eq!(h.speed.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["sp-2", "sp-3", "sp-4", "sp-5"]);
+        assert_eq!(h.incidents.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["inc-2", "inc-3", "inc-4", "inc-5"]);
+    }
+
+    #[test]
+    fn running_speed_tests_are_not_restored_and_results_replace_them() {
+        let store = Store::in_memory().unwrap();
+        let t0: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        store.upsert_speed(&run("sp-1", t0, SpeedState::Running)).unwrap();
+        assert!(store.load(t0 - 1.hour(), 10).unwrap().speed.is_empty(), "a run that never finished isn't history");
+        store.upsert_speed(&run("sp-1", t0, SpeedState::Complete)).unwrap();
+        store.upsert_speed(&run("sp-1", t0, SpeedState::Failed)).unwrap();
+        let speed = store.load(t0 - 1.hour(), 10).unwrap().speed;
+        assert_eq!(speed.len(), 1, "same id, one row");
+        assert_eq!(speed[0].state, SpeedState::Failed);
+    }
+
+    #[test]
+    fn pruning_spares_an_open_incident_however_old() {
+        let store = Store::in_memory().unwrap();
+        let t0: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        store.upsert_incident(&incident("old-closed", t0, Some(t0 + 1.hour()))).unwrap();
+        store.upsert_incident(&incident("old-open", t0 + 1.hour(), None)).unwrap();
+        store.upsert_speed(&run("old", t0, SpeedState::Complete)).unwrap();
+        store.insert_sample(&Sample { at: t0 + (40 * 24).hours(), hop: "gateway".into(), status: Status::Pass, rtt_ms: Some(1.0), jitter_ms: None, loss_pct: None }).unwrap();
+        let pruned = store.prune(t0 + (40 * 24).hours(), SignedDuration::from_hours(24 * 30)).unwrap();
+        assert_eq!(pruned, 2, "the closed incident and the speed run");
+        let h = store.load(t0 - 1.hour(), 10).unwrap();
+        assert_eq!(h.incidents.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["old-open"]);
+        // Loading closes it at the last sample, since nothing was watching in between.
+        assert_eq!(h.incidents[0].ended, Some(t0 + (40 * 24).hours()));
+        assert_eq!(h.samples.len(), 1);
+    }
+
+    #[test]
+    fn reopening_a_file_keeps_its_history() {
+        let dir = std::env::temp_dir().join(format!("wirewolf-store-test-{}", std::process::id()));
+        let path = dir.join("nested").join("wirewolf.db");
+        let t0: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        {
+            let store = Store::open(&path).unwrap();
+            store.insert_sample(&Sample { at: t0, hop: "dns".into(), status: Status::Fail, rtt_ms: None, jitter_ms: None, loss_pct: Some(100.0) }).unwrap();
+        }
+        let store = Store::open(&path).unwrap();
+        let h = store.load(t0 - 1.hour(), 10).unwrap();
+        assert_eq!((h.samples.len(), h.samples[0].status), (1, Status::Fail));
+        drop(store);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
