@@ -61,6 +61,13 @@ async fn main() -> anyhow::Result<()> {
     )?;
     shot(
         &out,
+        "explain-dns",
+        (140, 42),
+        load(&client).await?,
+        &keys(&[Char('e')]),
+    )?;
+    shot(
+        &out,
         "history-1h",
         (140, 42),
         load(&client).await?,
@@ -126,9 +133,11 @@ async fn main() -> anyhow::Result<()> {
         &[],
     )?;
     // Every view and popup at many sizes, including tiny ones, must render without panicking.
-    let views: [&[KeyCode]; 7] = [
+    let views: [&[KeyCode]; 9] = [
         &[],
         &[Enter],
+        &[Char('e')],
+        &[Char('3'), Enter, Char('e')],
         &[Char('2')],
         &[Char('3')],
         &[Char('3'), Enter],

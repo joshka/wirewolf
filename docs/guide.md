@@ -279,6 +279,7 @@ state over the API, follows live events, and reconnects when the connection drop
 | `1`–`4`, `Tab`, `Shift-Tab` | Now, History, Incidents, Speed |
 | `←` `→` or `h` `l` | Pick a hop |
 | `Enter` | Hop details (Now), toggle a hop (History), open an incident (Incidents) |
+| `e` | Explain the verdict: every check in path order, what it saw, and what that means (Now, or an incident's evidence) |
 | `i` | Jump to the open incident (Now) |
 | `t` | Change the time range (History) |
 | `c` or `y` | Copy the incident report to the clipboard (Incidents) |

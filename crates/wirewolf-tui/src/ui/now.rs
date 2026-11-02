@@ -10,7 +10,7 @@ use ratatui::widgets::{
     Axis, Block, BorderType, Chart, Dataset, GraphType, LineGauge, Padding, Paragraph, Row,
     Sparkline, SparklineBar, Table,
 };
-use wirewolf_core::model::{Sample, SpeedRun, SpeedState, Status};
+use wirewolf_core::model::{Sample, SpeedRun, SpeedState, Status, StepRole};
 
 use super::theme;
 use super::widgets::{PathChain, VerdictBanner, primary_metric};
@@ -48,8 +48,157 @@ pub fn render(app: &App, frame: &mut Frame, area: Rect) {
     } else {
         Layout::vertical([Constraint::Fill(1), Constraint::Length(8)]).areas(rest)
     };
-    render_sparklines(app, frame, sparks);
+    // User targets take a few rows under the sparklines when there are any.
+    let targets = snapshot.targets.len() as u16;
+    if targets > 0 && sparks.height >= 12 {
+        let [sparks, targets_area] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length((targets + 2).min(sparks.height / 2)),
+        ])
+        .areas(sparks);
+        render_sparklines(app, frame, sparks);
+        render_targets(app, frame, targets_area);
+    } else {
+        render_sparklines(app, frame, sparks);
+    }
     render_speed_card(app, frame, speed);
+}
+
+/// Your own targets (`[[targets]]`): status, name, and what the check saw.
+fn render_targets(app: &App, frame: &mut Frame, area: Rect) {
+    let Some(snapshot) = &app.snapshot else {
+        return;
+    };
+    let block = card("Targets");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let name_width = snapshot
+        .targets
+        .iter()
+        .map(|t| t.name.chars().count())
+        .max()
+        .unwrap_or(0)
+        .min(24) as u16;
+    let rows = snapshot.targets.iter().take(inner.height as usize).map(|t| {
+        let color = theme::status(t.status);
+        let detail_style = match t.status {
+            Status::Pass => theme::muted(),
+            _ => Style::new().fg(color),
+        };
+        let mut name = vec![
+            Span::styled(format::status_icon(t.status), Style::new().fg(color)),
+            Span::raw(" "),
+            Span::styled(format::truncate(&t.name, 24), theme::text()),
+        ];
+        if t.critical {
+            name.push(Span::styled(" critical", theme::muted()));
+        }
+        Row::new(vec![
+            Line::from(name),
+            Line::from(Span::styled(
+                format::target(&t.check, 36),
+                theme::muted(),
+            )),
+            Line::from(Span::styled(t.detail.clone(), detail_style)),
+        ])
+    });
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(name_width + 2 + 9),
+            Constraint::Length(if inner.width >= 90 { 38 } else { 0 }),
+            Constraint::Fill(1),
+        ],
+    )
+    .column_spacing(1);
+    frame.render_widget(table, inner);
+}
+
+/// The checks behind the verdict, in path order: what was checked, what came back against
+/// which limit, and what that means. Mirrors the dashboard's "Show checks".
+pub fn render_explain(app: &App, frame: &mut Frame, area: Rect, scroll: u16) {
+    let Some(snapshot) = app.explained() else {
+        return;
+    };
+    let verdict = &snapshot.verdict;
+    let title = Line::from(vec![
+        Span::raw(" "),
+        Span::styled("Why ", theme::title()),
+        Span::styled(verdict.headline.as_str(), theme::title()),
+        Span::raw(" "),
+    ]);
+    let mut lines: Vec<Line> = Vec::new();
+    if let Some(bottom) = &verdict.bottom_line {
+        lines.push(Line::from(Span::styled(bottom.as_str(), theme::text())));
+        lines.push(Line::default());
+    }
+    if verdict.steps.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "This server doesn't send the checks behind its verdicts (API 1.8 or newer does).",
+            theme::muted(),
+        )));
+    }
+    for step in &verdict.steps {
+        let color = theme::status(step.status);
+        let dim = matches!(step.role, StepRole::Skipped);
+        let question_style = if dim { theme::muted() } else { theme::text().bold() };
+        let mut head = vec![
+            Span::styled(format::status_icon(step.status), Style::new().fg(color)),
+            Span::raw(" "),
+            Span::styled(step.question.as_str(), question_style),
+        ];
+        let tag = match step.role {
+            StepRole::Cause => Some((" CAUSE ", Style::new().fg(theme::SURFACE).bg(color).bold())),
+            StepRole::Collateral => Some((" knock-on ", Style::new().fg(color))),
+            StepRole::Excused => Some((" doesn't count ", theme::muted())),
+            StepRole::Pass | StepRole::Skipped => None,
+        };
+        if let Some((text, style)) = tag {
+            head.push(Span::raw(" "));
+            head.push(Span::styled(text, style));
+        }
+        if let Some(subject) = &step.subject {
+            head.push(Span::styled(format!("  {subject}"), theme::muted()));
+        }
+        lines.push(Line::from(head));
+        let saw_style = if dim { theme::muted() } else { Style::new().fg(color) };
+        let mut saw = vec![Span::raw("  "), Span::styled(step.saw.as_str(), saw_style)];
+        if let Some(limit) = &step.limit {
+            saw.push(Span::styled(format!(" · limit {limit}"), theme::muted()));
+        }
+        lines.push(Line::from(saw));
+        lines.push(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(step.means.as_str(), theme::muted()),
+        ]));
+        lines.push(Line::default());
+    }
+    if let Some(hint) = &verdict.fix_hint {
+        lines.push(Line::from(vec![
+            Span::styled("Try ", theme::title()),
+            Span::styled(hint.as_str(), theme::text()),
+        ]));
+    }
+    if let Some(reason) = &verdict.confidence_reason {
+        lines.push(Line::from(vec![
+            Span::styled("How sure ", theme::title()),
+            Span::styled(reason.as_str(), theme::text()),
+        ]));
+    }
+    let paragraph = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+    // As tall as the text needs, up to most of the screen; longer explanations scroll.
+    let width = area.width * 92 / 100;
+    let total = paragraph.line_count(width.saturating_sub(4)) as u16;
+    let height = (total + 2).min(area.height * 92 / 100);
+    let inner = super::popup(
+        frame,
+        area,
+        Constraint::Length(width),
+        Constraint::Length(height),
+        title,
+    );
+    let scroll = scroll.min(total.saturating_sub(inner.height));
+    frame.render_widget(paragraph.scroll((scroll, 0)), inner);
 }
 
 fn card(title: &str) -> Block<'_> {

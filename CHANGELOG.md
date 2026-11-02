@@ -18,6 +18,10 @@ All notable changes to wirewolf are recorded here. The format is based on
   Intel), with a `SHA256SUMS` file and build provenance, and `cargo binstall wirewolf` fetches
   them. The README's install section starts from those, and `docs/deploy.md` gains a "Linux
   without Docker" section with a hardened systemd unit.
+- The TUI catches up with the dashboard's verdict explanation: the banner leads with whose
+  side the problem is on, `e` opens the checks behind the verdict (on Now, or on an incident's
+  evidence) with the cause, knock-on failures, and excused checks marked, and your targets get
+  their own card on Now.
 - The verdict on Now explains itself. Under the headline, it says whose side the problem is
   on, then lists every check behind the verdict in path order: what wirewolf did, what came
   back against which limit, and what that means, marking the cause, knock-on failures, and

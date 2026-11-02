@@ -82,7 +82,11 @@ impl VerdictBanner<'_> {
                     .fg(if healthy { theme::TEXT } else { color })
                     .bold(),
             )),
-            Line::from(Span::styled(verdict.detail.as_str(), theme::text())),
+            // The bottom line says whose side the problem is on; older servers only have detail.
+            Line::from(Span::styled(
+                verdict.bottom_line.as_deref().unwrap_or(verdict.detail.as_str()),
+                theme::text(),
+            )),
         ];
         if let Some(hint) = &verdict.fix_hint {
             lines.push(Line::from(vec![

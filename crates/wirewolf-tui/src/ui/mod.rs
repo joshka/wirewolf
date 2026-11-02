@@ -38,6 +38,10 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     render_footer(app, frame, footer);
     match &mut app.popup {
         Some(Popup::Hop) => now::render_hop_detail(app, frame, body),
+        Some(Popup::Explain(scroll)) => {
+            let scroll = *scroll;
+            now::render_explain(app, frame, body, scroll)
+        }
         Some(Popup::Scenarios(_)) => render_scenarios(app, frame, body),
         Some(Popup::Help) => render_help(frame, body),
         None => {}
@@ -114,14 +118,15 @@ fn render_header(app: &App, frame: &mut Frame, area: Rect) {
 fn render_footer(app: &App, frame: &mut Frame, area: Rect) {
     let mut keys: Vec<(&str, &str)> = match (app.view, app.popup.as_ref()) {
         (_, Some(Popup::Hop)) => vec![("←→", "hop"), ("esc", "close")],
+        (_, Some(Popup::Explain(_))) => vec![("↑↓", "scroll"), ("esc", "close")],
         (_, Some(Popup::Scenarios(_))) => {
             vec![("↑↓", "choose"), ("enter", "switch"), ("esc", "close")]
         }
         (_, Some(Popup::Help)) => vec![("any key", "close")],
-        (View::Now, None) => vec![("←→", "hop"), ("enter", "details"), ("r", "run speed test")],
+        (View::Now, None) => vec![("←→", "hop"), ("enter", "details"), ("e", "explain"), ("r", "run speed test")],
         (View::History, None) => vec![("t", "range"), ("←→", "hop"), ("space", "show/hide")],
         (View::Incidents, None) if app.incident_detail.is_some() => {
-            vec![("c", "copy report"), ("esc", "back")]
+            vec![("e", "explain"), ("c", "copy report"), ("esc", "back")]
         }
         (View::Incidents, None) => {
             vec![("↑↓", "select"), ("enter", "details"), ("c", "copy report")]
@@ -257,6 +262,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         ("s", "switch demo scenario (demo mode)"),
         ("←→ / h l", "select a hop (Now, History)"),
         ("enter", "open hop or incident details"),
+        ("e", "explain the verdict, check by check"),
         ("i", "jump to the open incident (Now)"),
         ("t", "change the time range (History)"),
         ("space", "show or hide a hop (History)"),

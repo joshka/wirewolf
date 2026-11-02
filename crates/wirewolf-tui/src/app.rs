@@ -84,6 +84,8 @@ pub enum Connection {
 #[derive(Debug)]
 pub enum Popup {
     Hop,
+    /// The checks behind the verdict, with the scroll offset in lines.
+    Explain(u16),
     Scenarios(ListState),
     Help,
 }
@@ -186,6 +188,14 @@ impl App {
     pub fn open_incident(&self) -> Option<&Incident> {
         let id = self.snapshot.as_ref()?.open_incident.as_deref()?;
         self.incidents.iter().find(|i| i.id == id)
+    }
+
+    /// The snapshot `e` explains: the incident being viewed, or else the current one.
+    pub fn explained(&self) -> Option<&Snapshot> {
+        match self.view {
+            View::Incidents if self.incident_detail.is_some() => self.detail_incident().map(|i| &i.evidence),
+            _ => self.snapshot.as_ref(),
+        }
     }
 
     pub fn detail_incident(&self) -> Option<&Incident> {
@@ -341,6 +351,13 @@ impl App {
                     KeyCode::Right | KeyCode::Char('l') => self.select_hop_next(),
                     _ => self.popup = None,
                 },
+                Popup::Explain(scroll) => match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
+                    KeyCode::Down | KeyCode::Char('j') => *scroll = scroll.saturating_add(1),
+                    KeyCode::PageUp => *scroll = scroll.saturating_sub(10),
+                    KeyCode::PageDown => *scroll = scroll.saturating_add(10),
+                    _ => self.popup = None,
+                },
                 Popup::Help => self.popup = None,
             }
             return None;
@@ -355,6 +372,8 @@ impl App {
                 self.view = View::ALL[(self.view.index() + View::ALL.len() - 1) % View::ALL.len()]
             }
             KeyCode::Char('?') => self.popup = Some(Popup::Help),
+            // The explanation is also on an incident's evidence, so it works from any view.
+            KeyCode::Char('e') if self.explained().is_some() => self.popup = Some(Popup::Explain(0)),
             KeyCode::Char('s') if self.is_demo() => {
                 let active = self.meta.as_ref().and_then(|m| {
                     let id = m.scenario.as_deref()?;
