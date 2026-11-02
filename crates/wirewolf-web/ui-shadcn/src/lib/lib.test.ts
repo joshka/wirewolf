@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import type { Hop, Incident, Interface, Sample } from "./api"
+import type { Config, Hop, Incident, Interface, Sample, Snapshot } from "./api"
 import { bucket, bucketStep, stats, stepLabel } from "./bucket"
 import { logDomain, logTicks, spread, timeTicks } from "./ticks"
 import { duration, mbps, ms, pct, relative } from "./format"
 import { linkSpeed, portStatus, total } from "./ports"
-import { periodReport, reportText } from "./report"
+import { isPeak, methodology, periodReport, periodReportText, reportText } from "./report"
 import { uptime } from "./uptime"
 import { href, parse } from "./router"
 
@@ -240,5 +240,50 @@ describe("periodReport", () => {
     const r = periodReport([], [run(10, 900, 900), run(20, 700, 900), run(30, 950, 100)], { down: 1000, up: 1000 }, now, 1)
     expect(r.medianDown).toBe(900)
     expect(r.underPlan).toBe(2)
+  })
+
+  it("splits tests into peak and off-peak hours and finds the speed 80% reached", () => {
+    // A Wednesday evening: 20:00 local is peak, 09:00 is not.
+    const peak = new Date(2026, 10, 4, 20, 0).toISOString()
+    const day = new Date(2026, 10, 4, 9, 0).toISOString()
+    expect(isPeak(peak)).toBe(true)
+    expect(isPeak(day)).toBe(false)
+    expect(isPeak(new Date(2026, 10, 7, 20, 0))).toBe(false) // Saturday
+    const at = (iso: string, down: number) => ({ ...run(0, down, 100), id: iso + down, started: iso })
+    const end = new Date(2026, 10, 4, 23, 0).getTime()
+    const r = periodReport([], [at(peak, 300), at(peak, 320), at(day, 900), at(day, 950), at(day, 940)], { down: 1000, up: null }, end, 1)
+    expect(r.peak).toEqual({ tests: 2, medianDown: 310, medianUp: 100 })
+    expect(r.offPeak.tests).toBe(3)
+    expect(r.offPeak.medianDown).toBe(940)
+    // Sorted downs: 300 320 900 940 950; the value 80% reach is the second lowest.
+    expect(r.p20Down).toBe(320)
+    const text = periodReportText(r, { down: 1000, up: null }, null, ["Measured carefully."])
+    expect(text).toContain("Peak hours (weekdays 7–11 pm): 2 tests, median 310 Mbps down (31% of the 1000 Mbps plan)")
+    expect(text).toContain("80% of tests reached at least 320 Mbps down")
+    expect(text).toContain("How this was measured:\n  Measured carefully.")
+  })
+})
+
+describe("methodology", () => {
+  it("describes the machine, the probes, the incident rule, and the speed tests", () => {
+    const config = {
+      probe: { interval: "30s", ipv6: "auto", path_mtu: true },
+      internet: { port: 443, icmp: true, targets: [{ name: "Cloudflare", v4: "1.1.1.1", v6: null }, { name: "Quad9", v4: "9.9.9.9", v6: null }] },
+      incidents: { open_after: 2, close_after: 2 },
+      speed: { backend: "cloudflare", interval: "1h", server: "", streams: 8, duration: "10s" },
+    } as unknown as Config
+    const port = { name: "eth0", via: null, default_route: true, link: true, wireless: false, speed_mbps: 1000, duplex: "full", addresses: [], rx_errors: null, tx_errors: null, rx_dropped: null, tx_dropped: null, carrier_changes: null }
+    const snapshot = { hops: [{ id: "host", interfaces: [port] }] } as unknown as Snapshot
+    const lines = methodology(config, snapshot)
+    expect(lines[0]).toBe("wirewolf ran on a machine connected over a wired 1 Gbps port (eth0).")
+    expect(lines[1]).toContain("Every 30s it pinged the router")
+    expect(lines[1]).toContain("Cloudflare, Quad9")
+    expect(lines[2]).toContain("opens after 2 failing checks in a row and closes after 2 good ones")
+    expect(lines[3]).toBe("Speed tests ran every 1h against Cloudflare, with 8 parallel streams for 10s in each direction.")
+    expect(lines.at(-1)).toContain("Every test is counted")
+    // Scheduled tests off: no speed line, and no machine line without a snapshot.
+    const off = methodology({ ...config, speed: { ...config.speed, interval: "0" } }, null)
+    expect(off.some((l) => l.startsWith("Speed tests"))).toBe(false)
+    expect(off[0]).toContain("Every 30s")
   })
 })

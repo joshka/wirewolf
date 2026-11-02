@@ -56,5 +56,6 @@ through the API in [api.md](api.md).
 
 ## Not built (yet)
 
-Prometheus metrics, alerts and notifications, monitoring several networks from one server, and
-Wi-Fi radio telemetry, which a container can't see.
+Monitoring several networks from one server, Wi-Fi radio telemetry (which a container can't
+see), and detecting that the household was busy during a speed test. Prometheus metrics and
+notifications landed in 0.2.0.

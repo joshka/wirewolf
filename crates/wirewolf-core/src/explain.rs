@@ -280,6 +280,7 @@ fn confidence_reason(v: &Verdict, cause: Option<&Hop>) -> String {
     };
     let why = match (v.severity, cause) {
         (Severity::Healthy, _) => "every check passed".to_string(),
+        (Severity::Down, Some(h)) if crate::diagnose::inferred(h) => format!("nothing past your router answers, but {} couldn't be probed directly (that needs a raw socket), so the break could be there or further out", name(h)),
         (Severity::Down, Some(h)) if h.checks.len() >= 2 => format!("{} separate checks on {} agree, and everything past it fails the same way", h.checks.len(), name(h)),
         (Severity::Down, Some(h)) => format!("one check on {} failed and nothing past it could be reached, but there's only that one check to go on", name(h)),
         (_, Some(h)) => format!("there's one clear signal at {} and the checks after it fit, but slowness and loss can come and go", name(h)),

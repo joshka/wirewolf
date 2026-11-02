@@ -362,8 +362,12 @@ they're never logged.
 Incidents → **Connection report** (`/report`) summarizes the last 7 or 30 days for your ISP:
 outages on the provider's side (blamed on the ISP or internet hop) apart from problems on your
 own network, total downtime, the last 30 days as a strip, and speed tests against your plan
-(`speed.plan_*`). **Print** prints it on white (or saves a PDF from the print dialog), and **Copy
-as text** gives the same summary for an email or a support chat. Each incident links to its page,
+(`speed.plan_*`), split into peak hours (weekdays 7–11 pm local time, the hours the FCC's
+Measuring Broadband America programme uses) and the rest, with the speed 80% of tests reached.
+It ends with how it was measured: the machine (wired or Wi-Fi, port speed), the probe cadence
+and targets, the incident rule, and the speed test setup, so a support agent can't dismiss the
+numbers as a one-off phone test. **Print** prints it on white (or saves a PDF from the print
+dialog), and **Copy as text** gives the same summary for an email or a support chat. Each incident links to its page,
 which keeps the evidence from its worst moment and has its own **Copy report**.
 
 ## Export and Prometheus
@@ -386,6 +390,28 @@ scrape_configs:
 `wirewolf_incident_open == 1` is "an incident is open". `docs/api.md` lists every metric. With
 `auth.require_for_reads` on, Prometheus can't scrape it, because it can't sign in; leave reads
 open on your LAN, or scrape through a proxy that signs in.
+
+### Home Assistant
+
+Besides the webhook (see [Notifications](#notifications)), a REST sensor turns the verdict into
+an entity you can show on a dashboard or use in automations:
+
+```yaml
+rest:
+  - resource: http://wirewolf.lan:7465/api/v1/now
+    scan_interval: 30
+    sensor:
+      - name: Network verdict
+        value_template: "{{ value_json.verdict.severity }}"
+        json_attributes_path: "$.verdict"
+        json_attributes: [headline, blame, confidence, fix_hint]
+      - name: Gateway latency
+        unit_of_measurement: ms
+        value_template: "{{ (value_json.hops | selectattr('id', 'eq', 'gateway') | first).metrics.rtt_ms }}"
+```
+
+`/api/v1/now` answers `204` until the first probe cycle finishes, which the sensor shows as
+unavailable for a moment after a restart.
 
 ## The AI brief and "Ask an AI"
 

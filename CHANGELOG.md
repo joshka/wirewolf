@@ -14,6 +14,18 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Added
 
+- The connection report is harder to dismiss: speed is split into peak hours (weekdays 7–11
+  pm local time, as the FCC's Measuring Broadband America reports do) and the rest, it says
+  what speed 80% of tests reached, and it ends with how it was measured (the machine and its
+  port, the probe cadence and targets, the incident rule, and the speed test setup). The
+  copied text has the same sections.
+- Verdicts weigh their evidence: an ISP outage that could only be inferred (no raw socket for
+  TTL probes) is low confidence and says so, and a degraded verdict that has held for four
+  checks in a row becomes high confidence instead of staying "medium" forever.
+- One address family failing gets its own headline ("IPv6 is broken; IPv4 still works")
+  instead of a generic "slow" one, with a fix hint for the router.
+- `docs/guide.md` has a Home Assistant REST sensor recipe, and `docs/design.md` no longer
+  lists metrics and notifications as unbuilt.
 - Releases attach prebuilt binaries for Linux (x86_64, aarch64) and macOS (Apple silicon,
   Intel), with a `SHA256SUMS` file and build provenance, and `cargo binstall wirewolf` fetches
   them. The README's install section starts from those, and `docs/deploy.md` gains a "Linux

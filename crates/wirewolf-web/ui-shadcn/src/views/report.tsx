@@ -8,11 +8,11 @@ import { PageHeader } from "@/components/page-header"
 import { SeverityPill } from "@/components/status"
 import { UptimeStrip } from "@/components/uptime"
 import { useNow } from "@/components/time"
-import type { Incident } from "@/lib/api"
+import { api, type Config, type Incident } from "@/lib/api"
 import { copyText } from "@/lib/clipboard"
-import { duration } from "@/lib/format"
+import { duration, mbps } from "@/lib/format"
 import { useLive } from "@/lib/live"
-import { periodReport, periodReportText } from "@/lib/report"
+import { methodology, periodReport, periodReportText } from "@/lib/report"
 import { href, onLinkClick } from "@/lib/router"
 
 const PERIODS = { "7": "7 days", "30": "30 days" } as const
@@ -32,13 +32,16 @@ export function ReportView() {
   const runs = useLive((s) => s.speedRuns)
   const plan = useLive((s) => s.plan)
   const meta = useLive((s) => s.meta)
+  const snapshot = useLive((s) => s.snapshot)
+  const config = useConfig()
   const now = useNow(60_000)
   const days = Number(period)
   const r = periodReport(incidents, runs, plan, now, days)
+  const method = methodology(config, snapshot)
   const share = (v: number | null, p: number | null) => (v != null && p != null ? ` · ${Math.round((v / p) * 100)}% of plan` : "")
   usePrintInLight()
   const copy = async () => {
-    await copyText(periodReportText(r, plan, meta))
+    await copyText(periodReportText(r, plan, meta, method))
     toast.success("Report copied", { description: "Paste it into an email or your ISP's support chat." })
   }
   return (
@@ -80,6 +83,22 @@ export function ReportView() {
         />
       </dl>
 
+      {r.tests.length > 0 && (
+        <dl className="grid gap-4 sm:grid-cols-3">
+          <Stat
+            label="Peak hours · weekdays 7–11 pm"
+            value={r.peak.tests ? `${Math.round(r.peak.medianDown ?? 0)} / ${Math.round(r.peak.medianUp ?? 0)} Mbps` : "—"}
+            detail={r.peak.tests ? `median over ${r.peak.tests} ${r.peak.tests === 1 ? "test" : "tests"}${share(r.peak.medianDown, plan.down)}` : "no tests in peak hours yet"}
+          />
+          <Stat
+            label="Other times"
+            value={r.offPeak.tests ? `${Math.round(r.offPeak.medianDown ?? 0)} / ${Math.round(r.offPeak.medianUp ?? 0)} Mbps` : "—"}
+            detail={r.offPeak.tests ? `median over ${r.offPeak.tests} ${r.offPeak.tests === 1 ? "test" : "tests"}${share(r.offPeak.medianDown, plan.down)}` : "no tests outside peak hours yet"}
+          />
+          <Stat label="Speed 80% of tests reached" value={`${mbps(r.p20Down)} / ${mbps(r.p20Up)}`} detail={`down / up · the 20th percentile${share(r.p20Down, plan.down)}`} />
+        </dl>
+      )}
+
       <UptimeStrip incidents={incidents} since={meta?.monitoring_since} now={now} days={days} />
 
       <IncidentTable
@@ -95,12 +114,33 @@ export function ReportView() {
         to={r.to}
       />
 
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-medium">How this was measured</h2>
+        <p className="max-w-prose text-sm text-muted-foreground">{method.join(" ")}</p>
+      </section>
+
       <p className="text-xs text-muted-foreground">
         Provider-side means wirewolf blamed the ISP's network or the internet beyond it; the router, Wi-Fi, DNS, and web checks
         count as your side. Each incident keeps the evidence from its worst moment on its own page.
       </p>
     </div>
   )
+}
+
+/** The effective config, for the methodology text. `null` until it loads or if it can't. */
+function useConfig(): Config | null {
+  const [config, setConfig] = useState<Config | null>(null)
+  useEffect(() => {
+    let live = true
+    api
+      .config()
+      .then((v) => live && v && setConfig(v.config))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [])
+  return config
 }
 
 /**

@@ -25,6 +25,8 @@ const SAMPLE_CAPACITY: usize = 20 * 2 * 60 * 48;
 const SPEED_CAPACITY: usize = 500;
 const INCIDENT_CAPACITY: usize = 500;
 const ACTIVITY_CAPACITY: usize = 1000;
+/// Consecutive degraded cycles after which a medium-confidence verdict becomes high.
+const HELD_FOR_HIGH: u32 = 4;
 
 /// A request from a client to the driver.
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +237,12 @@ impl Hub {
             let previous = state.snapshot.as_ref().map(|s| s.verdict.severity);
             let held = state.snapshot.as_ref().filter(|_| previous == Some(severity)).and_then(|s| s.verdict.held_cycles).unwrap_or(0);
             snapshot.verdict.held_cycles = Some(held + 1);
+            // A degraded verdict is medium confidence because slowness and loss come and go.
+            // Once the same verdict has held for a while, that doubt is gone.
+            if severity == Severity::Degraded && snapshot.verdict.confidence == crate::model::Confidence::Medium && held + 1 >= HELD_FOR_HIGH {
+                snapshot.verdict.confidence = crate::model::Confidence::High;
+                snapshot.verdict.confidence_reason = Some(format!("High: the same problem has held for {} checks in a row, so it isn't a blip.", held + 1));
+            }
             if previous != Some(severity) {
                 let message = match previous {
                     Some(p) => format!("Verdict {} → {}: {}", severity_word(p), severity_word(severity), snapshot.verdict.headline),
@@ -504,6 +512,24 @@ mod tests {
         });
         hub.set_incident_policy(Incidents { open_after, close_after });
         hub
+    }
+
+    #[test]
+    fn a_degraded_verdict_that_holds_becomes_high_confidence() {
+        let hub = hub(2, 2);
+        for i in 0..HELD_FOR_HIGH {
+            let mut s = snap(i as i64 * 30, Severity::Degraded);
+            s.verdict.confidence = crate::model::Confidence::Medium;
+            s.verdict.confidence_reason = Some("Medium: slowness comes and goes.".into());
+            hub.publish_snapshot(s);
+            let v = hub.snapshot().unwrap().verdict;
+            if i + 1 < HELD_FOR_HIGH {
+                assert_eq!(v.confidence, crate::model::Confidence::Medium, "cycle {i}");
+            } else {
+                assert_eq!(v.confidence, crate::model::Confidence::High);
+                assert!(v.confidence_reason.unwrap().contains("held for 4 checks"));
+            }
+        }
     }
 
     #[test]

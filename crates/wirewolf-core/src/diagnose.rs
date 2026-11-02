@@ -50,7 +50,15 @@ fn conclude(hops: &[Hop]) -> Verdict {
             headline,
             detail,
             blame: Some(hop.id.clone()),
-            confidence: if hop.checks.len() >= 2 { Confidence::High } else { Confidence::Medium },
+            // A hop that was only inferred (the ISP edge without a raw socket) can't carry
+            // more than low confidence: the break could be there or anywhere further out.
+            confidence: if inferred(hop) {
+                Confidence::Low
+            } else if hop.checks.len() >= 2 {
+                Confidence::High
+            } else {
+                Confidence::Medium
+            },
             fix_hint,
             method,
             bottom_line: None,
@@ -93,6 +101,12 @@ fn conclude(hops: &[Hop]) -> Verdict {
 }
 
 type Explanation = (String, String, Option<String>);
+
+/// The hop's status was derived from other hops rather than measured (the ISP edge when TTL
+/// probes aren't possible).
+pub fn inferred(hop: &Hop) -> bool {
+    hop.summary.starts_with("inferred") || hop.evidence.iter().any(|e| e.key == "method" && e.value.starts_with("inferred"))
+}
 
 fn explain_failure(hop: &Hop, status_of: &dyn Fn(HopKind) -> Option<Status>) -> Explanation {
     let s = |x: &str| x.to_string();
@@ -165,9 +179,35 @@ fn explain_port(hop: &Hop) -> Option<Explanation> {
     Some((check.detail.clone(), detail.into(), Some(hint.into())))
 }
 
+/// One address family failing while the other works. The live assess step words the summary
+/// "IPv6 broken, IPv4 works (…)" or the reverse.
+fn explain_family(hop: &Hop) -> Option<Explanation> {
+    let (broken, works) = if hop.summary.starts_with("IPv6 broken") {
+        ("IPv6", "IPv4")
+    } else if hop.summary.starts_with("IPv4 broken") {
+        ("IPv4", "IPv6")
+    } else {
+        return None;
+    };
+    Some((
+        format!("{broken} is broken; {works} still works"),
+        format!(
+            "Internet hosts answer over {works} but not over {broken}. Sites that prefer {broken} will load slowly or not at all until a connection falls back to {works}."
+        ),
+        Some(if broken == "IPv6" {
+            "Check the router's IPv6 settings and your provider's IPv6 status. Turning off IPv6 on the router hides the problem until it's fixed.".into()
+        } else {
+            "Check the router's WAN settings and your provider's status page; IPv4 is what most of the internet still needs.".into()
+        }),
+    ))
+}
+
 fn explain_degraded(hop: &Hop) -> Explanation {
     let s = |x: &str| x.to_string();
     if let Some(e) = (hop.kind == HopKind::Host).then(|| explain_port(hop)).flatten() {
+        return e;
+    }
+    if let Some(e) = (hop.kind == HopKind::Internet).then(|| explain_family(hop)).flatten() {
         return e;
     }
     let loss = hop.metrics.loss_pct.unwrap_or(0.0);
@@ -377,6 +417,32 @@ mod path_tests {
             let v = diagnose(&with(path(), id, |h| h.status = Status::Warn));
             assert_eq!(v.headline, format!("Slow {side}"));
         }
+    }
+
+    #[test]
+    fn an_inferred_isp_failure_has_low_confidence() {
+        let hops = with(fail_at("isp"), "isp", |h| {
+            h.summary = "inferred — nothing past the gateway answers".into();
+            h.evidence = vec![crate::model::Evidence { key: "method".into(), value: "inferred from internet reachability (TTL probes need a raw socket)".into() }];
+        });
+        let v = diagnose(&hops);
+        assert_eq!((v.severity, v.confidence), (Severity::Down, Confidence::Low));
+        assert!(v.confidence_reason.as_deref().unwrap_or_default().contains("couldn't be probed"), "{:?}", v.confidence_reason);
+    }
+
+    #[test]
+    fn one_broken_address_family_gets_its_own_headline() {
+        let v = diagnose(&with(path(), "internet", |h| {
+            h.status = Status::Warn;
+            h.summary = "IPv6 broken, IPv4 works (9.1 ms, no loss)".into();
+        }));
+        assert_eq!(v.headline, "IPv6 is broken; IPv4 still works");
+        assert!(v.fix_hint.as_deref().unwrap_or_default().contains("IPv6"));
+        let v = diagnose(&with(path(), "internet", |h| {
+            h.status = Status::Warn;
+            h.summary = "IPv4 broken, IPv6 works (9.1 ms, no loss)".into();
+        }));
+        assert_eq!(v.headline, "IPv4 is broken; IPv6 still works");
     }
 
     #[test]
