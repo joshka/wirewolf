@@ -40,16 +40,18 @@ export function VerdictBanner({
     <section aria-label="Verdict">
       <div className={cn("rounded-lg px-4 py-3.5", band[v.severity])}>
         <div className="flex items-start gap-3">
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+          {/* The dots come from CSS, and only from sm up: on a phone the items stack one per line,
+              where a leading dot would read as a bullet. */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground sm:[&>*+*]:before:mr-1.5 sm:[&>*+*]:before:content-['·']">
             <SeverityPill severity={v.severity} />
             {since && (
               <span>
-                · <Lasting since={since} />
+                <Lasting since={since} />
               </span>
             )}
-            <span>· {v.confidence} confidence</span>
+            <span>{v.confidence} confidence</span>
             {healthy && recent != null && (
-              <span>· {recent === 0 ? "no incidents" : recent === 1 ? "1 incident" : `${recent} incidents`} in the last 24 h</span>
+              <span>{recent === 0 ? "no incidents" : recent === 1 ? "1 incident" : `${recent} incidents`} in the last 24 h</span>
             )}
           </div>
           {action && <div className="shrink-0">{action}</div>}

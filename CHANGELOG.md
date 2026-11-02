@@ -6,6 +6,10 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- On a phone, each line of the verdict's status line started with a stray dot.
+
 ### Added
 
 - The verdict on Now explains itself. Under the headline, it says whose side the problem is

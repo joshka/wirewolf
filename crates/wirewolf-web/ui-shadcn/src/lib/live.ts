@@ -27,6 +27,8 @@ export interface LiveState {
   /** The last failure to load data outside the SSE stream. */
   error: string | null
   plan: Plan
+  /** Whether the server accepts settings edits (`ConfigView.editable`). */
+  editable: boolean
 }
 
 const empty: LiveState = {
@@ -39,6 +41,7 @@ const empty: LiveState = {
   connection: "connecting",
   error: null,
   plan: { down: null, up: null },
+  editable: false,
 }
 
 // A reload (Cmd+R) would otherwise paint skeletons until the API answers, which reads as a flash.
@@ -166,11 +169,11 @@ export function start() {
   void reloadPlan()
 }
 
-/** Re-read the speed plan from the config (at start, and after Settings saves). */
+/** Re-read the speed plan and editability from the config (at start, and after Settings saves). */
 export async function reloadPlan() {
   const view = await api.config().catch(() => null)
   const pos = (v: number | undefined) => (v && v > 0 ? v : null)
-  set({ plan: { down: pos(view?.config.speed.plan_down_mbps), up: pos(view?.config.speed.plan_up_mbps) } })
+  set({ plan: { down: pos(view?.config.speed.plan_down_mbps), up: pos(view?.config.speed.plan_up_mbps) }, editable: !!view?.editable })
 }
 
 /** A speed as a share of the plan, or null when there's no plan or no result. */

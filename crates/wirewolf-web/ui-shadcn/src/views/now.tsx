@@ -8,6 +8,7 @@ import { RunSpeedButton, SpeedCompact, useSpeed } from "@/components/speed"
 import { SeverityPill, statusText } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
 import { useLive } from "@/lib/live"
+import { useSession } from "@/lib/session"
 import { findHop } from "@/lib/targets"
 import type { Target } from "@/lib/api"
 import { Badge } from "@/components/ui/badge"
@@ -44,6 +45,10 @@ export function NowView() {
 
 /** Your own targets (`[[targets]]`), each linking to its page. */
 function TargetsCard({ targets }: { targets: Target[] }) {
+  const session = useSession()
+  const serverEditable = useLive((s) => s.editable)
+  // Settings can add a target when the server accepts edits and this visitor may write.
+  const editable = serverEditable && !!session?.can_write
   return (
     <Card>
       <CardHeader>
@@ -57,7 +62,20 @@ function TargetsCard({ targets }: { targets: Target[] }) {
       <CardContent>
         {targets.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No targets yet. Add a <code className="font-mono">[[targets]]</code> entry to <code className="font-mono">wirewolf.toml</code> to watch a NAS, a router page, or a Pi-hole.
+            No targets yet.{" "}
+            {editable ? (
+              <>
+                Add one in{" "}
+                <a href={href({ name: "settings" })} onClick={onLinkClick} className="underline underline-offset-2 hover:text-foreground">
+                  Settings
+                </a>{" "}
+                to watch a NAS, a router page, or a Pi-hole.
+              </>
+            ) : (
+              <>
+                Add a <code className="font-mono">[[targets]]</code> entry to <code className="font-mono">wirewolf.toml</code> to watch a NAS, a router page, or a Pi-hole.
+              </>
+            )}
           </p>
         ) : (
           <ul className="-mx-2 grid gap-1 sm:grid-cols-2 xl:grid-cols-4">
