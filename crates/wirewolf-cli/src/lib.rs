@@ -11,6 +11,7 @@
 mod check;
 mod writable;
 
+use std::io::IsTerminal;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -198,7 +199,9 @@ fn init_logging() -> (Arc<Logs>, bool) {
     let rust_log = std::env::var("RUST_LOG").ok().filter(|f| logs::check_filter(f).is_ok());
     let start = rust_log.clone().unwrap_or_else(|| logs::DEFAULT_FILTER.into());
     let (filter, handle) = reload::Layer::new(EnvFilter::new(&start));
-    tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer()).with(logs.layer()).init();
+    // Plain text when stderr is a file, a pipe, or the journal, or when NO_COLOR asks for it.
+    let ansi = std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer().with_ansi(ansi)).with(logs.layer()).init();
     logs.set_reloader(&start, move |f| handle.reload(EnvFilter::try_new(f).map_err(|e| e.to_string())?).map_err(|e| e.to_string()));
     (logs, rust_log.is_some())
 }

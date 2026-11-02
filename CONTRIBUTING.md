@@ -22,4 +22,7 @@ written as changes land, not at release time:
   a new line.
 
 To release, rename `[Unreleased]` to the version and date, add a fresh empty `[Unreleased]`
-above it, bump the versions, and use that section as the GitHub release notes.
+above it, bump the versions, and use that section as the GitHub release notes. Pushing the
+`v*` tag publishes the crates and the image and attaches the binaries to the GitHub release
+(creating it as a draft if it doesn't exist yet, so create the release first or publish the
+draft afterwards).

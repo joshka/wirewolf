@@ -49,6 +49,20 @@ Then open `http://<host>:7465`. Or, from a checkout, `docker compose up -d`. Hos
 matters: on a bridge network the "gateway" wirewolf sees is Docker's bridge, not your router.
 [docs/deploy.md](docs/deploy.md) explains these options and how to expose wirewolf safely.
 
+### A binary
+
+Each [release](https://github.com/joshka/wirewolf/releases) has archives for Linux (x86_64 and
+aarch64, glibc 2.35 or newer) and macOS (Apple silicon and Intel). Unpack one and run it:
+
+```sh
+tar -xzf wirewolf-v*.tar.gz && cd wirewolf-v*/
+./wirewolf serve
+```
+
+With [cargo-binstall](https://github.com/cargo-bins/cargo-binstall), `cargo binstall wirewolf`
+fetches the same archive. To keep it running, [docs/deploy.md](docs/deploy.md#linux-without-docker)
+has a systemd unit and the one `setcap` line that lets the ISP probes work without root.
+
 ### From source
 
 ```sh
@@ -56,8 +70,9 @@ cargo install wirewolf
 wirewolf serve
 ```
 
-The build compiles the dashboard, so it needs [Node](https://nodejs.org/) and
-[pnpm](https://pnpm.io/) as well as Rust 1.88 or newer.
+The published crate includes the built dashboard, so this needs only Rust 1.88 or newer.
+Building from a checkout compiles the dashboard too, which takes [Node](https://nodejs.org/)
+and [pnpm](https://pnpm.io/).
 
 ### Just check, once
 

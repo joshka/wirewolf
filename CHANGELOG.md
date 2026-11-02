@@ -8,10 +8,16 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Fixed
 
+- Server logs no longer carry colour codes when stderr isn't a terminal (a file, a pipe, or
+  the systemd journal), or when `NO_COLOR` is set.
 - On a phone, each line of the verdict's status line started with a stray dot.
 
 ### Added
 
+- Releases attach prebuilt binaries for Linux (x86_64, aarch64) and macOS (Apple silicon,
+  Intel), with a `SHA256SUMS` file and build provenance, and `cargo binstall wirewolf` fetches
+  them. The README's install section starts from those, and `docs/deploy.md` gains a "Linux
+  without Docker" section with a hardened systemd unit.
 - The verdict on Now explains itself. Under the headline, it says whose side the problem is
   on, then lists every check behind the verdict in path order: what wirewolf did, what came
   back against which limit, and what that means, marking the cause, knock-on failures, and

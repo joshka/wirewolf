@@ -18,6 +18,60 @@ of measured.
 on every interface the host has (`server.listen = "0.0.0.0:7465"`). On a shared or guest
 network, set `auth.require_for_reads` or listen on one address.
 
+## Linux without Docker
+
+Download the archive for your architecture from the
+[releases page](https://github.com/joshka/wirewolf/releases) (or `cargo binstall wirewolf`), then
+give the binary its own user, a data directory, and permission for raw ICMP so the ISP hop is
+measured rather than inferred:
+
+```sh
+sudo install -m 755 wirewolf /usr/local/bin/wirewolf
+sudo setcap cap_net_raw+ep /usr/local/bin/wirewolf
+sudo useradd --system --home /var/lib/wirewolf --create-home --shell /usr/sbin/nologin wirewolf
+```
+
+`/etc/systemd/system/wirewolf.service`:
+
+```ini
+[Unit]
+Description=wirewolf network diagnostics
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=wirewolf
+WorkingDirectory=/var/lib/wirewolf
+Environment=WIREWOLF_DB=/var/lib/wirewolf/wirewolf.db
+Environment=WIREWOLF_CONFIG=/var/lib/wirewolf/wirewolf.toml
+ExecStart=/usr/local/bin/wirewolf serve
+Restart=on-failure
+RestartSec=5
+# Raw ICMP for the ISP TTL probes; everything else is locked down.
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/wirewolf
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```sh
+sudo systemctl daemon-reload
+sudo systemctl enable --now wirewolf
+journalctl -u wirewolf -f
+```
+
+`AmbientCapabilities` grants the capability to the service even if you skip the `setcap`
+line; keep `setcap` if you also run `wirewolf check` from a shell as that user. The config
+file doesn't need to exist: `wirewolf config default > /var/lib/wirewolf/wirewolf.toml` starts
+one, and the Settings page can edit it once a sign-in method is configured (see below). Logs go
+to the journal as plain text (colour is only used when stderr is a terminal).
+
 ## Configuring with environment variables
 
 Every key in `wirewolf.toml` can also be set as `WIREWOLF_<SECTION>_<KEY>`, so a deployment can
