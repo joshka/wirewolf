@@ -101,7 +101,7 @@ sent first on connect.
 | Event | Data | When |
 |---|---|---|
 | `snapshot` | `Snapshot` | Every probe cycle (2s in demo, about 30s in live mode) |
-| `sample` | `Sample` | One per hop per cycle, for sparklines |
+| `sample` | `Sample` | One per hop per cycle, for the live chart |
 | `speed` | `SpeedRun` | Progress updates (`state: running`, `progress` 0–1), then the final result |
 | `incident` | `Incident` | Opened, escalated, or closed (`ended` set) |
 | `activity` | `Activity` | Anything added to the activity timeline (1.6) |

@@ -13,12 +13,12 @@ when?** It works on a LAN whose internet is down, so nothing loads from a CDN.
 
 | Route | Page |
 |---|---|
-| `/` | **Now**: the verdict banner, then the path (rows with wide sparklines, or six cards with small ones; the choice is remembered), then speed test and recent incidents side by side |
-| `/path/<hop>` | **Hop**: status, the stats and charts the hop actually measures (1h/6h/24h), checks, evidence, and incidents that blamed it. User targets (`target:<slug>`) use the same page |
+| `/` | **Now**: the verdict banner, then the last hour of every hop on one chart (the blamed hop bold, incidents shaded, no controls; it links to History on the same window), then the path (rows or six cards; the choice is remembered), then speed test and recent incidents side by side |
+| `/path/<hop>` | **Hop**: status, the stats and charts the hop actually measures (15m to 2d, with a link to compare it in History), checks, evidence, and incidents that blamed it. User targets (`target:<slug>`) use the same page |
 | `/incidents` | **Incidents**: open incidents first, then newest |
-| `/incidents/<id>` | **Incident**: the evidence snapshot rendered like Now, plus a copyable ISP report |
+| `/incidents/<id>` | **Incident**: the evidence snapshot rendered like Now, every hop charted from 15 minutes before to 15 minutes after, plus a copyable ISP report |
 | `/incidents/<id>/path/<hop>` | **Hop, as it was** during that incident |
-| `/history` | **History**: RTT, loss, and speed charts with incident bands, by range and hop |
+| `/history` | **History**: the investigation tool. RTT, loss, speed and an events lane on one time axis with a shared crosshair; range presets, drag to zoom, avg/p95/max, log or linear, and a stats table (last, avg, p95, worst, loss) that doubles as the legend. The view lives in the URL (`?range=6h&hops=gateway,isp&focus=isp&scale=log&agg=avg&from=&to=`) |
 | `/speed` | **Speed**: latest result, run now, and history |
 | `/logs`, `/logs/server` | **Logs**: the activity timeline, and the server's recent log lines with level, search, and the live log filter (writers only) |
 | `/settings` | **Settings**: the effective config and where each value came from, editable when the server allows writes |

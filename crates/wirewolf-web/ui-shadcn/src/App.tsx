@@ -235,7 +235,7 @@ function Main() {
             {error && <p className="mb-4 rounded-lg border border-fail/30 bg-fail/10 p-3 text-sm text-fail">{error}</p>}
             <Suspense fallback={null}>
               {route.name === "now" && <NowView />}
-              {route.name === "history" && <HistoryView />}
+              {route.name === "history" && <HistoryView query={route.query} />}
               {route.name === "incidents" && <IncidentsView />}
               {route.name === "incident" && <IncidentView id={route.id} />}
               {route.name === "speed" && <SpeedView />}

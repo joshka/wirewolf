@@ -41,6 +41,13 @@ All notable changes to wirewolf are recorded here. The format is based on
 - The Now page shows the last hour of every hop on one chart, with the blamed hop bold and
   incidents shaded, in place of a sparkline per path row. It links to History on the same
   window. The dashboard keeps an hour of live samples instead of 15 minutes.
+- History is the investigation tool: range presets from 15 minutes to 2 days, drag on a chart
+  to zoom (with ← → to pan and Esc or "Back to live" to return), avg/p95/max per bucket, log
+  or linear, one crosshair shared by the round-trip, loss, speed and events charts, a stats
+  table under the round-trip chart (last, avg, p95, worst, loss per hop) that is also the
+  legend (tick a hop to hide it, "only" to see it alone), and an events lane with incidents,
+  speed tests and settings changes on the same axis. The whole view is in the URL, so it can
+  be linked to and shared, and the CSV download covers the window shown.
 - Dashboard polish: the primary button is neutral (the accent now only marks navigation,
   focus, and changed settings); time, period, tab, and layout choosers are segmented controls
   with only the selected item raised; incident headlines line up in the Incidents list and the

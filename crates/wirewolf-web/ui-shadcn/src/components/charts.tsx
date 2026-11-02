@@ -47,6 +47,7 @@ export function TimeChart({
   blame = null,
   threshold = metric === "rtt",
   endLabels = true,
+  gutter,
   syncId,
   onSelect,
   className = "aspect-auto h-64 w-full",
@@ -67,6 +68,7 @@ export function TimeChart({
   blame?: string | null
   threshold?: boolean
   endLabels?: boolean
+  gutter?: number
   syncId?: string
   onSelect?: (from: number, to: number) => void
   className?: string
@@ -83,6 +85,9 @@ export function TimeChart({
     weight: focus ? (focus === h.id ? "bold" : "faded") : blame === h.id ? "bold" : "normal",
   }))
   const unit = metric === "rtt" ? "ms" : "%"
+  // Loss tops out at the first of 5, 10, 25, 50 or 100% above the worst bucket, with three round ticks.
+  const worstLoss = Math.max(0, ...data.flatMap((p) => drawn.map((h) => p[`${h.id}_loss`] ?? 0)))
+  const lossTop = [5, 10, 25, 50, 100].find((v) => v >= worstLoss) ?? 100
   return (
     <TimeSeriesChart
       data={data}
@@ -96,8 +101,10 @@ export function TimeChart({
       bands={incidentBands(incidents, from, to)}
       threshold={threshold && metric === "rtt" ? { value: SLOW_RTT_MS, label: `${SLOW_RTT_MS} ms limit` } : undefined}
       curve={metric === "loss" ? "stepAfter" : "monotone"}
-      yDomain={metric === "loss" ? [0, Math.max(5, Math.ceil(Math.max(0, ...data.flatMap((p) => drawn.map((h) => p[`${h.id}_loss`] ?? 0)))))] : undefined}
+      yDomain={metric === "loss" ? [0, lossTop] : undefined}
+      yTicks={metric === "loss" ? [0, lossTop / 2, lossTop] : undefined}
       endLabels={endLabels}
+      gutter={gutter}
       syncId={syncId}
       onSelect={onSelect}
       extra={metric === "rtt" ? lossNote : undefined}
@@ -130,6 +137,7 @@ export function SpeedChart({
   to,
   incidents = [],
   syncId,
+  gutter,
   className = "aspect-auto h-56 w-full",
 }: {
   runs: SpeedRun[]
@@ -137,6 +145,7 @@ export function SpeedChart({
   to?: number
   incidents?: Incident[]
   syncId?: string
+  gutter?: number
   className?: string
 }) {
   const plan = useLive((s) => s.plan)
@@ -166,6 +175,7 @@ export function SpeedChart({
       curve="linear"
       dots
       endLabels={false}
+      gutter={gutter}
       syncId={syncId}
       className={className}
       label="Download and upload speed per test"

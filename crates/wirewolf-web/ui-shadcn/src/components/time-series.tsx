@@ -36,7 +36,7 @@ export interface Threshold {
 export const unitTick: Record<Unit, (v: number) => string> = {
   ms: (v) => `${+v.toFixed(v < 10 ? 1 : 0)} ms`,
   "%": (v) => `${+v.toFixed(v < 10 && v !== 0 ? 1 : 0)}%`,
-  Mbps: (v) => `${Math.round(v)} Mbps`,
+  Mbps: (v) => (v >= 1000 ? `${+(v / 1000).toFixed(1)} Gbps` : `${Math.round(v)} Mbps`),
 }
 
 /** Tooltip values: enough precision to compare hops. */
@@ -47,6 +47,12 @@ export const unitValue: Record<Unit, (v: number) => string> = {
 }
 
 const LOG_FLOOR = 0.5
+
+/** Every chart's y axis is this wide, so charts stacked on a page share one time axis. */
+export const AXIS_WIDTH = 64
+
+/** The right margin that fits the longest of these labels. */
+export const labelGutter = (labels: string[]) => Math.max(...labels.map((l) => l.length), 4) * 6.4 + 12
 const safe = (key: string) => key.replace(/[^\w-]/g, "-")
 
 const TOOLTIP_TIME = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" })
@@ -66,6 +72,7 @@ export function TimeSeriesChart({
   curve = "monotone",
   dots = false,
   endLabels = true,
+  gutter: fixedGutter,
   yDomain,
   yTicks,
   syncId,
@@ -89,6 +96,8 @@ export function TimeSeriesChart({
   curve?: "monotone" | "stepAfter" | "linear"
   dots?: boolean
   endLabels?: boolean
+  /** Room for the end labels, in px. Stacked charts pass the same value so their plots line up. */
+  gutter?: number
   yDomain?: [number, number]
   yTicks?: number[]
   /** Charts with the same id share a crosshair. */
@@ -111,7 +120,7 @@ export function TimeSeriesChart({
   const domain: [number, number] | [number, string] = yDomain ?? (log ? logDomain(threshold ? [...values, threshold.value * 2] : values, LOG_FLOOR) : [0, "auto"])
   // log(0) is undefined, so values under the floor sit on it rather than vanishing.
   const drawn = log ? data.map((p) => Object.fromEntries(Object.entries(p).map(([k, v]) => [k, k !== "t" && v != null && v < domain[0] ? domain[0] : v])) as Point) : data
-  const gutter = endLabels ? Math.max(...series.map((s) => s.label.length), 4) * 6.4 + 12 : 12
+  const gutter = fixedGutter ?? (endLabels ? labelGutter(series.map((s) => s.label)) : 12)
 
   const [drag, setDrag] = useState<{ x1: number; x2: number } | null>(null)
   const at = (e: { activeLabel?: string | number }) => (e.activeLabel == null ? null : Number(e.activeLabel))
@@ -153,7 +162,7 @@ export function TimeSeriesChart({
           allowDataOverflow
         />
         <YAxis
-          width={unit === "Mbps" ? 76 : unit === "ms" ? 64 : 48}
+          width={AXIS_WIDTH}
           tickLine={false}
           axisLine={false}
           scale={log ? "log" : "linear"}
