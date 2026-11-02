@@ -4,10 +4,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { bucket, TimeChart } from "@/components/charts"
+import { bucket, ChartNote, readingNote, TimeChart } from "@/components/charts"
 import { hopIcon, IconTile } from "@/components/path"
 import { CauseBadge, SeverityPill, StatusPill } from "@/components/status"
 import { RelTime, useNow } from "@/components/time"
+import { ArrowRight } from "lucide-react"
 import { api, type Hop, type Incident, type Interface, type Sample, type Severity } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { findHop } from "@/lib/targets"
@@ -178,7 +179,7 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
         <CardTitle>{hasRtt && hasLoss ? "Round-trip time and loss" : hasLoss ? "Loss" : "Round-trip time"}</CardTitle>
         <CardDescription>{at ? "The hour around the evidence" : "Shaded bands are incidents"}</CardDescription>
         {!at && (
-          <ToggleGroup variant="outline" value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} aria-label="Time range" className="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
+          <ToggleGroup variant="segmented" value={[range]} onValueChange={(v) => v[0] && setRange(v[0] as Range)} aria-label="Time range" className="col-start-2 row-span-2 row-start-1 self-start justify-self-end">
             {(Object.keys(RANGES) as Range[]).map((r) => (
               <ToggleGroupItem key={r} value={r} className="px-3">
                 {r}
@@ -194,8 +195,17 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
           <Skeleton className="h-72 w-full" />
         ) : hasSeries ? (
           <div className="flex flex-col gap-2">
-            {hasRtt && <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} step={step} incidents={incidents} className="aspect-auto h-48 w-full" />}
-            {hasLoss && <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} step={step} incidents={incidents} className="aspect-auto h-28 w-full" />}
+            {hasRtt && <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} step={step} incidents={incidents} blame={hop.id} syncId={`hop-${hop.id}`} endLabels={false} gutter={16} className="aspect-auto h-48 w-full" />}
+            {hasLoss && <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} step={step} incidents={incidents} blame={hop.id} syncId={`hop-${hop.id}`} endLabels={false} gutter={16} className="aspect-auto h-28 w-full" />}
+            <ChartNote items={readingNote({ step, scale: hasRtt ? "log" : undefined })} className="px-2">
+              <a
+                href={href(at ? { name: "history", query: { from: String(from), to: String(to), focus: hop.id } } : { name: "history", query: { range, focus: hop.id } })}
+                onClick={onLinkClick}
+                className="inline-flex items-center gap-1 hover:text-foreground hover:underline"
+              >
+                Compare with other hops in History <ArrowRight aria-hidden className="size-3.5" />
+              </a>
+            </ChartNote>
           </div>
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">This hop has no latency series.</p>

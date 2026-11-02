@@ -48,6 +48,9 @@ All notable changes to wirewolf are recorded here. The format is based on
   legend (tick a hop to hide it, "only" to see it alone), and an events lane with incidents,
   speed tests and settings changes on the same axis. The whole view is in the URL, so it can
   be linked to and shared, and the CSV download covers the window shown.
+- A hop's page charts 15 minutes to 2 days and links to History to compare it with the other
+  hops; an incident's page charts every hop from 15 minutes before it opened to 15 minutes
+  after it closed, with a link to the same window in History.
 - Dashboard polish: the primary button is neutral (the accent now only marks navigation,
   focus, and changed settings); time, period, tab, and layout choosers are segmented controls
   with only the selected item raised; incident headlines line up in the Incidents list and the

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { ArrowLeft, Check, ClipboardCopy, FileText } from "lucide-react"
 import { toast } from "sonner"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -102,6 +102,9 @@ export function useIncident(id: string | undefined): Incident | null | undefined
   return live ?? fetched
 }
 
+// The chart library loads on demand, so the list of incidents never waits for it.
+const IncidentChart = lazy(() => import("@/components/incident-chart"))
+
 export function IncidentView({ id }: { id: string }) {
   const meta = useLive((s) => s.meta)
   const incident = useIncident(id)
@@ -143,7 +146,15 @@ export function IncidentView({ id }: { id: string }) {
         <h2 className="mb-2 text-sm font-medium text-muted-foreground">
           Evidence at the worst point · <RelTime at={incident.evidence.at} />
         </h2>
-        <SnapshotView snapshot={incident.evidence} incident={incident.id} />
+        <SnapshotView
+          snapshot={incident.evidence}
+          incident={incident.id}
+          chart={
+            <Suspense fallback={<div className="h-64" />}>
+              <IncidentChart incident={incident} />
+            </Suspense>
+          }
+        />
       </div>
     </div>
   )
