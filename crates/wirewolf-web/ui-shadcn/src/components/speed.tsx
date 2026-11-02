@@ -3,7 +3,8 @@ import { ArrowDown, ArrowUp, Loader2, Play } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { api, type BloatGrade, type SpeedRun } from "@/lib/api"
+import { api, type BloatGrade, type SpeedBackend, type SpeedRun } from "@/lib/api"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { ofPlan, PLAN_SHORTFALL, useLive } from "@/lib/live"
 import { useSession, writeBlocked } from "@/lib/session"
 import { Gated } from "./chrome"
@@ -36,12 +37,12 @@ export function BloatBadge({ grade, className }: { grade: BloatGrade | null; cla
   )
 }
 
-export function RunSpeedButton({ running, primary }: { running: boolean; primary?: boolean }) {
+export function RunSpeedButton({ running, primary, backend }: { running: boolean; primary?: boolean; backend?: SpeedBackend }) {
   const [busy, setBusy] = useState(false)
   const start = async () => {
     setBusy(true)
     try {
-      const status = await api.runSpeed()
+      const status = await api.runSpeed(backend)
       if (status === 409) toast.info("A speed test is already running")
       else if (status === 401 || status === 403) toast.error("Sign in to run a speed test")
       else if (status !== 202) toast.error(`Couldn't start a speed test (HTTP ${status})`)
@@ -63,6 +64,48 @@ export function RunSpeedButton({ running, primary }: { running: boolean; primary
         {running ? "Running…" : "Run now"}
       </Button>
     </Gated>
+  )
+}
+
+const BACKEND_KEY = "wirewolf.speed.backend"
+
+/**
+ * The backend the next manual test runs against: the last one picked here, else whatever the
+ * latest run used, else Cloudflare.
+ */
+export function useSpeedBackend(runs: SpeedRun[]): [SpeedBackend, (b: SpeedBackend) => void] {
+  const [picked, setPicked] = useState<SpeedBackend | null>(() => {
+    try {
+      const v = localStorage.getItem(BACKEND_KEY)
+      return v === "cloudflare" || v === "ookla" ? v : null
+    } catch {
+      return null
+    }
+  })
+  const last = runs.find((r) => r.backend === "cloudflare" || r.backend === "ookla")?.backend as SpeedBackend | undefined
+  const pick = (b: SpeedBackend) => {
+    setPicked(b)
+    try {
+      localStorage.setItem(BACKEND_KEY, b)
+    } catch {
+      // Remembering the choice is a convenience.
+    }
+  }
+  return [picked ?? last ?? "cloudflare", pick]
+}
+
+export function SpeedBackendToggle({ value, onChange, disabled }: { value: SpeedBackend; onChange: (b: SpeedBackend) => void; disabled?: boolean }) {
+  return (
+    <ToggleGroup
+      variant="segmented"
+      value={[value]}
+      onValueChange={(v: string[]) => v[0] && onChange(v[0] as SpeedBackend)}
+      disabled={disabled}
+      aria-label="Speed test backend"
+    >
+      <ToggleGroupItem value="cloudflare">Cloudflare</ToggleGroupItem>
+      <ToggleGroupItem value="ookla">Ookla</ToggleGroupItem>
+    </ToggleGroup>
   )
 }
 

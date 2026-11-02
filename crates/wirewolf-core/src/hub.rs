@@ -31,7 +31,8 @@ const HELD_FOR_HIGH: u32 = 4;
 /// A request from a client to the driver.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
-    RunSpeedTest,
+    /// Run a speed test now, against this backend (`cloudflare` or `ookla`) or the configured one.
+    RunSpeedTest(Option<String>),
     /// Demo mode only.
     SetScenario(String),
     /// A saved config to use from the next probe cycle on. Live mode only.

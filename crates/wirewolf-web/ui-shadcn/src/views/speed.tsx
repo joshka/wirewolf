@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { SpeedChart } from "@/components/charts"
-import { BloatBadge, RunSpeedButton, SpeedSummary, useSpeed } from "@/components/speed"
+import { BloatBadge, RunSpeedButton, SpeedBackendToggle, SpeedSummary, useSpeed, useSpeedBackend } from "@/components/speed"
 import { RelTime } from "@/components/time"
 import { PLAN_SHORTFALL, useLive } from "@/lib/live"
 import { bytes, mbps, ms } from "@/lib/format"
@@ -16,6 +16,7 @@ export function SpeedView() {
   const plan = useLive((s) => s.plan)
   const incidents = useLive((s) => s.incidents)
   const done = runs.filter((r) => r.state === "complete").length
+  const [backend, setBackend] = useSpeedBackend(runs)
   return (
     <div className="flex flex-col gap-4">
       <PageHeader title="Speed" description="Throughput, and latency under load (bufferbloat).">
@@ -26,7 +27,10 @@ export function SpeedView() {
         <CardHeader>
           <CardTitle>{running ? "Running a speed test" : "Latest result"}</CardTitle>
           <CardAction>
-            <RunSpeedButton running={!!running} primary />
+            <div className="flex items-center gap-2">
+              <SpeedBackendToggle value={backend} onChange={setBackend} disabled={!!running} />
+              <RunSpeedButton running={!!running} primary backend={backend} />
+            </div>
           </CardAction>
         </CardHeader>
         <CardContent>

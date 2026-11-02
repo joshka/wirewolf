@@ -244,11 +244,21 @@ async fn speed(State(hub): State<Hub>) -> impl IntoResponse {
     Json(hub.speed_runs())
 }
 
-async fn run_speed(State(hub): State<Hub>) -> StatusCode {
+#[derive(Debug, Default, Deserialize)]
+struct RunSpeed {
+    /// `cloudflare` or `ookla` for this run only. Defaults to the configured backend.
+    backend: Option<String>,
+}
+
+async fn run_speed(State(hub): State<Hub>, body: Option<Json<RunSpeed>>) -> StatusCode {
+    let RunSpeed { backend } = body.map(|Json(b)| b).unwrap_or_default();
+    if backend.as_deref().is_some_and(|b| !matches!(b, "cloudflare" | "ookla")) {
+        return StatusCode::UNPROCESSABLE_ENTITY;
+    }
     if hub.speed_running() {
         return StatusCode::CONFLICT;
     }
-    hub.send(Command::RunSpeedTest);
+    hub.send(Command::RunSpeedTest(backend));
     StatusCode::ACCEPTED
 }
 

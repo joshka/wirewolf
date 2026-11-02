@@ -93,11 +93,11 @@ pub async fn run(hub: Hub, scenario: String) {
                     publish(&hub, Timestamp::now(), kind);
                 }
                 Command::SetScenario(_) => {}
-                Command::RunSpeedTest if !hub.speed_running() => {
+                Command::RunSpeedTest(_) if !hub.speed_running() => {
                     let kind = kind_at(&scenario, started.elapsed());
                     tokio::spawn(speed_test(hub.clone(), kind));
                 }
-                Command::RunSpeedTest | Command::ApplyConfig(_) | Command::TestNotification(_) => {}
+                Command::RunSpeedTest(_) | Command::ApplyConfig(_) | Command::TestNotification(_) => {}
             }
         }
     }

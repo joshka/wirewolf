@@ -28,7 +28,7 @@ publishes a live snapshot every 2s.
 | GET | `/api/v1/now` | `Snapshot`, or `204` before the first measurement |
 | GET | `/api/v1/history?hop=&since=&until=` | `[Sample]` in time order. All params are optional. `hop` is a hop id, `since`/`until` are RFC 3339 |
 | GET | `/api/v1/speed` | `[SpeedRun]`, newest first |
-| POST | `/api/v1/speed/run` | `202` when started, `409` if one is already running. Progress arrives as `speed` events |
+| POST | `/api/v1/speed/run` | `202` when started, `409` if one is already running. Progress arrives as `speed` events. An optional JSON body `{"backend": "cloudflare" \| "ookla"}` picks the backend for this run only (1.8) (`422` for any other value); without it the configured backend runs |
 | GET | `/api/v1/incidents` | `[Incident]`, newest first |
 | GET | `/api/v1/incidents/{id}` | `Incident` or `404` |
 | GET | `/api/v1/brief?format=&redact=&window=&incident=` | The brief: a compact summary for an AI assistant (1.5). See below |

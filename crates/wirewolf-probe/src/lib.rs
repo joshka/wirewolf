@@ -208,10 +208,10 @@ pub async fn run(hub: Hub, mut config: Arc<Config>) {
                 hub.publish_snapshot(Snapshot { at, verdict, hops, open_incident: None, targets });
             }
             _ = async { speed_ticker.as_mut().unwrap().tick().await }, if speed_ticker.is_some() => {
-                start_speed(&hub, &config);
+                start_speed(&hub, &config, None);
             }
             Some(command) = commands.recv() => match command {
-                Command::RunSpeedTest => start_speed(&hub, &config),
+                Command::RunSpeedTest(backend) => start_speed(&hub, &config, backend.as_deref()),
                 Command::SetScenario(_) => {}
                 Command::TestNotification(actor) => drop(tokio::spawn(notify::test(hub.clone(), actor))),
                 Command::ApplyConfig(new) => match measure::Prober::new(new.clone()) {
@@ -247,11 +247,12 @@ fn log_settings(config: &Config) {
     );
 }
 
-fn start_speed(hub: &Hub, config: &Config) {
+/// `backend` overrides the configured one for this run.
+fn start_speed(hub: &Hub, config: &Config, backend: Option<&str>) {
     if hub.speed_running() {
         return;
     }
-    let backend = config.speed.backend.parse().unwrap_or(Backend::Cloudflare);
+    let backend = backend.unwrap_or(&config.speed.backend).parse().unwrap_or(Backend::Cloudflare);
     let cf = speed::CloudflareConfig { streams: config.speed.streams.max(1), duration: config.speed.duration.0.max(Duration::from_secs(2)) };
     let server = Some(config.speed.server.clone()).filter(|s| !s.is_empty());
     tracing::info!("starting {} speed test", backend.name());

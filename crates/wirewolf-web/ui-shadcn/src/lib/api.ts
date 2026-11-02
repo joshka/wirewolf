@@ -278,6 +278,8 @@ async function putConfig(config: Config, csrf?: string | null): Promise<SaveResu
   return { ok: false, status: res.status, errors: body?.errors ?? [{ key: "", message: fallback }] }
 }
 
+export type SpeedBackend = "cloudflare" | "ookla"
+
 export const api = {
   meta: () => get<Meta>("/meta"),
   now: () => get<Snapshot>("/now"),
@@ -292,7 +294,8 @@ export const api = {
     return get<Sample[]>(`/history?${p}`).then((x) => x ?? [])
   },
   speed: () => get<SpeedRun[]>("/speed").then((x) => x ?? []),
-  runSpeed: () => post("/speed/run"),
+  /** `backend` overrides the configured one for this run (API 1.8). */
+  runSpeed: (backend?: SpeedBackend) => post("/speed/run", backend ? { backend } : undefined),
   incidents: () => get<Incident[]>("/incidents").then((x) => x ?? []),
   incident: (id: string) => get<Incident>(`/incidents/${encodeURIComponent(id)}`),
   setScenario: (id: string) => post("/demo/scenario", { id }),
