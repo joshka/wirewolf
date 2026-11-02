@@ -34,6 +34,9 @@ pub fn runtime() -> &'static Runtime {
 pub fn start(data: &Path, options: &Options) -> anyhow::Result<Started> {
     let (logs, rust_log) = init_logging();
     let rt = runtime();
+    // The probe crate spawns tasks as it sets up (`attach_store`), which needs a runtime on the
+    // calling thread; this is Tauri's main thread, so enter it for the rest of the setup.
+    let _entered = rt.enter();
     let listener = rt.block_on(tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)))?;
     let addr = listener.local_addr()?;
     let url = Url::parse(&format!("http://{addr}/"))?;
@@ -89,7 +92,7 @@ fn live(data: &Path, addr: SocketAddr, logs: Arc<Logs>, rust_log: bool) -> anyho
     hub.set_editor(editor);
     let config = Arc::new(loaded.config);
     wirewolf_probe::attach_store(&hub, &config)?;
-    runtime().spawn(wirewolf_probe::run(hub.clone(), config));
+    tokio::spawn(wirewolf_probe::run(hub.clone(), config));
     Ok(hub)
 }
 
