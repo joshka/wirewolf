@@ -46,7 +46,7 @@ export function HistoryView() {
     }
   }, [range])
   const from = to - RANGES[range]
-  const data = useMemo(() => (samples ? bucket(samples, from, to) : []), [samples, from, to])
+  const { data, step } = useMemo(() => (samples ? bucket(samples, from, to) : { data: [], step: 0 }), [samples, from, to])
 
   const chart = (title: string, description: string, body: React.ReactNode) => (
     <Card>
@@ -98,8 +98,8 @@ export function HistoryView() {
           ))}
         </ToggleGroup>
       </div>
-      {chart("Round-trip time", "Mean per interval · shaded bands are incidents · hover a hop above to pick out its line", <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} incidents={incidents} focus={focus} />)}
-      {chart("Packet loss", "Worst per interval · only hops that lost packets are drawn", <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} incidents={incidents} focus={focus} className="aspect-auto h-44 w-full" />)}
+      {chart("Round-trip time", "Mean per interval · shaded bands are incidents · hover a hop above to pick out its line", <TimeChart data={data} hops={shown} metric="rtt" from={from} to={to} step={step} incidents={incidents} focus={focus} />)}
+      {chart("Packet loss", "Worst per interval · only hops that lost packets are drawn", <TimeChart data={data} hops={shown} metric="loss" from={from} to={to} step={step} incidents={incidents} focus={focus} className="aspect-auto h-44 w-full" />)}
       {chart("Speed tests", "Download and upload per test", <SpeedChart runs={speedRuns} from={from} to={to} incidents={incidents} />)}
     </div>
   )

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { Hop, Incident, Interface, Sample } from "./api"
-import { bucket, sparkSeries } from "./bucket"
+import { bucket, bucketStep, stats, stepLabel } from "./bucket"
+import { logDomain, logTicks, spread, timeTicks } from "./ticks"
 import { duration, mbps, ms, pct, relative } from "./format"
 import { linkSpeed, portStatus, total } from "./ports"
 import { periodReport, reportText } from "./report"
@@ -43,18 +44,72 @@ describe("format", () => {
 })
 
 describe("bucket", () => {
+  const from = Date.parse(at(0))
+  const to = Date.parse(at(10))
   it("averages RTT and keeps the worst loss per slot", () => {
-    const from = Date.parse(at(0))
-    const to = Date.parse(at(10))
-    const pts = bucket([sample(0, "gw", 2, 0), sample(1, "gw", 4, 50), sample(6, "gw", 10, 0), sample(20, "gw", 99)], from, to, 2)
-    expect(pts).toEqual([
+    const { data, step } = bucket([sample(0, "gw", 2, 0), sample(1, "gw", 4, 50), sample(6, "gw", 10, 0), sample(20, "gw", 99)], from, to, { step: 5 * 60e3 })
+    expect(step).toBe(5 * 60e3)
+    expect(data).toEqual([
       { t: from, gw_rtt: 3, gw_loss: 50 },
       { t: from + 5 * 60e3, gw_rtt: 10, gw_loss: 0 },
+      { t: from + 10 * 60e3, gw_rtt: null, gw_loss: null },
     ])
   })
-  it("skips missing RTT", () => {
-    const from = Date.parse(at(0))
-    expect(bucket([sample(0, "dns", null, 100)], from, from + 60e3, 1)).toEqual([{ t: from, dns_loss: 100 }])
+  it("leaves a null where a hop has no sample, so the line breaks", () => {
+    const { data } = bucket([sample(0, "gw", 2), sample(0, "isp", 8), sample(5, "gw", 3)], from, to, { step: 5 * 60e3 })
+    expect(data[1]).toEqual({ t: from + 5 * 60e3, gw_rtt: 3, gw_loss: 0, isp_rtt: null, isp_loss: null })
+  })
+  it("summarises as p95 or max", () => {
+    const s = [1, 2, 3, 4, 100].map((v, i) => sample(i, "gw", v))
+    expect(bucket(s, from, to, { step: 10 * 60e3, agg: "max" }).data[0].gw_rtt).toBe(100)
+    expect(bucket(s, from, to, { step: 10 * 60e3, agg: "p95" }).data[0].gw_rtt).toBe(100)
+    expect(bucket(s, from, to, { step: 10 * 60e3, agg: "avg" }).data[0].gw_rtt).toBe(22)
+  })
+  it("picks a named step no finer than the sampling", () => {
+    const every30s = Array.from({ length: 20 }, (_, i) => ({ ...sample(0, "gw", 1), at: new Date(from + i * 30e3).toISOString() }))
+    expect(bucketStep(every30s, from, from + 10 * 60e3, 300)).toBe(60e3)
+    expect(bucketStep(every30s, from, from + 24 * 3600e3, 300)).toBe(5 * 60e3)
+    expect(bucketStep([], from, from + 3600e3, 300)).toBe(30e3)
+  })
+  it("computes stats per hop", () => {
+    const s = [1, 2, 3, 4, 100].map((v, i) => sample(i, "gw", v, i === 4 ? 50 : 0))
+    expect(stats(s, "gw")).toEqual({ last: 100, avg: 22, p95: 100, max: 100, loss: 10, samples: 5 })
+    expect(stats(s, "isp").last).toBeNull()
+  })
+  it("names the step", () => {
+    expect(stepLabel(30e3)).toBe("30 s")
+    expect(stepLabel(2 * 60e3)).toBe("2 min")
+    expect(stepLabel(2 * 3600e3)).toBe("2 h")
+  })
+})
+
+describe("ticks", () => {
+  // Local time matters here; the tests avoid a fixed zone by reading it back.
+  const minutes = (t: number) => new Date(t).getMinutes()
+  it("lands on round clock times", () => {
+    const from = Date.UTC(2026, 9, 24, 3, 7)
+    const { ticks, step } = timeTicks(from, from + 3600e3)
+    expect(step).toBe(10 * 60e3)
+    expect(ticks.length).toBe(6)
+    for (const t of ticks) expect(minutes(t) % 10).toBe(0)
+    expect(ticks[0]).toBeGreaterThanOrEqual(from)
+  })
+  it("steps by whole days on long ranges", () => {
+    const from = Date.UTC(2026, 9, 20, 3, 7)
+    const { ticks, step } = timeTicks(from, from + 7 * 86400e3)
+    expect(step).toBe(2 * 86400e3)
+    for (const t of ticks) expect(new Date(t).getHours()).toBe(0)
+  })
+  it("chooses log ticks", () => {
+    expect(logTicks(1, 100)).toEqual([1, 2, 5, 10, 20, 50, 100].slice(0, 7).filter((v) => [1, 10, 100].includes(v)))
+    expect(logTicks(1, 10)).toEqual([1, 2, 5, 10])
+    expect(logDomain([1.2, 35, 80])).toEqual([1, 100])
+    expect(logDomain([1.2, 35, 120])).toEqual([1, 200])
+    expect(logDomain([0.02, 3])).toEqual([0.5, 5])
+  })
+  it("spreads crowded labels apart", () => {
+    expect(spread([10, 12, 50], 13)).toEqual([10, 23, 50])
+    expect(spread([95, 97], 13, 0, 100)).toEqual([87, 100])
   })
 })
 
@@ -101,26 +156,6 @@ describe("reportText", () => {
     expect(text).toContain("Likely at: ISP")
     expect(text).toContain("[FAIL] ISP        100.64.0.1")
     expect(text).toContain("- First ISP hop: timed out")
-  })
-})
-
-describe("sparkSeries", () => {
-  it("breaks the line at a gap of more than 3× the usual interval", () => {
-    const s = [0, 1, 2, 3, 9, 10].map((m) => sample(m, "gateway", 2))
-    const { data, gaps } = sparkSeries(s)
-    expect(gaps).toEqual([[new Date(at(3)).getTime(), new Date(at(9)).getTime()]])
-    expect(data.filter((p) => p.rtt == null)).toHaveLength(1)
-  })
-
-  it("doesn't treat a change from coarse history to fine live samples as a gap", () => {
-    const s = [0, 5, 10, 15, 16, 17, 18].map((m) => sample(m, "gateway", 2))
-    expect(sparkSeries(s).gaps).toEqual([])
-  })
-
-  it("leaves an evenly spaced series alone", () => {
-    const { data, gaps } = sparkSeries([0, 1, 2].map((m) => sample(m, "gateway", 2)))
-    expect(gaps).toEqual([])
-    expect(data).toHaveLength(3)
   })
 })
 

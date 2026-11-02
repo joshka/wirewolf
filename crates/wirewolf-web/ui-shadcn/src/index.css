@@ -18,6 +18,9 @@
     --color-hop-internet: var(--hop-internet);
     --color-hop-dns: var(--hop-dns);
     --color-hop-web: var(--hop-web);
+    --color-chart-threshold: var(--chart-threshold);
+    --color-chart-incident: var(--chart-incident);
+    --color-chart-nodata: var(--chart-nodata);
     --font-sans: 'Geist Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
@@ -160,6 +163,10 @@
     --hop-internet: oklch(0.696 0.17 162);
     --hop-dns: oklch(0.627 0.265 304);
     --hop-web: oklch(0.656 0.241 354);
+    /* Chart furniture: the limit line, incident bands, and "no data" text. */
+    --chart-threshold: var(--fail);
+    --chart-incident: var(--fail);
+    --chart-nodata: var(--muted-foreground);
 }
 
 .dark {

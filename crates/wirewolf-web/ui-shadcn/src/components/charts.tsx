@@ -1,141 +1,127 @@
-import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis } from "recharts"
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
+// wirewolf's charts: the generic time-series chart with hops, incidents, and speed tests fed in.
+
+import { ReferenceLine } from "recharts"
+import { ChartLegend, ChartLegendContent } from "@/components/ui/chart"
 import type { HopKind, Incident, SpeedRun } from "@/lib/api"
-import { bucket, type Point } from "@/lib/bucket"
-import { clock, mbps, ms, pct } from "@/lib/format"
+import { bucket, stepLabel, type Agg, type Point } from "@/lib/bucket"
+import { pct } from "@/lib/format"
 import { hopColor } from "@/lib/colors"
 import { useLive } from "@/lib/live"
+import { zoneLabel } from "@/lib/ticks"
+import { ChartNote, TimeSeriesChart, type Band, type Scale, type Series } from "./time-series"
 
-export { bucket }
-export { hopColor }
-type Series = { id: string; kind: HopKind; label: string }
+export { bucket, hopColor, stepLabel, ChartNote }
+export type { Agg, Scale }
 
+export interface HopSeries {
+  id: string
+  kind: HopKind
+  label: string
+}
 
-const fmtFor = (key: string) => (key.endsWith("_loss") ? pct : key.endsWith("_rtt") ? ms : mbps)
+/** Round trips above this are slow enough to count against the connection. */
+export const SLOW_RTT_MS = 100
 
-// Recharts needs its axis and tooltip elements as direct children, so these are element
-// factories rather than components.
-const timeAxis = (from: number | string, to: number | string, span: number) => (
-  <XAxis
-    dataKey="t"
-    type="number"
-    scale="time"
-    domain={[from, to]}
-    tickFormatter={(t: number) => (span > 2 * 86400e3 ? new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : clock(t))}
-    tickLine={false}
-    axisLine={false}
-    minTickGap={48}
-    allowDataOverflow
-  />
-)
+/** Incidents as shaded bands, clipped to the window. */
+export function incidentBands(incidents: Incident[], from: number, to: number): Band[] {
+  return incidents
+    .map((inc) => ({ from: new Date(inc.started).getTime(), to: inc.ended ? new Date(inc.ended).getTime() : Date.now(), tone: inc.severity === "down" ? ("fail" as const) : ("warn" as const) }))
+    .filter((b) => b.to >= from && b.from <= to)
+}
 
-const tooltip = (config: ChartConfig) => (
-  <ChartTooltip
-    content={
-      <ChartTooltipContent
-        indicator="line"
-        labelFormatter={(_, p) => {
-          const t = p?.[0]?.payload?.t
-          return t ? new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : ""
-        }}
-        formatter={(value, name, item) => (
-          <div className="flex w-full items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="h-2.5 w-1 rounded-sm" style={{ background: item.color }} />
-              {config[String(name)]?.label}
-            </span>
-            <span className="font-mono font-medium text-foreground tabular-nums">{fmtFor(String(name))(Number(value))}</span>
-          </div>
-        )}
-      />
-    }
-  />
-)
-
-/** Shaded incident periods, clipped to the visible window. */
-const incidentBands = (incidents: Incident[], from: number, to: number) =>
-  incidents.map((inc) => {
-    const x1 = Math.max(from, new Date(inc.started).getTime())
-    const x2 = Math.min(to, inc.ended ? new Date(inc.ended).getTime() : Date.now())
-    if (x2 < from || x1 > to) return null
-    return (
-      <ReferenceArea
-        key={inc.id}
-        x1={x1}
-        x2={Math.max(x2, x1 + (to - from) / 300)}
-        ifOverflow="hidden"
-        fill={inc.severity === "down" ? "var(--fail)" : "var(--warn)"}
-        fillOpacity={0.15}
-      />
-    )
-  })
-
-const msTick = (v: number) => `${+v.toFixed(v < 10 ? 1 : 0)} ms`
-
-/** RTT or loss over time for several hops, with incident bands. */
+/**
+ * RTT or loss over time for several hops, with incidents shaded. `focus` picks one hop out and
+ * fades the rest; `blame` makes a hop bold without fading the others.
+ */
 export function TimeChart({
   data,
   hops,
   metric,
   from,
   to,
+  step,
+  aggregation = "avg",
+  scale = metric === "rtt" ? "log" : "linear",
   incidents = [],
   focus = null,
+  blame = null,
+  threshold = metric === "rtt",
+  endLabels = true,
+  syncId,
+  onSelect,
   className = "aspect-auto h-64 w-full",
+  label,
 }: {
   data: Point[]
-  hops: Series[]
+  hops: HopSeries[]
   metric: "rtt" | "loss"
   from: number
   to: number
+  step?: number
+  aggregation?: Agg
+  scale?: Scale
   incidents?: Incident[]
   /** A hop id to highlight; the other lines fade so it can be followed through the overlap. */
   focus?: string | null
+  /** The hop blamed for the current state: drawn bold. */
+  blame?: string | null
+  threshold?: boolean
+  endLabels?: boolean
+  syncId?: string
+  onSelect?: (from: number, to: number) => void
   className?: string
+  label?: string
 }) {
-  // CSS variable names can't hold the `:` in target ids, so the config keys swap it out.
-  const key = (h: Series) => `${h.id.replace(/[^\w-]/g, "-")}_${metric}`
-  const config: ChartConfig = Object.fromEntries(hops.map((h) => [key(h), { label: h.label, color: hopColor[h.kind] }]))
   // Loss is zero almost always, and lines at zero hide each other, so only hops that lost
   // packets in this window are drawn (all of them if none did).
   const lossy = metric === "loss" ? hops.filter((h) => data.some((p) => (p[`${h.id}_loss`] ?? 0) > 0)) : hops
   const drawn = lossy.length > 0 ? lossy : hops
+  const series: Series[] = drawn.map((h) => ({
+    key: `${h.id}_${metric}`,
+    label: h.label,
+    color: hopColor[h.kind],
+    weight: focus ? (focus === h.id ? "bold" : "faded") : blame === h.id ? "bold" : "normal",
+  }))
+  const unit = metric === "rtt" ? "ms" : "%"
   return (
-    <ChartContainer config={config} className={className}>
-      <LineChart data={data} margin={{ left: 4, right: 12, top: 8 }} accessibilityLayer>
-        <CartesianGrid vertical={false} />
-        {timeAxis(from, to, to - from)}
-        <YAxis
-          width={56}
-          tickLine={false}
-          axisLine={false}
-          tickFormatter={metric === "rtt" ? msTick : (v: number) => `${v}%`}
-          domain={metric === "loss" ? [0, (max: number) => Math.max(5, Math.ceil(max))] : [0, "auto"]}
-        />
-        {incidentBands(incidents, from, to)}
-        {tooltip(config)}
-        {drawn.map((h) => (
-          <Line
-            key={h.id}
-            dataKey={`${h.id}_${metric}`}
-            type={metric === "loss" ? "stepAfter" : "monotone"}
-            name={key(h)}
-            stroke={`var(--color-${key(h)})`}
-            strokeOpacity={focus && focus !== h.id ? 0.15 : 1}
-            strokeWidth={focus === h.id ? 2.5 : 1.75}
-            dot={false}
-            isAnimationActive={false}
-          />
-        ))}
-      </LineChart>
-    </ChartContainer>
+    <TimeSeriesChart
+      data={data}
+      series={series}
+      from={from}
+      to={to}
+      unit={unit}
+      scale={metric === "rtt" ? scale : "linear"}
+      step={step}
+      aggregation={metric === "rtt" ? aggregation : "max"}
+      bands={incidentBands(incidents, from, to)}
+      threshold={threshold && metric === "rtt" ? { value: SLOW_RTT_MS, label: `${SLOW_RTT_MS} ms limit` } : undefined}
+      curve={metric === "loss" ? "stepAfter" : "monotone"}
+      yDomain={metric === "loss" ? [0, Math.max(5, Math.ceil(Math.max(0, ...data.flatMap((p) => drawn.map((h) => p[`${h.id}_loss`] ?? 0)))))] : undefined}
+      endLabels={endLabels}
+      syncId={syncId}
+      onSelect={onSelect}
+      extra={metric === "rtt" ? lossNote : undefined}
+      className={className}
+      label={label ?? `${metric === "rtt" ? "Round-trip time" : "Packet loss"} of ${drawn.map((h) => h.label).join(", ")}`}
+    />
   )
 }
 
-const speedConfig: ChartConfig = {
-  down: { label: "Download", color: "var(--chart-1)" },
-  up: { label: "Upload", color: "var(--chart-2)" },
+/** On the RTT tooltip, a hop that lost packets in the bucket says so. */
+const lossNote = (point: Point, s: Series) => {
+  const loss = point[s.key.replace(/_rtt$/, "_loss")]
+  return loss != null && loss > 0 ? <span className="text-fail"> · {pct(loss)} loss</span> : null
 }
+
+/** "avg · 2 min · log · AEDT": how to read a chart, for its footer. */
+export function readingNote({ step, aggregation = "avg", scale }: { step?: number; aggregation?: Agg; scale?: Scale }): string[] {
+  return [step ? `${aggregation} · ${stepLabel(step)}` : aggregation, scale === "log" ? "log scale" : scale === "linear" ? "linear" : "", zoneLabel()].filter(Boolean)
+}
+
+const speedSeries: Series[] = [
+  { key: "down", label: "Download", color: "var(--chart-1)" },
+  { key: "up", label: "Upload", color: "var(--chart-2)" },
+]
 
 /** Download and upload per completed speed test. Without `from`/`to` it spans the data. */
 export function SpeedChart({
@@ -143,16 +129,18 @@ export function SpeedChart({
   from,
   to,
   incidents = [],
+  syncId,
   className = "aspect-auto h-56 w-full",
 }: {
   runs: SpeedRun[]
   from?: number
   to?: number
   incidents?: Incident[]
+  syncId?: string
   className?: string
 }) {
   const plan = useLive((s) => s.plan)
-  const data = runs
+  const data: Point[] = runs
     .filter((r) => r.state === "complete")
     .map((r) => ({ t: new Date(r.started).getTime(), down: r.down_mbps, up: r.up_mbps }))
     .filter((p) => (from == null || p.t >= from) && (to == null || p.t <= to))
@@ -162,26 +150,32 @@ export function SpeedChart({
   const hi = to ?? data[data.length - 1].t
   // Three round ticks, the same on every speed chart, so small and large charts read alike.
   const peak = Math.max(...data.flatMap((p) => [p.down ?? 0, p.up ?? 0]), plan.down ?? 0, plan.up ?? 0)
-  const step = peak > 2000 ? 1000 : peak > 400 ? 250 : peak > 80 ? 50 : 10
-  const top = Math.max(step, Math.ceil(peak / step / 2) * step * 2)
+  const tick = peak > 2000 ? 1000 : peak > 400 ? 250 : peak > 80 ? 50 : 10
+  const top = Math.max(tick, Math.ceil(peak / tick / 2) * tick * 2)
   return (
-    <ChartContainer config={speedConfig} className={className}>
-      <LineChart data={data} margin={{ left: 4, right: 12, top: 12 }} accessibilityLayer>
-        <CartesianGrid vertical={false} />
-        {timeAxis(from ?? "dataMin", to ?? "dataMax", hi - lo)}
-        <YAxis width={84} tickLine={false} axisLine={false} domain={[0, top]} ticks={[0, top / 2, top]} interval={0} tickFormatter={(v: number) => `${v} Mbps`} />
-        {incidentBands(incidents, lo, hi)}
-        {/* The speeds paid for, dashed in each direction's colour. */}
-        {(["down", "up"] as const).map((k) =>
-          plan[k] != null ? <ReferenceLine key={k} y={plan[k]!} stroke={`var(--color-${k})`} strokeDasharray="4 4" strokeOpacity={0.6} ifOverflow="extendDomain" /> : null,
-        )}
-        {tooltip(speedConfig)}
-        {/* Tests are separate measurements, so straight segments: a curve invents values between them. */}
-        {(["down", "up"] as const).map((k) => (
-          <Line key={k} dataKey={k} type="linear" stroke={`var(--color-${k})`} strokeWidth={2} dot={{ r: 2.5, fill: `var(--color-${k})`, strokeWidth: 0 }} isAnimationActive={false} />
-        ))}
-        <ChartLegend content={<ChartLegendContent />} />
-      </LineChart>
-    </ChartContainer>
+    <TimeSeriesChart
+      data={data}
+      series={speedSeries}
+      from={lo}
+      to={hi}
+      unit="Mbps"
+      yDomain={[0, top]}
+      yTicks={[0, top / 2, top]}
+      bands={incidentBands(incidents, lo, hi)}
+      // Tests are separate measurements, so straight segments: a curve invents values between them.
+      curve="linear"
+      dots
+      endLabels={false}
+      syncId={syncId}
+      className={className}
+      label="Download and upload speed per test"
+    >
+      {/* The speeds paid for, dashed in each direction's colour. */}
+      {speedSeries.map((s) => {
+        const v = plan[s.key as "down" | "up"]
+        return v != null ? <ReferenceLine key={s.key} y={v} stroke={s.color} strokeDasharray="4 4" strokeOpacity={0.6} ifOverflow="extendDomain" /> : null
+      })}
+      <ChartLegend content={<ChartLegendContent />} />
+    </TimeSeriesChart>
   )
 }

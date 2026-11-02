@@ -164,7 +164,7 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
     const last = fetched.length ? fetched[fetched.length - 1].at : ""
     return [...fetched, ...recent.filter((s) => s.at > last)]
   }, [fetched, recent, anchor])
-  const data = useMemo(() => bucket(samples, from, to, 180), [samples, from, to])
+  const { data, step } = useMemo(() => bucket(samples, from, to, { points: 180 }), [samples, from, to])
   // A hop that measures nothing now gets a chart only if its history does, so a hop
   // skipped during an outage still shows what it measured before.
   const hasRtt = samples.some((s) => s.rtt_ms != null)
@@ -194,8 +194,8 @@ function HopCharts({ hop, at }: { hop: Hop; at?: string }) {
           <Skeleton className="h-72 w-full" />
         ) : hasSeries ? (
           <div className="flex flex-col gap-2">
-            {hasRtt && <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} incidents={incidents} className="aspect-auto h-48 w-full" />}
-            {hasLoss && <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} incidents={incidents} className="aspect-auto h-28 w-full" />}
+            {hasRtt && <TimeChart data={data} hops={[hop]} metric="rtt" from={from} to={to} step={step} incidents={incidents} className="aspect-auto h-48 w-full" />}
+            {hasLoss && <TimeChart data={data} hops={[hop]} metric="loss" from={from} to={to} step={step} incidents={incidents} className="aspect-auto h-28 w-full" />}
           </div>
         ) : (
           <p className="py-10 text-center text-sm text-muted-foreground">This hop has no latency series.</p>

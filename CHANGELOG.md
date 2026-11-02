@@ -33,6 +33,11 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Changed
 
+- Charts have a real clock axis (ticks on :00, :15, midnight, with the date where a day starts),
+  a log scale for round trips with ms ticks, a dashed 100 ms limit line, a gap wherever a hop
+  stopped answering instead of a line drawn through the outage, each hop's name at the end of
+  its line, and a tooltip that lists every hop at that moment, worst first, with its loss. A
+  note under each chart says how it was summarised ("avg · 2 min · log scale") and the timezone.
 - Dashboard polish: the primary button is neutral (the accent now only marks navigation,
   focus, and changed settings); time, period, tab, and layout choosers are segmented controls
   with only the selected item raised; incident headlines line up in the Incidents list and the
