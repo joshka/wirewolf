@@ -41,6 +41,8 @@ function ToggleGroup({
       style={{ "--gap": spacing } as React.CSSProperties}
       className={cn(
         "group/toggle-group flex w-fit flex-row items-center gap-[--spacing(var(--gap))] rounded-lg data-[size=sm]:rounded-[min(var(--radius-md),10px)] data-vertical:flex-col data-vertical:items-stretch",
+        // wirewolf: the segmented track. Items sit 2px inside it, so they are 4px shorter than usual.
+        variant === "segmented" && "gap-0.5 bg-muted p-0.5 dark:bg-muted/60",
         className
       )}
       {...props}
@@ -75,6 +77,7 @@ function ToggleGroupItem({
           variant: context.variant || variant,
           size: context.size || size,
         }),
+        context.variant === "segmented" && { default: "h-7 min-w-7", sm: "h-6 min-w-6", lg: "h-8 min-w-8" }[context.size ?? "default"],
         className
       )}
       {...props}

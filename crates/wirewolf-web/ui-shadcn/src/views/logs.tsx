@@ -38,7 +38,7 @@ function Tabs({ tab, children }: { tab: Tab; children?: React.ReactNode }) {
   return (
     <div className="mb-4 flex flex-wrap items-center gap-2">
       <ToggleGroup
-        variant="outline"
+        variant="segmented"
         value={[tab]}
         onValueChange={(v) => v[0] && navigate(href(v[0] === "server" ? { name: "logs", tab: "server" } : { name: "logs" }))}
         aria-label="Log"

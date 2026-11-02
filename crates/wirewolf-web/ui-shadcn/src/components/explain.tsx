@@ -5,7 +5,7 @@ import type { Severity, Snapshot, Step } from "@/lib/api"
 import { copyText } from "@/lib/clipboard"
 import { explanationText } from "@/lib/explain"
 import { href, onLinkClick } from "@/lib/router"
-import { Button } from "./ui/button"
+import { Button, buttonVariants } from "./ui/button"
 import { StatusIcon } from "./status"
 import { RelTime } from "./time"
 
@@ -36,11 +36,11 @@ export function Explanation({ snapshot }: { snapshot: Snapshot }) {
   const footer = (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3 text-[13px]">
       {!healthy && (reportable ? (
-        <a href={href({ name: "report" })} onClick={onLinkClick} className="inline-flex h-8 items-center rounded-md bg-foreground px-3 font-medium text-background hover:bg-foreground/90">
+        <a href={href({ name: "report" })} onClick={onLinkClick} className={buttonVariants({ size: "sm" })}>
           Open ISP report
         </a>
       ) : (
-        <Button size="sm" className="bg-foreground text-background hover:bg-foreground/90" onClick={copy}>
+        <Button size="sm" onClick={copy}>
           Copy explanation
         </Button>
       ))}

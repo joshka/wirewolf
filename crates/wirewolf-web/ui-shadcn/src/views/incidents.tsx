@@ -69,7 +69,7 @@ function IncidentList() {
                     onClick={onLinkClick}
                     className="flex flex-col items-start gap-1 rounded-sm outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring sm:flex-row sm:items-center sm:gap-3"
                   >
-                    <SeverityPill severity={i.severity} />
+                    <SeverityPill severity={i.severity} className="sm:w-24 sm:justify-start" />
                     <span className="font-medium">{i.headline}</span>
                   </a>
                 </TableCell>

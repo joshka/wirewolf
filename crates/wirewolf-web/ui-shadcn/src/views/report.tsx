@@ -48,7 +48,7 @@ export function ReportView() {
         description={`${when(r.from)} to ${when(r.to)}${meta ? ` · wirewolf ${meta.version} on ${meta.host}` : ""}`}
       >
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <ToggleGroup variant="outline" size="sm" value={[period]} onValueChange={(v) => v[0] && setPeriod(v[0] as Period)} aria-label="Period">
+          <ToggleGroup variant="segmented" size="sm" value={[period]} onValueChange={(v) => v[0] && setPeriod(v[0] as Period)} aria-label="Period">
             {(Object.keys(PERIODS) as Period[]).map((p) => (
               <ToggleGroupItem key={p} value={p} className="px-3">
                 {PERIODS[p]}
@@ -142,27 +142,34 @@ function IncidentTable({ title, empty, incidents, to }: { title: string; empty: 
       {incidents.length === 0 ? (
         <p className="text-sm text-muted-foreground">{empty}</p>
       ) : (
-        <Table>
+        // Fixed widths from md up, so the two tables line up with each other. Phones drop the
+        // last column and put the headline under the date instead.
+        <Table className="md:table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead>Started</TableHead>
-              <TableHead>Duration</TableHead>
-              <TableHead>Severity</TableHead>
-              <TableHead>What happened</TableHead>
+              <TableHead className="md:w-48">Started</TableHead>
+              <TableHead className="md:w-32">Duration</TableHead>
+              <TableHead className="md:w-32">Severity</TableHead>
+              <TableHead className="hidden md:table-cell">What happened</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody className="tabular-nums">
             {incidents.map((i) => (
               <TableRow key={i.id}>
-                <TableCell>{when(i.started)}</TableCell>
-                <TableCell>
+                <TableCell className="whitespace-normal align-top md:align-middle">
+                  {when(i.started)}
+                  <a href={href({ name: "incident", id: i.id })} onClick={onLinkClick} className="mt-0.5 block text-pretty text-muted-foreground hover:underline md:hidden">
+                    {i.headline}
+                  </a>
+                </TableCell>
+                <TableCell className="align-top md:align-middle">
                   {duration(i.started, i.ended, to)}
                   {!i.ended && " (ongoing)"}
                 </TableCell>
-                <TableCell>
+                <TableCell className="align-top md:align-middle">
                   <SeverityPill severity={i.severity} />
                 </TableCell>
-                <TableCell>
+                <TableCell className="hidden whitespace-normal md:table-cell">
                   <a href={href({ name: "incident", id: i.id })} onClick={onLinkClick} className="hover:underline">
                     {i.headline}
                   </a>

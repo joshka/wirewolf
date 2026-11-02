@@ -325,7 +325,7 @@ function HopIncidents({ hop }: { hop: Hop }) {
           <ul className="-mx-2 flex flex-col">
             {incidents.map((i) => (
               <li key={i.id}>
-                <a href={href({ name: "incident", id: i.id })} onClick={onLinkClick} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-accent/50">
+                <a href={href({ name: "incident", id: i.id })} onClick={onLinkClick} className="flex items-center gap-3 rounded-lg px-2 py-2 outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring">
                   <SeverityPill severity={i.severity} />
                   <span className="min-w-0 flex-1 truncate text-sm">{i.headline}</span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">

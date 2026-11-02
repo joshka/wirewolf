@@ -96,7 +96,7 @@ export function PathDiagram({
           Path
           {samples && !cards && <span className="font-normal"> · round-trip time, last 15 min</span>}
         </h2>
-        <ToggleGroup variant="outline" size="sm" value={[layout]} onValueChange={(v) => v[0] && setLayout(v[0] as Layout)} aria-label="Path layout">
+        <ToggleGroup variant="segmented" size="sm" value={[layout]} onValueChange={(v) => v[0] && setLayout(v[0] as Layout)} aria-label="Path layout">
           <ToggleGroupItem value="rows" aria-label="Rows">
             <Rows3 aria-hidden />
           </ToggleGroupItem>

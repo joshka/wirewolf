@@ -17,6 +17,14 @@ All notable changes to wirewolf are recorded here. The format is based on
   what was checked, what came back, the limit, and what it means, plus `bottom_line`,
   `confidence_reason`, and `held_cycles`. All are additive; older servers omit them.
 
+### Changed
+
+- Dashboard polish: the primary button is neutral (the accent now only marks navigation,
+  focus, and changed settings); time, period, tab, and layout choosers are segmented controls
+  with only the selected item raised; incident headlines line up in the Incidents list and the
+  two tables of the connection report share one set of column widths; and the Thresholds
+  grid in Settings no longer slides out of its columns on a read-only server.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

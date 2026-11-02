@@ -11,6 +11,9 @@ const toggleVariants = cva(
       variant: {
         default: "bg-transparent",
         outline: "border border-input bg-transparent hover:bg-muted",
+        // wirewolf: one item of a segmented control. The group draws the track.
+        segmented:
+          "bg-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground aria-pressed:bg-background aria-pressed:text-foreground aria-pressed:shadow-sm data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm dark:aria-pressed:bg-input/60 dark:data-[state=on]:bg-input/60",
       },
       size: {
         default:

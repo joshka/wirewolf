@@ -143,7 +143,7 @@ function RecentIncidents() {
                   onClick={onLinkClick}
                   className="flex items-start gap-3 rounded-lg px-2 py-2 outline-none hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring"
                 >
-                  <SeverityPill severity={i.severity} className="mt-0.5 w-24 shrink-0 justify-start" />
+                  <SeverityPill severity={i.severity} className="mt-0.5 shrink-0 justify-start sm:w-24" />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{i.headline}</div>
                     <div className="text-xs text-muted-foreground">
@@ -159,7 +159,7 @@ function RecentIncidents() {
         )}
       </CardContent>
       <CardFooter>
-        <a href={href({ name: "incidents" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+        <a href={href({ name: "incidents" })} onClick={onLinkClick} className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground hover:underline">
           All incidents <ArrowRight aria-hidden className="size-3.5" />
         </a>
       </CardFooter>

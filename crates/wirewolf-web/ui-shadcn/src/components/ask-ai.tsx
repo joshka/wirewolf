@@ -100,7 +100,7 @@ export function AskAi({ incident, size }: { incident?: string; size?: "sm" | "de
               {copied ? "Copied" : "Copy"}
             </Button>
             <DropdownMenu>
-              <DropdownMenuTrigger render={<Button disabled={!text} aria-label="Open in a chat assistant" className="rounded-l-none border-l border-primary-foreground/25 px-2" />}>
+              <DropdownMenuTrigger render={<Button disabled={!text} aria-label="Open in a chat assistant" className="rounded-l-none border-l border-background/25 px-2" />}>
                 <ChevronDown aria-hidden />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">

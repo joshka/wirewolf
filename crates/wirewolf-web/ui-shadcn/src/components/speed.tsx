@@ -93,12 +93,12 @@ export function SpeedProgress({ run }: { run: SpeedRun }) {
  * "92% of plan" under a result, in the warn colour below 80%. Nothing when no plan is set, or
  * while the test is still running (a partial figure would read as a shortfall).
  */
-function PlanShare({ value, plan, running }: { value: number | null | undefined; plan: number | null; running: boolean }) {
+function PlanShare({ value, plan, running, short }: { value: number | null | undefined; plan: number | null; running: boolean; short?: boolean }) {
   const share = ofPlan(value, plan)
   if (share == null || running) return null
   return (
     <div className={cn("text-xs tabular-nums", share < PLAN_SHORTFALL ? "text-warn" : "text-muted-foreground")}>
-      {Math.round(share * 100)}% of {plan} Mbps plan
+      {Math.round(share * 100)}% of {short ? "plan" : `${plan} Mbps plan`}
     </div>
   )
 }
@@ -197,7 +197,7 @@ export function SpeedCompact({ run, running, failed }: { run: SpeedRun | null; r
               <span className="text-3xl font-semibold tracking-tight">{value}</span>
               <span className="text-xs text-muted-foreground">{unit}</span>
             </dd>
-            <PlanShare value={raw} plan={of} running={running} />
+            <PlanShare value={raw} plan={of} running={running} short />
           </div>
         ))}
         <div>

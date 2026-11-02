@@ -140,7 +140,7 @@ export function SettingsView() {
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
           {ctx.defaults && (
             <ToggleGroup
-              variant="outline"
+              variant="segmented"
               size="sm"
               value={[changedOnly ? "changed" : "all"]}
               onValueChange={(v: string[]) => v[0] && setChangedOnly(v[0] === "changed")}
@@ -687,16 +687,18 @@ const LIMITS: [keyof Limits, string, string][] = [
 
 function ThresholdsTable({ ctx }: { ctx: Ctx }) {
   const bad = HOPS.flatMap((h) => LIMITS.map(([l]) => `thresholds.${h}.${l}`)).filter((k) => ctx.errors[k])
+  // The reset column exists only when a row could be reset; read-only servers get the full width.
+  const resets = ctx.canEdit && !!ctx.defaults
   return (
     <div className="flex flex-col gap-2">
-      <div className="grid grid-cols-[auto_repeat(3,minmax(0,1fr))_2rem] items-center gap-x-2 gap-y-2 sm:gap-x-4">
+      <div className={cn("grid items-center gap-x-2 gap-y-2 sm:gap-x-4", resets ? "grid-cols-[auto_repeat(3,minmax(0,1fr))_2rem]" : "grid-cols-[auto_repeat(3,minmax(0,1fr))]")}>
         <span className="text-xs text-muted-foreground">Hop</span>
         {LIMITS.map(([, label]) => (
           <span key={label} className="text-xs text-muted-foreground">
             {label}
           </span>
         ))}
-        <span />
+        {resets && <span />}
         {HOPS.map((h) => (
           <Fragment key={h}>
             <span className="relative flex items-center gap-2 font-mono text-xs">
@@ -706,7 +708,11 @@ function ThresholdsTable({ ctx }: { ctx: Ctx }) {
             {LIMITS.map(([l, label, unit]) => (
               <NumInput key={l} ctx={ctx} k={`thresholds.${h}.${l}`} label={`${h} ${label}`} unit={unit} />
             ))}
-            <ResetButton ctx={ctx} k={`thresholds.${h}`} label={`${h} thresholds`} />
+            {resets && (
+              <span className="flex justify-end">
+                <ResetButton ctx={ctx} k={`thresholds.${h}`} label={`${h} thresholds`} />
+              </span>
+            )}
           </Fragment>
         ))}
       </div>
