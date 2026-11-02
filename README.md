@@ -30,6 +30,8 @@ ISP.
   chat assistant.
 - **Works offline.** The dashboard is embedded in the binary and loads nothing from a CDN, so it
   still works when the internet doesn't.
+- **A Mac app.** The same dashboard in a native window, with a status item in the menu bar,
+  notifications, and a Dock badge for open incidents ([docs/app.md](docs/app.md)).
 - **A terminal UI and a one-shot check.** `wirewolf tui` for a terminal dashboard, `wirewolf
   check` for scripts, with exit codes.
 - **Sign-in when you want it.** Reads are open on your LAN by default; changing settings needs
@@ -83,6 +85,16 @@ wirewolf check
 This runs one probe cycle on this machine, prints the verdict and each hop, and exits `0`
 healthy, `1` degraded, `2` down, `3` if a server given with `--url` can't be reached, or `4`
 unknown. No server, no history.
+
+### As a Mac app
+
+```sh
+cargo install tauri-cli --version 3.0.0-alpha.5
+cd crates/wirewolf-app && cargo tauri build
+```
+
+Builds `Wirewolf.app` (and a `.dmg`) from a checkout: the dashboard in a native window, a
+status item in the menu bar, and notifications. See [docs/app.md](docs/app.md).
 
 ### Try it without probing anything
 

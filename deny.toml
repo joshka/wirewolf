@@ -11,6 +11,12 @@ ignore = [
     # crypto-bigint 0.5 (via rsa and the p256/p384 curves): timing variability in constant-time
     # operations. Same exposure as above: signature verification of public data only.
     { id = "RUSTSEC-2026-0387", reason = "only public-key verification of ID tokens" },
+    # The desktop app (wirewolf-app) builds for macOS. These are in Tauri's Linux-only tree
+    # (GTK bindings and the D-Bus tray), which never compiles into the app.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error via glib-macros: Linux-only GTK bindings" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant via zbus and ksni: Linux-only tray icon" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus and ksni: Linux-only tray icon" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus and ksni: Linux-only tray icon" },
 ]
 
 [licenses]
@@ -24,6 +30,11 @@ allow = [
     "Unicode-3.0",
     "Zlib",
     "CDLA-Permissive-2.0",
+    # The desktop app's dependencies: Tauri's config tooling (cssparser, selectors, dtoa-short,
+    # at build time) and dirs (option-ext). File-level copyleft; none of their files are changed.
+    "MPL-2.0",
+    # ksni, the Linux tray icon in Tauri's tree.
+    "Unlicense",
 ]
 confidence-threshold = 0.9
 

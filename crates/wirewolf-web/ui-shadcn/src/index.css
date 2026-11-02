@@ -197,3 +197,16 @@
     display: none !important;
   }
 }
+
+/*
+ * Inside the desktop app (html.desktop, set by index.html) the window is transparent behind the
+ * sidebar, so macOS draws its sidebar material there and the desktop shows through. The page
+ * itself (the sidebar inset) stays opaque.
+ */
+html.desktop,
+html.desktop body {
+  background: transparent;
+}
+html.desktop [data-slot="sidebar-inner"] {
+  background: transparent;
+}

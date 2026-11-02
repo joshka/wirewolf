@@ -1,0 +1,36 @@
+[package]
+name = "wirewolf-app"
+description = "The wirewolf desktop app: the server and dashboard in a native macOS window."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+# Shipped as an app bundle (`cargo tauri build`), not on crates.io.
+publish = false
+
+[lib]
+name = "wirewolf_app"
+
+[build-dependencies]
+tauri-build = { version = "3.0.0-alpha.4", features = [] }
+
+[dependencies]
+anyhow = "1.0.104"
+axum = "0.8.9"
+jiff = "0.2.38"
+tauri = { version = "3.0.0-alpha.5", features = ["tray-icon", "image-png"] }
+tauri-plugin-autostart = "3.0.0-alpha.3"
+tauri-plugin-notification = "3.0.0-alpha.3"
+tauri-plugin-opener = "3.0.0-alpha.3"
+tauri-plugin-single-instance = "3.0.0-alpha.3"
+tauri-plugin-window-state = "3.0.0-alpha.2"
+tauri-runtime-wry = "3.0.0-alpha.5"
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "net"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+url = "2.5.8"
+window-vibrancy = "0.8.1"
+wirewolf-core = { version = "0.2.0", path = "../wirewolf-core", features = ["demo"] }
+wirewolf-probe = { version = "0.2.0", path = "../wirewolf-probe" }
+wirewolf-web = { version = "0.2.0", path = "../wirewolf-web", features = ["ui-shadcn"] }

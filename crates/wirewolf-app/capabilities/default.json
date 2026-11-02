@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The dashboard. The app serves it from its own server on a loopback port, so for Tauri it is a remote page.",
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  },
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "opener:default",
+    "allow-set-theme"
+  ]
+}

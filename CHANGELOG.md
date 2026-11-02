@@ -14,6 +14,13 @@ All notable changes to wirewolf are recorded here. The format is based on
 
 ### Added
 
+- A Mac app (`crates/wirewolf-app`, built with `cargo tauri build`): the server and dashboard
+  in a native window, with a menu bar and shortcuts (⌘1–⌘5 for the pages, ⌘T runs a speed test,
+  ⇧⌘C copies the brief), a status item that turns amber or red with the verdict, a Dock badge
+  with the open incidents, notifications when incidents open and close, downloads that land in
+  Downloads, Launch at Login, and a window that remembers its place. Closing the window keeps
+  monitoring. Settings and history live in `~/Library/Application Support/net.joshka.wirewolf`.
+  See `docs/app.md`.
 - The connection report is harder to dismiss: speed is split into peak hours (weekdays 7–11
   pm local time, as the FCC's Measuring Broadband America reports do) and the rest, it says
   what speed 80% of tests reached, and it ends with how it was measured (the machine and its

@@ -7,6 +7,8 @@ Network diagnostics you can point a browser at. Rust workspace in `crates/`.
   source of truth. Keep changes additive.
 - Regenerate the CLI reference after changing flags: `WIREWOLF_BLESS=1 cargo test -p wirewolf-cli --test cli_reference`.
 - Run the demo: `cargo run -- serve --demo`. Then open http://127.0.0.1:7465.
+- The Mac app is `crates/wirewolf-app` (`docs/app.md`). It is not a default workspace member:
+  `cargo run -p wirewolf-app -- --demo` runs it, `cargo tauri build` in its directory bundles it.
 - Before integrating: `cargo build --all-features && cargo test && cargo clippy --all-features`,
   plus `pnpm test` in `crates/wirewolf-web/ui-shadcn` if you touched the dashboard.
 - Local, machine-specific instructions may live in an ignored `local/AGENTS.md` at the root of the

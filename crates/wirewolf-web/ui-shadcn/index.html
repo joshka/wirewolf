@@ -17,6 +17,8 @@
         const t = localStorage.getItem("theme") || "system"
         const dark = t === "dark" || (t === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
         document.documentElement.classList.toggle("dark", dark)
+        // The desktop app sets this before the page loads; it changes the chrome (index.css).
+        if (window.__WIREWOLF_DESKTOP__) document.documentElement.classList.add("desktop")
       } catch {}
     </script>
   </head>

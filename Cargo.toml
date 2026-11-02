@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# The desktop app (crates/wirewolf-app) builds with `cargo tauri` and needs a webview toolkit, so
+# plain `cargo build`, `cargo test`, and `cargo clippy` leave it out. Build it with `-p wirewolf-app`.
+default-members = ["crates/wirewolf", "crates/wirewolf-cli", "crates/wirewolf-core", "crates/wirewolf-probe", "crates/wirewolf-tui", "crates/wirewolf-web"]
 
 [workspace.package]
 version = "0.2.0"

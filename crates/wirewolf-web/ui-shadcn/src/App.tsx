@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo } from "react"
 import { Activity, ChartLine, Flag, Gauge, ScrollText, Settings, type LucideIcon } from "lucide-react"
-import { ThemeProvider } from "next-themes"
+import { ThemeProvider, useTheme } from "next-themes"
 import { Badge } from "@/components/ui/badge"
 import {
   Sidebar,
@@ -26,7 +26,8 @@ import { AccountControl, LiveIndicator, ScenarioSwitcher, ThemeToggle } from "@/
 import { loadSession, signIn, useSession } from "@/lib/session"
 import { Button } from "@/components/ui/button"
 import { start, useLive } from "@/lib/live"
-import { href, onLinkClick, useRoute, type Route } from "@/lib/router"
+import { href, navigate, onLinkClick, useRoute, type Route } from "@/lib/router"
+import { connectDesktop, isDesktop, syncDesktopTheme } from "@/lib/desktop"
 import { NowView } from "@/views/now"
 import { findHop, targetHop } from "@/lib/targets"
 import type { Hop } from "@/lib/api"
@@ -71,6 +72,7 @@ export default function App() {
           </a>
           <AppSidebar />
           <Main />
+          {isDesktop && <DesktopBridge />}
         </SidebarProvider>
         <Toaster position="top-center" />
       </TooltipProvider>
@@ -88,6 +90,35 @@ function initialSidebarOpen(): boolean {
   return saved ? saved === "true" : window.innerWidth >= 1024
 }
 
+/**
+ * Inside the desktop app: runs the menu bar's commands (View → History, Toggle Sidebar, …) and
+ * tells the window which theme the dashboard shows.
+ */
+function DesktopBridge() {
+  const { toggleSidebar } = useSidebar()
+  const { theme } = useTheme()
+  useEffect(() => {
+    let stop: (() => void) | undefined
+    let gone = false
+    connectDesktop({ navigate, toggleSidebar }).then((s) => (gone ? s() : (stop = s)))
+    return () => {
+      gone = true
+      stop?.()
+    }
+  }, [toggleSidebar])
+  useEffect(() => {
+    syncDesktopTheme(theme).catch(() => {})
+  }, [theme])
+  return null
+}
+
+/**
+ * The desktop app hides the title bar, so the traffic lights sit over the page's top edge. This
+ * keeps that strip clear, and makes it (and empty sidebar space) drag the window, as a Mac app's
+ * toolbar and sidebar do.
+ */
+const dragRegion = isDesktop ? { "data-tauri-drag-region": true } : {}
+
 function AppSidebar() {
   const route = useRoute()
   const meta = useLive((s) => s.meta)
@@ -102,6 +133,7 @@ function AppSidebar() {
   }
   return (
     <Sidebar collapsible="icon">
+      {isDesktop && <div {...dragRegion} className="h-7 shrink-0" />}
       <SidebarHeader className="gap-3 p-4 group-data-[collapsible=icon]:p-2">
         <div className="flex items-center gap-2 group-data-[collapsible=icon]:flex-col">
           <a
@@ -128,7 +160,7 @@ function AppSidebar() {
           </div>
         </div>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent {...dragRegion}>
         <nav aria-label="Primary" className="contents">
           <SidebarGroup>
             <SidebarMenu>
@@ -210,6 +242,7 @@ function Main() {
   }, [title, severity])
   return (
     <SidebarInset>
+      {isDesktop && <div {...dragRegion} className="sticky top-0 z-30 h-7 shrink-0 bg-background" />}
       {/* Phones only: the sidebar is a sheet there, so it needs a trigger. */}
       <header className="sticky top-0 z-30 flex h-12 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur md:hidden">
         <SidebarTrigger aria-label="Open navigation" />
