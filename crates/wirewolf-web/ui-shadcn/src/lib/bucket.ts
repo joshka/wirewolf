@@ -10,9 +10,12 @@ const MIN = 60 * SEC
 /** Bucket sizes a reader can name: "avg · 2 min". */
 const STEPS = [5 * SEC, 10 * SEC, 30 * SEC, MIN, 2 * MIN, 5 * MIN, 10 * MIN, 15 * MIN, 30 * MIN, 60 * MIN, 2 * 60 * MIN, 6 * 60 * MIN]
 
+const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+
 /**
- * The typical gap between one hop's samples, so buckets can't be smaller than the sampling.
- * History may be coarser than live samples, so it's measured rather than configured.
+ * The gap between one hop's samples, so buckets can't be smaller than the sampling. A window
+ * can mix coarse history with fine live samples, so it's the gap most samples fall under (the
+ * 90th percentile), not the median, or the coarse part would render as dots.
  */
 function sampleInterval(samples: Sample[]): number {
   const byHop = new Map<string, number[]>()
@@ -25,7 +28,7 @@ function sampleInterval(samples: Sample[]): number {
   for (const list of byHop.values()) if (list.length > busiest.length) busiest = list
   if (busiest.length < 3) return 0
   const deltas = busiest.slice(1).map((t, i) => t - busiest[i]).sort((a, b) => a - b)
-  return deltas[Math.floor(deltas.length / 2)]
+  return percentile(deltas, 0.9)
 }
 
 /** The bucket size for a window: a named step no smaller than the sampling or `span / points`. */
@@ -33,8 +36,6 @@ export function bucketStep(samples: Sample[], from: number, to: number, points =
   const want = Math.max((to - from) / points, 1.5 * sampleInterval(samples))
   return STEPS.find((s) => s >= want) ?? STEPS[STEPS.length - 1]
 }
-
-const percentile = (sorted: number[], p: number) => sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
 
 const summarise = (v: number[], agg: Agg): number => {
   if (agg === "avg") return v.reduce((a, b) => a + b, 0) / v.length

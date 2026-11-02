@@ -80,6 +80,10 @@ describe("bucket", () => {
     expect(bucketStep(every30s, from, from + 10 * 60e3, 300)).toBe(60e3)
     expect(bucketStep(every30s, from, from + 24 * 3600e3, 300)).toBe(5 * 60e3)
     expect(bucketStep([], from, from + 3600e3, 300)).toBe(30e3)
+    // Coarse history followed by fine live samples: the step follows the coarse part.
+    const at = (ms: number) => ({ ...sample(0, "isp", 10), at: new Date(from + ms).toISOString() })
+    const mixed = [...Array.from({ length: 30 }, (_, i) => at(i * 60e3)), ...Array.from({ length: 60 }, (_, i) => at(30 * 60e3 + i * 2e3))]
+    expect(bucketStep(mixed, from, from + 32 * 60e3, 300)).toBe(2 * 60e3)
   })
   it("computes stats per hop", () => {
     const s = [1, 2, 3, 4, 100].map((v, i) => sample(i, "gw", v, i === 4 ? 50 : 0))
