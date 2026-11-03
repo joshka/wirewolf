@@ -161,7 +161,7 @@ retention = "30d"
 # An ntfy topic URL, such as "https://ntfy.sh/my-wirewolf", and an access token if it's protected.
 ntfy = ""
 ntfy_token = ""
-# A URL to POST JSON to: { event, text, content, host, incident }. Slack and Discord webhooks read
+# A URL to POST JSON to: { event, text, content, host, instance, key, incident }. Slack and Discord webhooks read
 # `text` and `content`; Home Assistant can use the whole body.
 webhook = ""
 # The least severe incident that notifies: "degraded" or "down".

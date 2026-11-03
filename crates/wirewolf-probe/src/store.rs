@@ -25,7 +25,17 @@ pub struct History {
     pub speed: Vec<SpeedRun>,
     pub incidents: Vec<Incident>,
     pub activity: Vec<Activity>,
+    /// The incident a short restart interrupted, still open, and when the last sample before
+    /// the restart was taken.
+    pub resumed: Option<(String, Timestamp)>,
+    /// Incidents a previous run left open that were closed on load, because wirewolf was off
+    /// too long to say they continued.
+    pub interrupted: Vec<Incident>,
 }
+
+/// How long wirewolf can be off with an incident open and still pick it up again on restart.
+/// An upgrade or a crash restarts within this; anything longer is a gap nobody watched.
+pub const RESUME_WITHIN: SignedDuration = SignedDuration::from_mins(10);
 
 impl Store {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
@@ -67,9 +77,20 @@ impl Store {
                  at_ms INTEGER NOT NULL,
                  json TEXT NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS activity_at ON activity (at_ms);",
+             CREATE INDEX IF NOT EXISTS activity_at ON activity (at_ms);
+             CREATE TABLE IF NOT EXISTS settings (
+                 key TEXT PRIMARY KEY,
+                 value TEXT NOT NULL
+             );",
         )?;
         Ok(Self { conn })
+    }
+
+    /// This install's id, made up and saved the first time it's asked for.
+    pub fn instance(&self) -> rusqlite::Result<String> {
+        let id = format!("ww-{:08x}", fastrand::u32(..));
+        self.conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('instance', ?1)", [id])?;
+        self.conn.query_row("SELECT value FROM settings WHERE key = 'instance'", [], |r| r.get(0))
     }
 
     pub fn insert_sample(&self, s: &Sample) -> rusqlite::Result<()> {
@@ -112,9 +133,15 @@ impl Store {
     }
 
     /// Loads history for the hub: samples newer than `since`, and the latest speed runs and
-    /// incidents. All in time order. An incident left open by a previous run is closed at the
-    /// last sample time, since nothing was watching after that.
+    /// incidents. All in time order.
     pub fn load(&self, since: Timestamp, limit: usize) -> anyhow::Result<History> {
+        self.load_at(since, limit, Timestamp::now())
+    }
+
+    /// [`Store::load`] as of `now`. The newest incident, if a previous run left it open less than
+    /// [`RESUME_WITHIN`] before `now`, stays open so this run continues it. Any other incident
+    /// left open is closed at the last sample time, since nothing was watching after that.
+    pub fn load_at(&self, since: Timestamp, limit: usize, now: Timestamp) -> anyhow::Result<History> {
         let mut stmt = self.conn.prepare("SELECT at_ms, hop, status, rtt_ms, jitter_ms, loss_pct FROM samples WHERE at_ms >= ?1 ORDER BY at_ms, rowid")?;
         let samples = stmt
             .query_map([since.as_millisecond()], |row| {
@@ -136,16 +163,25 @@ impl Store {
         let speed = json_rows("speed_runs")?.iter().filter_map(|j| serde_json::from_str::<SpeedRun>(j).ok()).filter(|r| r.state != SpeedState::Running).collect();
         let last_seen: Option<i64> = self.conn.query_row("SELECT max(at_ms) FROM samples", [], |r| r.get(0))?;
         let mut incidents: Vec<Incident> = json_rows("incidents")?.iter().filter_map(|j| serde_json::from_str(j).ok()).collect();
-        for incident in incidents.iter_mut().filter(|i| i.ended.is_none()) {
-            let ended = last_seen.and_then(|ms| Timestamp::from_millisecond(ms).ok()).filter(|t| *t >= incident.started).unwrap_or(incident.started);
-            incident.ended = Some(ended);
+        let last_seen = last_seen.and_then(|ms| Timestamp::from_millisecond(ms).ok());
+        let newest = incidents.len().checked_sub(1);
+        let mut resumed = None;
+        let mut interrupted = Vec::new();
+        for (n, incident) in incidents.iter_mut().enumerate().filter(|(_, i)| i.ended.is_none()) {
+            let last = last_seen.filter(|t| *t >= incident.started).unwrap_or(incident.started);
+            if Some(n) == newest && now.duration_since(last) <= RESUME_WITHIN {
+                resumed = Some((incident.id.clone(), last));
+                continue;
+            }
+            incident.ended = Some(last);
             self.upsert_incident(incident)?;
+            interrupted.push(incident.clone());
         }
         let mut stmt = self.conn.prepare("SELECT json FROM (SELECT id, json FROM activity ORDER BY id DESC LIMIT ?1) ORDER BY id")?;
         let activity = stmt.query_map([limit as i64], |row| row.get::<_, String>(0))?.filter_map(|j| serde_json::from_str(&j.ok()?).ok()).collect();
         let first: Option<i64> = self.conn.query_row("SELECT min(at_ms) FROM samples", [], |r| r.get(0))?;
         let first_sample = first.and_then(|ms| Timestamp::from_millisecond(ms).ok());
-        Ok(History { first_sample, samples, speed, incidents, activity })
+        Ok(History { first_sample, samples, speed, incidents, activity, resumed, interrupted })
     }
 }
 
@@ -275,6 +311,30 @@ mod tests {
         assert_eq!((h.samples.len(), h.activity.len()), (1, 1));
     }
 
+    #[test]
+    fn a_short_restart_keeps_the_incident_open_and_a_long_one_closes_it() {
+        let store = Store::in_memory().unwrap();
+        let t0: Timestamp = "2026-10-23T10:00:00Z".parse().unwrap();
+        store.insert_sample(&Sample { at: t0 + 60.seconds(), hop: "gateway".into(), status: Status::Fail, rtt_ms: None, jitter_ms: None, loss_pct: None }).unwrap();
+        store.upsert_incident(&incident("inc-1", t0, None)).unwrap();
+        let h = store.load_at(t0 - 1.hour(), 10, t0 + 5.minutes()).unwrap();
+        assert_eq!(h.resumed, Some(("inc-1".into(), t0 + 60.seconds())));
+        assert_eq!(h.incidents[0].ended, None);
+        assert!(h.interrupted.is_empty());
+        let h = store.load_at(t0 - 1.hour(), 10, t0 + 2.hours()).unwrap();
+        assert_eq!(h.resumed, None);
+        assert_eq!(h.incidents[0].ended, Some(t0 + 60.seconds()));
+        assert_eq!(h.interrupted.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["inc-1"]);
+    }
+
+    #[test]
+    fn the_instance_id_is_made_once() {
+        let store = Store::in_memory().unwrap();
+        let id = store.instance().unwrap();
+        assert!(id.starts_with("ww-") && id.len() == 11, "{id}");
+        assert_eq!(store.instance().unwrap(), id);
+    }
+
     fn run(id: &str, started: Timestamp, state: SpeedState) -> SpeedRun {
         SpeedRun {
             id: id.into(),
@@ -337,9 +397,9 @@ mod tests {
         store.insert_sample(&Sample { at: t0 + (40 * 24).hours(), hop: "gateway".into(), status: Status::Pass, rtt_ms: Some(1.0), jitter_ms: None, loss_pct: None }).unwrap();
         let pruned = store.prune(t0 + (40 * 24).hours(), SignedDuration::from_hours(24 * 30)).unwrap();
         assert_eq!(pruned, 2, "the closed incident and the speed run");
-        let h = store.load(t0 - 1.hour(), 10).unwrap();
+        let h = store.load_at(t0 - 1.hour(), 10, t0 + (41 * 24).hours()).unwrap();
         assert_eq!(h.incidents.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["old-open"]);
-        // Loading closes it at the last sample, since nothing was watching in between.
+        // Loading a day later closes it at the last sample, since nothing was watching in between.
         assert_eq!(h.incidents[0].ended, Some(t0 + (40 * 24).hours()));
         assert_eq!(h.samples.len(), 1);
     }

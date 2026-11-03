@@ -77,8 +77,18 @@ pub fn attach_store(hub: &Hub, config: &Config) -> anyhow::Result<()> {
     );
     // Watching starts now if nothing older is stored.
     hub.update_meta(|m| m.monitoring_since = Some(history.first_sample.unwrap_or_else(Timestamp::now)));
+    let instance = store.instance()?;
+    hub.update_meta(|m| m.instance = Some(instance));
     hub.load_history(history.samples, history.speed, history.incidents);
     hub.load_activity(history.activity);
+    if let Some((id, last)) = history.resumed {
+        let gap = Timestamp::now().duration_since(last).as_secs().max(0);
+        let gap = if gap < 120 { format!("{gap} s") } else { format!("{} min", gap / 60) };
+        hub.record(ActivityKind::Incident, format!("Incident {id} continues after a restart; nothing was measured for {gap}"), Some(id), None);
+    }
+    if !history.interrupted.is_empty() {
+        tokio::spawn(notify::interrupted(hub.clone(), history.interrupted));
+    }
     let retention = SignedDuration::try_from(config.storage.retention.0)?;
     tokio::spawn(store::follow(hub.clone(), store, retention));
     Ok(())

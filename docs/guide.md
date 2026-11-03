@@ -349,8 +349,17 @@ min_severity = "degraded"              # or "down" for outages only
 resolved = true                        # also notify when an incident closes
 ```
 
-The webhook body is `{ event, text, content, host, incident }`, where `event` is `opened`, `worse`,
-`resolved`, or `test`. Slack reads `text` and Discord reads `content`, so their incoming-webhook URLs
+The webhook body is `{ event, text, content, host, instance, key, incident }`, where `event` is
+`opened`, `worse`, `resolved`, `stopped`, or `test`. `key` names the incident uniquely, for example
+`ww-7f3a9c2e/inc-4` (`instance` is a random id for this install), and stays the same for every
+message about one incident, so a receiver that dedupes can match a `resolved` to its `opened`.
+
+A restart of up to 10 minutes doesn't interrupt an incident: wirewolf picks it up again without
+announcing it twice, and the activity log notes the minutes nobody measured. After a longer stop
+the incident ends where measuring stopped, and you get a `stopped` message instead of a `resolved`,
+because nobody saw when it actually ended.
+
+Slack reads `text` and Discord reads `content`, so their incoming-webhook URLs
 work as they are; a Home Assistant webhook automation gets the whole body. **Send test** in
 Settings sends one with the saved settings, and Logs → Activity says whether it went through.
 

@@ -1,5 +1,6 @@
 //! Notifications: a message to ntfy and/or a webhook when an incident opens, gets worse, or
-//! closes (`[notify]` in the config). The settings are re-read for every message, so edits in
+//! closes (`[notify]` in the config). An incident that a short restart interrupts continues,
+//! so it isn't announced twice; one that a long stop cut short gets a "stopped" message. The settings are re-read for every message, so edits in
 //! Settings apply without a restart.
 //!
 //! The URLs and token are secrets the log filter may not know about (they can change after
@@ -21,6 +22,8 @@ enum Change {
     Opened,
     Worse,
     Resolved,
+    /// Closed at startup because wirewolf was off too long to say it continued.
+    Stopped,
 }
 
 /// A message, ready for any channel.
@@ -63,6 +66,16 @@ fn message(change: Change, i: &Incident, host: &str) -> Message {
             let took = if secs < 120 { format!("{secs} s") } else if secs < 7200 { format!("{} min", secs / 60) } else { format!("{} h {} min", secs / 3600, secs % 3600 / 60) };
             Message { event: "resolved", title: format!("Resolved: {}", i.headline), body: format!("Back to normal on {host} after {took}."), priority: 2, tag: "white_check_mark" }
         }
+        Change::Stopped => {
+            let last = i.ended.unwrap_or(i.started).strftime("%H:%M UTC");
+            Message {
+                event: "stopped",
+                title: format!("Stopped watching: {}", i.headline),
+                body: format!("wirewolf on {host} stopped at {last} while this was still happening, and was off too long to tell when it ended."),
+                priority: 2,
+                tag: "grey_question",
+            }
+        }
     }
 }
 
@@ -71,13 +84,13 @@ fn wanted(notify: &Notify, change: Change, i: &Incident) -> bool {
     let min = if notify.min_severity == "down" { Severity::Down } else { Severity::Degraded };
     match change {
         // Resolution follows the opening: only for incidents that were bad enough to announce.
-        Change::Resolved => notify.resolved && i.severity >= min,
+        Change::Resolved | Change::Stopped => notify.resolved && i.severity >= min,
         _ => i.severity >= min,
     }
 }
 
 /// Sends `m` to every configured channel, returning one error per channel that failed.
-async fn send(client: &reqwest::Client, notify: &Notify, m: &Message, incident: Option<&Incident>, host: &str) -> Vec<String> {
+async fn send(client: &reqwest::Client, notify: &Notify, m: &Message, incident: Option<&Incident>, host: &str, instance: Option<&str>) -> Vec<String> {
     let mut errors = Vec::new();
     let check = |name: &str, r: Result<reqwest::Response, reqwest::Error>| match r {
         Ok(res) if res.status().is_success() => None,
@@ -98,10 +111,16 @@ async fn send(client: &reqwest::Client, notify: &Notify, m: &Message, incident: 
     }
     if !notify.webhook.is_empty() {
         let text = format!("{}\n{}", m.title, m.body);
-        let body = json!({ "event": m.event, "text": text, "content": text, "host": host, "incident": incident });
+        let body = json!({ "event": m.event, "text": text, "content": text, "host": host, "instance": instance, "key": incident.map(|i| key(instance, &i.id)), "incident": incident });
         errors.extend(check("webhook", client.post(&notify.webhook).json(&body).send().await));
     }
     errors
+}
+
+/// A name for the incident that no other install uses, for receivers that dedupe: the same
+/// for every message about one incident, restarts included.
+fn key(instance: Option<&str>, id: &str) -> String {
+    instance.map_or_else(|| id.to_string(), |i| format!("{i}/{id}"))
 }
 
 fn client() -> reqwest::Client {
@@ -121,8 +140,9 @@ fn channels(n: &Notify) -> Vec<&'static str> {
 pub async fn run(hub: Hub) {
     let client = client();
     let mut events = hub.subscribe();
-    // The worst severity announced per open incident, to tell "opened" from "got worse".
-    let mut seen: HashMap<String, Severity> = HashMap::new();
+    // The worst severity announced per open incident, to tell "opened" from "got worse". An
+    // incident still open at startup continues from the previous run, which announced it.
+    let mut seen: HashMap<String, Severity> = hub.incidents().into_iter().filter(|i| i.ended.is_none()).map(|i| (i.id, i.severity)).collect();
     loop {
         let incident = match events.recv().await {
             Ok(Event::Incident(i)) => i,
@@ -146,14 +166,30 @@ pub async fn run(hub: Hub) {
         if channels(&notify).is_empty() || !wanted(&notify, change, &incident) {
             continue;
         }
-        let host = hub.meta().host;
-        let m = message(change, &incident, &host);
-        let errors = send(&client, &notify, &m, Some(&incident), &host).await;
-        for e in &errors {
-            tracing::warn!("couldn't send the {} notification for {}: {e}", m.event, incident.id);
-        }
-        if errors.is_empty() {
-            tracing::info!("notified {} ({}) about {}", channels(&notify).join(" and "), m.event, incident.id);
+        deliver(&client, &hub, &notify, change, &incident).await;
+    }
+}
+
+async fn deliver(client: &reqwest::Client, hub: &Hub, notify: &Notify, change: Change, incident: &Incident) {
+    let meta = hub.meta();
+    let m = message(change, incident, &meta.host);
+    let errors = send(client, notify, &m, Some(incident), &meta.host, meta.instance.as_deref()).await;
+    for e in &errors {
+        tracing::warn!("couldn't send the {} notification for {}: {e}", m.event, incident.id);
+    }
+    if errors.is_empty() {
+        tracing::info!("notified {} ({}) about {}", channels(notify).join(" and "), m.event, incident.id);
+    }
+}
+
+/// Tells the channels about incidents a previous run left open that were closed at startup,
+/// so a receiver waiting for "resolved" isn't left hanging.
+pub async fn interrupted(hub: Hub, incidents: Vec<Incident>) {
+    let client = client();
+    for incident in incidents {
+        let Some(notify) = hub.config().map(|v| v.config.notify) else { return };
+        if !channels(&notify).is_empty() && wanted(&notify, Change::Stopped, &incident) {
+            deliver(&client, &hub, &notify, Change::Stopped, &incident).await;
         }
     }
 }
@@ -173,7 +209,7 @@ pub async fn test(hub: Hub, actor: Option<String>) {
             priority: 3,
             tag: "wolf",
         };
-        let errors = send(&client(), &notify, &m, None, &host).await;
+        let errors = send(&client(), &notify, &m, None, &host, hub.meta().instance.as_deref()).await;
         if errors.is_empty() { format!("Test notification sent to {}", names.join(" and ")) } else { format!("Test notification failed: {}", errors.join("; ")) }
     };
     tracing::info!("{message}");
