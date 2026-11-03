@@ -198,6 +198,8 @@ export interface Meta {
   host: string
   scenarios: { id: string; name: string; description: string }[]
   scenario: string | null
+  /** A random id for this install (1.9). */
+  instance?: string | null
   /** The oldest measurement kept (API 1.7; missing from older servers). */
   monitoring_since?: string | null
 }

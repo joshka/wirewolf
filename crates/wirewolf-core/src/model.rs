@@ -8,7 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// The version of the API contract. Bump the minor for additive changes, the major for breaking.
-pub const API_VERSION: &str = "1.8";
+pub const API_VERSION: &str = "1.9";
 
 /// The outcome of a single check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -350,6 +350,11 @@ pub struct Meta {
     /// "not watching yet" (1.7). `null` from older servers.
     #[serde(default)]
     pub monitoring_since: Option<Timestamp>,
+    /// A random id for this install, kept in its database, so restarts and hostname changes
+    /// don't change it (1.9). Notifications use it to make incident ids unique across installs.
+    /// `null` from older servers and in demo mode.
+    #[serde(default)]
+    pub instance: Option<String>,
 }
 
 /// The effective configuration, from `GET /api/v1/config`.

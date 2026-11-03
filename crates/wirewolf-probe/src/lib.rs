@@ -37,6 +37,7 @@ pub fn meta() -> Meta {
         scenarios: vec![],
         scenario: None,
         monitoring_since: None,
+        instance: None,
     }
 }
 

@@ -510,6 +510,7 @@ mod tests {
             scenarios: vec![],
             scenario: None,
             monitoring_since: None,
+            instance: None,
         });
         hub.set_incident_policy(Incidents { open_after, close_after });
         hub

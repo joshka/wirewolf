@@ -67,6 +67,7 @@ pub fn meta(scenario: &str) -> Meta {
         scenario: Some(scenario.into()),
         // The demo backfills 24 hours of history.
         monitoring_since: Some(jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24)),
+        instance: None,
     }
 }
 
