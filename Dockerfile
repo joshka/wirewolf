@@ -24,7 +24,7 @@ RUN pnpm build
 
 # The Rust stage runs natively on the build machine and cross-compiles for the target, so an
 # amd64 image builds quickly (and reliably) on an arm64 Mac without emulating rustc.
-FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:48b7f435b8fc6378ce43b44f15e3a47fd8919b2825f835c39bd4bd3da50af5b8 AS build
+FROM --platform=$BUILDPLATFORM rust:1-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f71d878833fea AS build
 ARG TARGETARCH
 RUN case "$TARGETARCH" in \
       amd64) echo x86_64-unknown-linux-gnu > /rust-target; gcc=gcc-x86-64-linux-gnu ;; \
